@@ -1,0 +1,40 @@
+<Publish>
+  <ModId Value="135367" />
+	<DisplayName Value="Audio Switcher" />
+	<ShortDescription Value="Switch siren, vehicle engine, and ambient sounds with custom WAV/OGG files." />
+	<LongDescription>
+Audio Switcher lets you replace siren, vehicle engine, and ambient sounds with custom WAV/OGG files.
+
+Supports local audio and modules.
+
+Custom audio is tunable via SFX behavior with settings such as volume, pitch, spatial blend, doppler, spread, min/max distance, looping, and fades.
+
+Audio Switcher module packs are delivered as separate mods. Modules are auto-discovered and entries appear in the same dropdowns as local audio, labeled by module name, so you can mix and match local files and published audio packs in one setup.
+
+Great for emergency vehicle sound packs, custom engine libraries, and ambient city themes.
+
+Sirens can be blacket applied to replace an original siren or you can use specific vehicle prefab overrides.
+
+Ambient sounds and engines sounds apply to specific prefabs.
+	</LongDescription>
+	<Thumbnail Value="Images/Audio Switcher Logo.png" />
+	<Screenshot Value="Images/Screen_Siren.jpg" />
+	<Screenshot Value="Images/Screen_Engine.jpg" />
+	<Screenshot Value="Images/Screen_Ambient.jpg" />
+	<ChangeLog Value="Fixed bug with the siren overrides." />
+  <Tag Value="" />
+  <!--Link to the forum post where the mod can be discussed-->
+  <ForumLink Value="" />
+  <!--Version of the mod-->
+  <ModVersion Value="1.1" />
+  <!--Recommended version of the base game to use the mod-->
+  <GameVersion Value="1.5.4" />
+  <!--Dependency for the mod, can be set multiple times-->
+  <Dependency Id="" />
+  <!--Required DLC, can be set multiple times. Supported values are "Landmark Buildings", "San Fransisco Set", "Beach Properties", "Urban Promenades", "Modern Architecture"-->
+  <RequiredDLC Value="" />
+  <!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
+  <ExternalLink Type="Github" Url="" />
+  <!--Supported values Public, Private, Unlisted-->
+  <AccessLevel Value="Unlisted" />
+</Publish>
