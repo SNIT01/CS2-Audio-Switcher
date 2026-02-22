@@ -3,30 +3,39 @@
 	<DisplayName Value="Audio Switcher" />
 	<ShortDescription Value="Switch siren, vehicle engine, and ambient sounds with custom WAV/OGG files." />
 	<LongDescription>
-Audio Switcher lets you replace siren, vehicle engine, and ambient sounds with custom WAV/OGG files.
+    Audio Switcher lets you replace siren, vehicle engine, and ambient sounds with custom WAV/OGG files.
 
-Supports local audio and modules.
+    Supports local audio and modules.
 
-Custom audio is tunable via SFX behavior with settings such as volume, pitch, spatial blend, doppler, spread, min/max distance, looping, and fades.
+    Custom audio is tunable via SFX behavior with settings such as volume, pitch, spatial blend, doppler, spread, min/max distance, looping, and fades.
 
-Audio Switcher module packs are delivered as separate mods. Modules are auto-discovered and entries appear in the same dropdowns as local audio, labeled by module name, so you can mix and match local files and published audio packs in one setup.
+    Audio Switcher module packs are delivered as separate mods. Modules are auto-discovered and entries appear in the same dropdowns as local audio, labeled by module name, so you can mix and match local files and published audio packs in one setup.
 
-Great for emergency vehicle sound packs, custom engine libraries, and ambient city themes.
+    Great for emergency vehicle sound packs, custom engine libraries, and ambient city themes.
 
-Sirens can be blacket applied to replace an original siren or you can use specific vehicle prefab overrides.
+    Sirens can be blacket applied to replace an original siren or you can use specific vehicle prefab overrides.
 
-Ambient sounds and engines sounds apply to specific prefabs.
-	</LongDescription>
+    Ambient sounds and engines sounds apply to specific prefabs.
+
+    CHECK OUT:
+    - Improved Aircraft Sounds: https://mods.paradoxplaza.com/mods/135438/Windows
+    - How to create module: https://github.com/SNIT01/ImprovedAircraftSounds
+  </LongDescription>
 	<Thumbnail Value="Images/Audio Switcher Logo.png" />
 	<Screenshot Value="Images/Screen_Siren.jpg" />
+  <Screenshot Value="Images/Screen_Siren2.jpg" />
 	<Screenshot Value="Images/Screen_Engine.jpg" />
 	<Screenshot Value="Images/Screen_Ambient.jpg" />
-	<ChangeLog Value="Added github link, minor fixes." />
+  <Screenshot Value="Images/Screen_Prof.jpg" />
+  <Screenshot Value="Images/Screen_Dev.jpg" />
+  <Screenshot Value="Images/Screen_Dev2.jpg" />
+  <!--CHANGE LOG-->
+	<ChangeLog Value="Added better images." />
   <Tag Value="" />
   <!--Link to the forum post where the mod can be discussed-->
   <ForumLink Value="" />
   <!--Version of the mod-->
-  <ModVersion Value="1.2" />
+  <ModVersion Value="1.5" />
   <!--Recommended version of the base game to use the mod-->
   <GameVersion Value="1.5.4" />
   <!--Dependency for the mod, can be set multiple times-->
@@ -36,5 +45,5 @@ Ambient sounds and engines sounds apply to specific prefabs.
   <!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
   <ExternalLink Type="github" Url="https://github.com/SNIT01/CS2-Audio-Switcher" />
   <!--Supported values Public, Private, Unlisted-->
-  <AccessLevel Value="Unlisted" />
+  <AccessLevel Value="Public" />
 </Publish>
