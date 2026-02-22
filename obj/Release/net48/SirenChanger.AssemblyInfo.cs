@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("SirenChanger")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+dbe1bef0e03fb0155f2d5a788ecd53421ab75a25")]
 [assembly: System.Reflection.AssemblyProductAttribute("SirenChanger")]
 [assembly: System.Reflection.AssemblyTitleAttribute("SirenChanger")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

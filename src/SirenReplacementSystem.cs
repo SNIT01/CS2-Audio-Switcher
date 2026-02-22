@@ -792,14 +792,10 @@ public sealed partial class SirenReplacementSystem : GameSystemBase
 		ComponentBase? exact = prefab.GetComponentExactly(typeof(EffectSource));
 		if (exact is EffectSource exactEffectSource)
 		{
-			// Ensure this prefab-level EffectSource is the active editable override target.
-			prefab.ReplaceComponentWith(exactEffectSource, typeof(EffectSource));
 			return exactEffectSource;
 		}
 
-		EffectSource cloned = (EffectSource)prefab.AddComponentFrom(source);
-		prefab.ReplaceComponentWith(cloned, typeof(EffectSource));
-		return cloned;
+		return (EffectSource)prefab.AddComponentFrom(source);
 	}
 
 	// Token-based candidate matching helper.

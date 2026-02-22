@@ -328,8 +328,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 	private bool EnsureVehicleOverrideSfx(VehicleEngineTargetDefinition vehicleTarget, out SFX sfx)
 	{
 		sfx = null!;
-		if (vehicleTarget.OriginalEffectPrefab == null ||
-			!vehicleTarget.TryGetEffectSettings(out EffectSource.EffectSettings effectSettings))
+		if (!TryGetWritableVehicleEffectSettings(vehicleTarget, out EffectSource.EffectSettings effectSettings))
 		{
 			return false;
 		}
@@ -362,6 +361,50 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		if (changed)
 		{
 			m_PrefabSystem.UpdatePrefab(vehicleTarget.VehiclePrefab);
+		}
+
+		return true;
+	}
+
+	// Resolve a writable EffectSettings entry, cloning inherited EffectSource only when an override is actually applied.
+	private bool TryGetWritableVehicleEffectSettings(
+		VehicleEngineTargetDefinition vehicleTarget,
+		out EffectSource.EffectSettings effectSettings)
+	{
+		effectSettings = null!;
+		if (vehicleTarget.OriginalEffectPrefab == null || vehicleTarget.EffectSource == null)
+		{
+			return false;
+		}
+
+		EffectSource uniqueEffectSource;
+		try
+		{
+			uniqueEffectSource = EnsureUniqueEffectSourceComponent(vehicleTarget.VehiclePrefab, vehicleTarget.EffectSource);
+		}
+		catch (Exception ex)
+		{
+			SirenChangerMod.Log.Warn(
+				$"Vehicle engine override skipped for '{vehicleTarget.VehiclePrefabName}' because EffectSource clone failed: {ex.Message}");
+			return false;
+		}
+
+		if (uniqueEffectSource.m_Effects == null ||
+			vehicleTarget.EffectIndex < 0 ||
+			vehicleTarget.EffectIndex >= uniqueEffectSource.m_Effects.Count)
+		{
+			SirenChangerMod.Log.Warn(
+				$"Vehicle engine override skipped for '{vehicleTarget.VehiclePrefabName}' because EffectSource index {vehicleTarget.EffectIndex} was unavailable.");
+			return false;
+		}
+
+		vehicleTarget.EffectSource = uniqueEffectSource;
+		effectSettings = uniqueEffectSource.m_Effects[vehicleTarget.EffectIndex];
+		if (effectSettings == null)
+		{
+			SirenChangerMod.Log.Warn(
+				$"Vehicle engine override skipped for '{vehicleTarget.VehiclePrefabName}' because EffectSettings at index {vehicleTarget.EffectIndex} was null.");
+			return false;
 		}
 
 		return true;
@@ -466,17 +509,11 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 			return;
 		}
 
-		EffectSource uniqueEffectSource = EnsureUniqueEffectSourceComponent(prefab, effectSource);
-		if (uniqueEffectSource.m_Effects == null)
-		{
-			return;
-		}
-
 		List<VehicleEngineTargetDefinition> fallbackTargets = new List<VehicleEngineTargetDefinition>();
 		List<VehicleEngineTargetDefinition> preferredTargets = new List<VehicleEngineTargetDefinition>();
-		for (int i = 0; i < uniqueEffectSource.m_Effects.Count; i++)
+		for (int i = 0; i < effectSource.m_Effects.Count; i++)
 		{
-			EffectSource.EffectSettings effect = uniqueEffectSource.m_Effects[i];
+			EffectSource.EffectSettings effect = effectSource.m_Effects[i];
 			if (effect == null || effect.m_Effect == null)
 			{
 				continue;
@@ -495,7 +532,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 				prefab,
 				prefabName,
 				effectPrefabName,
-				uniqueEffectSource,
+				effectSource,
 				i,
 				effect.m_Effect);
 			fallbackTargets.Add(target);
@@ -552,14 +589,10 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		ComponentBase? exact = prefab.GetComponentExactly(typeof(EffectSource));
 		if (exact is EffectSource exactEffectSource)
 		{
-			// Ensure this prefab-level EffectSource is the active editable override target.
-			prefab.ReplaceComponentWith(exactEffectSource, typeof(EffectSource));
 			return exactEffectSource;
 		}
 
-		EffectSource cloned = (EffectSource)prefab.AddComponentFrom(source);
-		prefab.ReplaceComponentWith(cloned, typeof(EffectSource));
-		return cloned;
+		return (EffectSource)prefab.AddComponentFrom(source);
 	}
 
 	private static bool IsLikelyVehiclePrefab(PrefabBase prefab, string prefabName)
@@ -773,7 +806,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 		public string EnginePrefabName { get; }
 
-		public EffectSource EffectSource { get; }
+		public EffectSource EffectSource { get; set; }
 
 		public int EffectIndex { get; }
 

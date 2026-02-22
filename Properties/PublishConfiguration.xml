@@ -21,12 +21,12 @@ Ambient sounds and engines sounds apply to specific prefabs.
 	<Screenshot Value="Images/Screen_Siren.jpg" />
 	<Screenshot Value="Images/Screen_Engine.jpg" />
 	<Screenshot Value="Images/Screen_Ambient.jpg" />
-	<ChangeLog Value="Fixed bug with the siren overrides." />
+	<ChangeLog Value="Added github link, minor fixes." />
   <Tag Value="" />
   <!--Link to the forum post where the mod can be discussed-->
   <ForumLink Value="" />
   <!--Version of the mod-->
-  <ModVersion Value="1.1" />
+  <ModVersion Value="1.2" />
   <!--Recommended version of the base game to use the mod-->
   <GameVersion Value="1.5.4" />
   <!--Dependency for the mod, can be set multiple times-->
@@ -34,7 +34,7 @@ Ambient sounds and engines sounds apply to specific prefabs.
   <!--Required DLC, can be set multiple times. Supported values are "Landmark Buildings", "San Fransisco Set", "Beach Properties", "Urban Promenades", "Modern Architecture"-->
   <RequiredDLC Value="" />
   <!--External link, can be set multiple times. supported types are "discord", "github", "youtube", "twitch", "x", "paypal", "patreon", "buymeacoffee", "kofi", "crowdin", "gitlab", "gofundme"-->
-  <ExternalLink Type="Github" Url="" />
+  <ExternalLink Type="github" Url="https://github.com/SNIT01/CS2-Audio-Switcher" />
   <!--Supported values Public, Private, Unlisted-->
   <AccessLevel Value="Unlisted" />
 </Publish>
