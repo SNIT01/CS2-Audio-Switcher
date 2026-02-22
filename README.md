@@ -7,6 +7,8 @@ Local audio replacement can be done from:
 - `Custom Engines` - For engine sounds.
 - `Custom Ambient` - For other ambient sounds.
 
+These are found in the directory where the mod is installed.
+
 ## Module Packs
 Audio Switcher supports module packs delivered as separate mods via PDX.
 
@@ -67,33 +69,4 @@ Notes:
 
 ## Creating and Uploading a Module to PDX Mods
 
-1. Generate your module content.
-   - Use the Developer tab module builder to export selected local audio into a standalone module folder.
-   - The export includes:
-     - `AudioSwitcherModule.json`
-     - `Audio/Sirens/...`
-     - `Audio/Engines/...`
-     - `Audio/Ambient/...`
-
-2. Wrap the module in a publishable CS2 mod project.
-   - Create a project from the CS2 template
-   - Copy your module files into that project.
-   - Ensure manifest/audio files are copied to output by adding:
-
-```xml
-<ItemGroup>
-  <Content Include="AudioSwitcherModule.json" CopyToOutputDirectory="PreserveNewest" />
-  <Content Include="Audio\**\*.*" CopyToOutputDirectory="PreserveNewest" />
-</ItemGroup>
-```
-
-3. Fill `Properties/PublishConfiguration.xml`.
-   - Set display name, descriptions, thumbnail, version, changelog, tags, and access level.
-   - For first publish, keep `ModId` empty.
-   - After first publish, keep the assigned `ModId` for future uploads.
-
-4. Publish.
-
-5. Validate after upload.
-   - Check your PDX Mods listing metadata and media.
-   - Subscribe and test in-game to confirm Audio Switcher discovers the module.
+See this repo: https://github.com/SNIT01/ImprovedAircraftSounds
