@@ -37,7 +37,7 @@
   <!--Version of the mod-->
   <ModVersion Value="1.5" />
   <!--Recommended version of the base game to use the mod-->
-  <GameVersion Value="1.5.4" />
+  <GameVersion Value="1.5.4f1" />
   <!--Dependency for the mod, can be set multiple times-->
   <Dependency Id="" />
   <!--Required DLC, can be set multiple times. Supported values are "Landmark Buildings", "San Fransisco Set", "Beach Properties", "Urban Promenades", "Modern Architecture"-->
