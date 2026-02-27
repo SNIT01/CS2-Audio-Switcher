@@ -14,6 +14,7 @@ namespace SirenChanger;
 // Runtime ECS system that applies configured custom engine audio selections.
 public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 {
+	// Prefab index and runtime caches used to restore defaults and apply overrides.
 	private PrefabSystem m_PrefabSystem = null!;
 
 	private EntityQuery m_PrefabQuery = default;
@@ -24,6 +25,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 	private readonly Dictionary<string, List<VehicleEngineTargetDefinition>> m_VehicleTargetsByPrefab = new Dictionary<string, List<VehicleEngineTargetDefinition>>(StringComparer.OrdinalIgnoreCase);
 
+	// Inclusive tokens used to detect likely engine-related effects.
 	private static readonly string[] s_EngineEffectTokens =
 	{
 		"engine",
@@ -72,6 +74,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 	protected override void OnUpdate()
 	{
+		// Rebuild runtime references after load transitions to avoid stale prefab pointers.
 		if (GameManager.instance.isGameLoading)
 		{
 			m_WasLoading = true;
@@ -101,6 +104,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 		WaveClipLoader.PollAsyncLoads();
 		int currentAudioLoadVersion = WaveClipLoader.AsyncCompletionVersion;
+		// Only re-apply when configuration changed or async clip loads completed.
 		if (m_LastAppliedConfigVersion == SirenChangerMod.ConfigVersion &&
 			m_LastAppliedAudioLoadVersion == currentAudioLoadVersion)
 		{
@@ -114,6 +118,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 	private void ResetSessionState()
 	{
+		// Fully unwind temporary overrides before rebuilding discovery caches.
 		RestoreAllVehicleEffectBindings(disposeOverrides: true);
 		m_TargetsBuilt = false;
 		SirenChangerMod.ResetDetectedAudioDomain(DeveloperAudioDomain.VehicleEngine);
@@ -126,6 +131,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 	private void BuildTargetCache()
 	{
+		// Discover global engine SFX sources plus per-vehicle effect binding targets.
 		RestoreAllVehicleEffectBindings(disposeOverrides: true);
 		m_EngineSfxByPrefab.Clear();
 		m_DefaultEngineSfxByPrefab.Clear();
@@ -197,6 +203,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		AudioReplacementDomainConfig config = SirenChangerMod.VehicleEngineConfig;
 		config.Normalize(SirenChangerMod.VehicleEngineCustomFolderName);
 
+		// Start from defaults every pass so settings changes are deterministic.
 		RestoreAllEngineTargetDefaults();
 		RestoreAllVehicleEffectBindings(disposeOverrides: false);
 
@@ -211,6 +218,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		int vehicleOverrideCount = 0;
 
 		string defaultSelection = config.DefaultSelection;
+		// Phase 1: global replacement applied to all discovered engine prefabs.
 		if (!AudioReplacementDomainConfig.IsDefaultSelection(defaultSelection))
 		{
 			List<string> enginePrefabs = new List<string>(m_EngineSfxByPrefab.Keys);
@@ -233,6 +241,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 		List<string> vehiclePrefabs = new List<string>(m_VehicleTargetsByPrefab.Keys);
 		vehiclePrefabs.Sort(StringComparer.OrdinalIgnoreCase);
+		// Phase 2: per-vehicle override rebinding (if any) takes precedence.
 		for (int i = 0; i < vehiclePrefabs.Count; i++)
 		{
 			string vehiclePrefab = vehiclePrefabs[i];
@@ -268,6 +277,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 	private void RestoreAllEngineTargetDefaults()
 	{
+		// Restore captured startup SFX state for globally detected engine prefabs.
 		foreach (KeyValuePair<string, SirenSfxSnapshot> pair in m_DefaultEngineSfxByPrefab)
 		{
 			if (m_EngineSfxByPrefab.TryGetValue(pair.Key, out SFX sfx) && sfx != null)
@@ -279,6 +289,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 	private bool ApplyResolvedSelectionToSfx(SFX sfx, string targetLabel, ResolvedSelection resolved)
 	{
+		// Default outcome intentionally leaves current SFX unchanged.
 		switch (resolved.Outcome)
 		{
 			case ResolvedSelectionOutcome.CustomClip:
@@ -295,6 +306,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 	private bool ApplyResolvedSelectionToVehicleOverride(VehicleEngineTargetDefinition vehicleTarget, ResolvedSelection resolved)
 	{
+		// Vehicle overrides are implemented by swapping the effect binding to a cloned EffectPrefab.
 		switch (resolved.Outcome)
 		{
 			case ResolvedSelectionOutcome.CustomClip:
@@ -336,6 +348,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		EffectPrefab? overrideEffect = vehicleTarget.OverrideEffectPrefab;
 		if (overrideEffect == null)
 		{
+			// Clone lazily so untouched vehicles keep shared vanilla effect assets.
 			string overrideName = BuildVehicleOverrideEffectName(vehicleTarget.VehiclePrefabName, vehicleTarget.EnginePrefabName);
 			overrideEffect = CloneEffectPrefab(vehicleTarget.OriginalEffectPrefab, overrideName);
 			if (overrideEffect == null)
@@ -360,9 +373,10 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		effectSettings.m_Effect = overrideEffect;
 		if (changed)
 		{
+			// Notify PrefabSystem so runtime instances pick up the modified binding.
 			m_PrefabSystem.UpdatePrefab(vehicleTarget.VehiclePrefab);
 		}
-
+		
 		return true;
 	}
 
@@ -431,6 +445,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		EffectPrefab? clonedEffect = cloned as EffectPrefab;
 		if (clonedEffect == null)
 		{
+			// Cleanup defensive path in case DuplicatePrefab returns an unexpected type.
 			if (cloned != null)
 			{
 				m_PrefabSystem.RemovePrefab(cloned);
@@ -454,6 +469,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 	private void RestoreAllVehicleEffectBindings(bool disposeOverrides)
 	{
+		// Return every vehicle effect binding to its original prefab; optionally destroy clones.
 		foreach (KeyValuePair<string, List<VehicleEngineTargetDefinition>> pair in m_VehicleTargetsByPrefab)
 		{
 			List<VehicleEngineTargetDefinition> targets = pair.Value;
@@ -498,6 +514,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 	private void TryRegisterVehicleTargets(PrefabBase prefab, string prefabName, ISet<string> discoveredVehiclePrefabs)
 	{
+		// Register engine-capable effect slots for one vehicle prefab.
 		if (string.IsNullOrWhiteSpace(prefabName) || !IsLikelyVehiclePrefab(prefab, prefabName))
 		{
 			return;
@@ -548,6 +565,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		}
 
 		List<VehicleEngineTargetDefinition> targets = preferredTargets.Count > 0
+			// If token heuristics fail, keep a deterministic first target fallback.
 			? preferredTargets
 			: new List<VehicleEngineTargetDefinition>(1) { fallbackTargets[0] };
 		m_VehicleTargetsByPrefab[prefabName] = targets;
@@ -556,6 +574,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 	private static bool IsLikelyVehicleEngineEffect(string effectPrefabName, string clipName)
 	{
+		// Exclude obvious non-engine effects first, then include if engine tokens are present.
 		if (ContainsAnyToken(effectPrefabName, s_NonEngineEffectTokens) ||
 			ContainsAnyToken(clipName, s_NonEngineEffectTokens))
 		{
@@ -586,6 +605,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 	private static EffectSource EnsureUniqueEffectSourceComponent(PrefabBase prefab, EffectSource source)
 	{
+		// If the EffectSource is inherited, clone it so per-vehicle edits do not leak to other prefabs.
 		ComponentBase? exact = prefab.GetComponentExactly(typeof(EffectSource));
 		if (exact is EffectSource exactEffectSource)
 		{
@@ -620,6 +640,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		Dictionary<string, SelectionLoadResult> selectionLoadCache,
 		string contextLabel)
 	{
+		// Resolve requested selection first, then fallback according to configured policy.
 		if (AudioReplacementDomainConfig.IsDefaultSelection(selectionKey))
 		{
 			return ResolvedSelection.Default();
@@ -653,6 +674,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		Dictionary<string, SelectionLoadResult> selectionLoadCache,
 		string contextLabel)
 	{
+		// Guard against invalid fallback loops before loading alternate audio.
 		string alternateSelection = config.AlternateFallbackSelection;
 		if (AudioReplacementDomainConfig.IsDefaultSelection(alternateSelection))
 		{
@@ -687,6 +709,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		Dictionary<string, SelectionLoadResult> selectionLoadCache,
 		out SelectionLoadResult result)
 	{
+		// Cache avoids repeated disk/decoder work for the same key in one pass.
 		string normalizedSelection = AudioReplacementDomainConfig.NormalizeProfileKey(selectionKey);
 		if (selectionLoadCache.TryGetValue(normalizedSelection, out result))
 		{
@@ -745,6 +768,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		CustomClip
 	}
 
+	// Lightweight tagged union describing what should be applied to a target.
 	private sealed class ResolvedSelection
 	{
 		public ResolvedSelectionOutcome Outcome { get; set; }
@@ -783,6 +807,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		}
 	}
 
+	// Memoized result for one selection key during the current apply cycle.
 	private sealed class SelectionLoadResult
 	{
 		public bool Success { get; set; }
@@ -798,6 +823,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		public string Error { get; set; } = string.Empty;
 	}
 
+	// Captures where a vehicle's engine effect binding lives and tracks any runtime clone.
 	private sealed class VehicleEngineTargetDefinition
 	{
 		public PrefabBase VehiclePrefab { get; }

@@ -298,16 +298,19 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDescription(overrideValue: "Shows the result of the last local-audio module build action.")]
 	public string DeveloperModuleBuildStatus => SirenChangerMod.GetDeveloperModuleStatusText();
 
+	// Warn when the siren domain has no detected runtime SFX entries yet.
 	public bool ShowDeveloperSirenWarning()
 	{
 		return !SirenChangerMod.HasDetectedDeveloperAudio(DeveloperAudioDomain.Siren);
 	}
 
+	// Warn when the vehicle-engine domain has no detected runtime SFX entries yet.
 	public bool ShowDeveloperEngineWarning()
 	{
 		return !SirenChangerMod.HasDetectedDeveloperAudio(DeveloperAudioDomain.VehicleEngine);
 	}
 
+	// Warn when the ambient domain has no detected runtime SFX entries yet.
 	public bool ShowDeveloperAmbientWarning()
 	{
 		return !SirenChangerMod.HasDetectedDeveloperAudio(DeveloperAudioDomain.Ambient);

@@ -10,6 +10,7 @@ using UnityEngine;
 
 namespace SirenChanger;
 
+// Supported developer-tool audio domains.
 internal enum DeveloperAudioDomain
 {
 	Siren,
@@ -600,6 +601,7 @@ public sealed partial class SirenChangerMod
 
 	private static string BuildDetectedDeveloperSfxParametersText(DetectedAudioEntry entry)
 	{
+		// Render a read-only snapshot of the selected detected runtime source.
 		StringBuilder builder = new StringBuilder(512);
 		builder.Append("Source Type: Detected Runtime");
 		builder.Append('\n').Append("Source Prefab: ").Append(entry.PrefabName);
@@ -622,6 +624,7 @@ public sealed partial class SirenChangerMod
 
 	private static bool TryGetDeveloperLocalSfxProfile(DeveloperAudioDomain domain, out string profileKey, out SirenSfxProfile profile)
 	{
+		// Resolve currently selected local profile, or first eligible one as fallback.
 		profileKey = string.Empty;
 		profile = null!;
 
@@ -663,6 +666,7 @@ public sealed partial class SirenChangerMod
 
 	private static string BuildLocalDeveloperSfxParametersText(DeveloperAudioDomain domain, string profileKey, SirenSfxProfile profile)
 	{
+		// Render a read-only snapshot for a local custom profile selection.
 		StringBuilder builder = new StringBuilder(512);
 		builder.Append("Source Type: Local Custom Profile");
 		builder.Append('\n').Append("Domain: ").Append(GetDeveloperDomainPluralLabel(domain));
@@ -680,6 +684,7 @@ public sealed partial class SirenChangerMod
 
 	private static void AppendSfxProfileParameterLines(StringBuilder builder, SirenSfxProfile profile)
 	{
+		// Normalize/clamp once before formatting to keep displayed values stable.
 		SirenSfxProfile safeProfile = (profile ?? SirenSfxProfile.CreateFallback()).ClampCopy();
 		builder.Append('\n').Append("Volume: ").Append(FormatFloat(safeProfile.Volume));
 		builder.Append('\n').Append("Pitch: ").Append(FormatFloat(safeProfile.Pitch));
@@ -1393,6 +1398,7 @@ public sealed partial class SirenChangerMod
 	}
 	private static bool ResetDetectedAudioDomainInternal(DeveloperAudioDomain domain)
 	{
+		// Clear one detected domain and reset UI-facing selection/status state.
 		Dictionary<string, DetectedAudioEntry> map = GetDetectedAudioMap(domain);
 		bool changed = map.Count > 0 || !string.IsNullOrWhiteSpace(GetDeveloperSelectionRef(domain));
 		map.Clear();
@@ -1413,6 +1419,7 @@ public sealed partial class SirenChangerMod
 
 	private static bool TryGetSelectedDeveloperEntry(DeveloperAudioDomain domain, out DetectedAudioEntry entry, out string error)
 	{
+		// Resolve selected entry; if invalid, pick the first sorted entry as fallback.
 		Dictionary<string, DetectedAudioEntry> map = GetDetectedAudioMap(domain);
 		if (map.Count == 0)
 		{
@@ -1442,6 +1449,7 @@ public sealed partial class SirenChangerMod
 		return entries;
 	}
 
+	// Domain-to-catalog map resolver for detected runtime entries.
 	private static Dictionary<string, DetectedAudioEntry> GetDetectedAudioMap(DeveloperAudioDomain domain)
 	{
 		switch (domain)
@@ -1457,6 +1465,7 @@ public sealed partial class SirenChangerMod
 
 	private static ref string GetDeveloperSelectionRef(DeveloperAudioDomain domain)
 	{
+		// Domain-to-selection backing field resolver.
 		switch (domain)
 		{
 			case DeveloperAudioDomain.Siren:
@@ -1470,6 +1479,7 @@ public sealed partial class SirenChangerMod
 
 	private static ref string GetDeveloperStatusRef(DeveloperAudioDomain domain)
 	{
+		// Domain-to-status backing field resolver.
 		switch (domain)
 		{
 			case DeveloperAudioDomain.Siren:
@@ -1484,6 +1494,7 @@ public sealed partial class SirenChangerMod
 	
 	private static string BuildDetectedCopySourceValue(string detectedKey)
 	{
+		// Format copy-source token persisted in settings dropdown values.
 		string normalized = SirenPathUtils.NormalizeProfileKey(detectedKey ?? string.Empty);
 		if (string.IsNullOrWhiteSpace(normalized))
 		{
@@ -1495,6 +1506,7 @@ public sealed partial class SirenChangerMod
 
 	private static bool TryParseDetectedCopySourceValue(string selection, out string detectedKey)
 	{
+		// Parse and validate detected copy-source token.
 		detectedKey = string.Empty;
 		if (string.IsNullOrWhiteSpace(selection))
 		{
@@ -1577,6 +1589,7 @@ public sealed partial class SirenChangerMod
 
 	private static void SetDeveloperStatus(DeveloperAudioDomain domain, string message, bool isWarning)
 	{
+		// Update domain status text, log channel, and force UI refresh.
 		ref string status = ref GetDeveloperStatusRef(domain);
 		status = string.IsNullOrWhiteSpace(message) ? "Action completed." : message.Trim();
 		if (isWarning)
@@ -1593,6 +1606,7 @@ public sealed partial class SirenChangerMod
 
 	private static string GetDeveloperExportDirectory(DeveloperAudioDomain domain, bool ensureExists)
 	{
+		// Domain-specific export path under the mod's settings directory.
 		string domainFolder;
 		switch (domain)
 		{
@@ -1618,6 +1632,7 @@ public sealed partial class SirenChangerMod
 
 	private static string BuildDeveloperExportBaseName(DetectedAudioEntry entry)
 	{
+		// Use prefab+clip names to generate a human-readable export filename stem.
 		string prefab = SanitizeExportFileNameSegment(entry.PrefabName);
 		string clip = SanitizeExportFileNameSegment(entry.ClipName);
 		if (string.Equals(prefab, clip, StringComparison.OrdinalIgnoreCase))
@@ -1630,6 +1645,7 @@ public sealed partial class SirenChangerMod
 
 	private static string SanitizeExportFileNameSegment(string value)
 	{
+		// Replace invalid filename chars so generated files are portable.
 		string source = string.IsNullOrWhiteSpace(value) ? "audio" : value.Trim();
 		char[] invalid = Path.GetInvalidFileNameChars();
 		StringBuilder builder = new StringBuilder(source.Length);
@@ -1652,6 +1668,7 @@ public sealed partial class SirenChangerMod
 
 	private static string BuildUniqueExportPath(string directory, string baseName, string extension)
 	{
+		// Primary timestamped name, then indexed fallback, then GUID as last resort.
 		string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
 		string candidate = Path.Combine(directory, $"{baseName}_{timestamp}{extension}");
 		if (!File.Exists(candidate))
@@ -1673,6 +1690,7 @@ public sealed partial class SirenChangerMod
 
 	private static bool TryEncodeAudioClipToWave(AudioClip clip, out byte[] waveBytes, out string error)
 	{
+		// Encode Unity float PCM samples to a 16-bit PCM WAV byte stream.
 		waveBytes = Array.Empty<byte>();
 		error = string.Empty;
 
@@ -1753,6 +1771,7 @@ public sealed partial class SirenChangerMod
 
 	
 	[DataContract]
+	// On-disk schema used for generated developer module manifests.
 	private sealed class DeveloperModuleManifest
 	{
 		[DataMember(Order = 1, Name = "schemaVersion")]
@@ -1775,6 +1794,7 @@ public sealed partial class SirenChangerMod
 	}
 
 	[DataContract]
+	// One generated module entry for a copied local audio file.
 	private sealed class DeveloperModuleManifestEntry
 	{
 		[DataMember(Order = 1, Name = "key")]
@@ -1789,6 +1809,8 @@ public sealed partial class SirenChangerMod
 		[DataMember(Order = 4, Name = "profile")]
 		public SirenSfxProfile Profile { get; set; } = SirenSfxProfile.CreateFallback();
 	}
+
+	// In-memory snapshot for one detected runtime audio source.
 	private sealed class DetectedAudioEntry
 	{
 		public DetectedAudioEntry(string key, string prefabName, string displayName, string clipName, AudioClip clip, SirenSfxProfile profile)

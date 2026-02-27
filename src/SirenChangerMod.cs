@@ -1005,6 +1005,7 @@ public sealed partial class SirenChangerMod : IMod
 
 	private static void AddOptionTabLocalization(IDictionary<string, string> entries, SirenChangerSettings settings, string tabName)
 	{
+		// Register tab display text under the options tab locale key.
 		if (string.IsNullOrWhiteSpace(tabName))
 		{
 			return;
@@ -1015,6 +1016,7 @@ public sealed partial class SirenChangerMod : IMod
 
 	private static void AddOptionGroupLocalization(IDictionary<string, string> entries, SirenChangerSettings settings, string groupName)
 	{
+		// Register group display text under the options group locale key.
 		if (string.IsNullOrWhiteSpace(groupName))
 		{
 			return;
@@ -1672,6 +1674,7 @@ public sealed partial class SirenChangerMod : IMod
 
 		public void Arm(AudioSource source, float timeoutSeconds)
 		{
+			// Use unscaled time so pauses/time-scale changes do not stall auto-stop behavior.
 			m_Source = source;
 			m_StopAtUnscaledTime = timeoutSeconds <= 0f
 				? -1f
@@ -1681,6 +1684,7 @@ public sealed partial class SirenChangerMod : IMod
 
 		private void Update()
 		{
+			// Stop playback once timeout is reached or source has naturally stopped.
 			if (m_Source == null)
 			{
 				enabled = false;

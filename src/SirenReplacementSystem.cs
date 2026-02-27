@@ -1058,6 +1058,7 @@ public sealed partial class SirenReplacementSystem : GameSystemBase
 
 		public bool TryGetEffectSettings(out EffectSource.EffectSettings effectSettings)
 		{
+			// Resolve effect slot currently pointed to by this target definition.
 			effectSettings = null!;
 			if (EffectSource == null || EffectSource.m_Effects == null)
 			{
@@ -1112,6 +1113,7 @@ public sealed partial class SirenReplacementSystem : GameSystemBase
 
 		public static ResolvedSelection Default()
 		{
+			// Keep the original siren clip/profile for this target.
 			return new ResolvedSelection
 			{
 				Outcome = ResolvedSelectionOutcome.Default
@@ -1120,6 +1122,7 @@ public sealed partial class SirenReplacementSystem : GameSystemBase
 
 		public static ResolvedSelection Mute()
 		{
+			// Force zero volume on the resolved target.
 			return new ResolvedSelection
 			{
 				Outcome = ResolvedSelectionOutcome.Mute
@@ -1128,6 +1131,7 @@ public sealed partial class SirenReplacementSystem : GameSystemBase
 
 		public static ResolvedSelection Custom(AudioClip clip, SirenSfxProfile profile, string replacementPath)
 		{
+			// Apply custom clip and profile parameters to the resolved target.
 			return new ResolvedSelection
 			{
 				Outcome = ResolvedSelectionOutcome.CustomClip,

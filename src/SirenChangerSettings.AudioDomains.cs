@@ -632,33 +632,39 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowAmbientCatalogWarning))]
 	public string AmbientCatalogScanStatus => SirenChangerMod.GetAmbientCatalogScanStatusText();
 
+	// Disable vehicle-target override controls until targets are discovered and selected.
 	public bool IsVehicleEngineOverrideDisabled()
 	{
 		return !SirenChangerMod.HasDiscoveredVehicleEnginePrefabs() ||
 			string.IsNullOrWhiteSpace(SirenChangerMod.VehicleEngineConfig.TargetSelectionTarget);
 	}
 
+	// Alternate fallback dropdown is only active when the corresponding policy is selected.
 	public bool IsVehicleEngineAlternateFallbackSelectionDisabled()
 	{
 		return SirenChangerMod.VehicleEngineConfig.MissingSelectionFallbackBehavior != SirenFallbackBehavior.AlternateCustomSiren;
 	}
 
+	// Disable ambient-target override controls until targets are discovered and selected.
 	public bool IsAmbientOverrideDisabled()
 	{
 		return !SirenChangerMod.HasDiscoveredAmbientTargets() ||
 			string.IsNullOrWhiteSpace(SirenChangerMod.AmbientConfig.TargetSelectionTarget);
 	}
 
+	// Alternate fallback dropdown is only active when the corresponding policy is selected.
 	public bool IsAmbientAlternateFallbackSelectionDisabled()
 	{
 		return SirenChangerMod.AmbientConfig.MissingSelectionFallbackBehavior != SirenFallbackBehavior.AlternateCustomSiren;
 	}
 
+	// Editable profile controls require a concrete custom profile selection.
 	public bool NoVehicleEngineEditableProfile()
 	{
 		return !TryGetVehicleEngineEditableProfile(out _);
 	}
 
+	// Copy is disabled when source/target are unavailable or identical.
 	public bool IsVehicleEngineCopyProfileDisabled()
 	{
 		if (!TryGetVehicleEngineEditableProfile(out _) || !TryGetVehicleEngineCopySourceProfile(out _))
@@ -677,6 +683,7 @@ public sealed partial class SirenChangerSettings
 		return !TryGetAmbientEditableProfile(out _);
 	}
 
+	// Copy is disabled when source/target are unavailable or identical.
 	public bool IsAmbientCopyProfileDisabled()
 	{
 		if (!TryGetAmbientEditableProfile(out _) || !TryGetAmbientCopySourceProfile(out _))
@@ -825,12 +832,14 @@ public sealed partial class SirenChangerSettings
 		return SirenChangerMod.BuildAmbientTargetDropdownItems();
 	}
 
+	// Reset all non-siren domain settings when options are reset to defaults.
 	private static void ResetExtendedDomainDefaults()
 	{
 		ResetVehicleEngineDefaults();
 		ResetAmbientDefaults();
 	}
 
+	// Restore engine-domain configuration and re-seed profile values from the detected template.
 	private static void ResetVehicleEngineDefaults()
 	{
 		AudioReplacementDomainConfig config = SirenChangerMod.VehicleEngineConfig;
@@ -867,6 +876,7 @@ public sealed partial class SirenChangerSettings
 		config.Normalize(SirenChangerMod.VehicleEngineCustomFolderName);
 	}
 
+	// Restore ambient-domain configuration and re-seed profile values from the detected template.
 	private static void ResetAmbientDefaults()
 	{
 		AudioReplacementDomainConfig config = SirenChangerMod.AmbientConfig;
@@ -903,6 +913,7 @@ public sealed partial class SirenChangerSettings
 		config.Normalize(SirenChangerMod.AmbientCustomFolderName);
 	}
 
+	// Normalize user dropdown value, mapping empty/default back to canonical token.
 	private static string NormalizeDomainSelection(string selection)
 	{
 		if (AudioReplacementDomainConfig.IsDefaultSelection(selection))
@@ -916,6 +927,7 @@ public sealed partial class SirenChangerSettings
 			: normalized;
 	}
 
+	// Resolve current editable engine profile or fallback to template when none is selected.
 	private static SirenSfxProfile GetVehicleEngineEditableProfile()
 	{
 		if (TryGetVehicleEngineEditableProfile(out SirenSfxProfile profile))
@@ -926,6 +938,7 @@ public sealed partial class SirenChangerSettings
 		return SirenChangerMod.VehicleEngineProfileTemplate;
 	}
 
+	// Try resolve current editable engine profile from custom profile map.
 	private static bool TryGetVehicleEngineEditableProfile(out SirenSfxProfile profile)
 	{
 		profile = null!;
@@ -938,6 +951,7 @@ public sealed partial class SirenChangerSettings
 		return SirenChangerMod.VehicleEngineConfig.TryGetProfile(key, out profile);
 	}
 
+	// Resolve copy-source profile for engine editor from default, detected, or custom entries.
 	private static bool TryGetVehicleEngineCopySourceProfile(out SirenSfxProfile profile)
 	{
 		profile = null!;
@@ -961,6 +975,7 @@ public sealed partial class SirenChangerSettings
 		return SirenChangerMod.VehicleEngineConfig.TryGetProfile(key, out profile);
 	}
 
+	// Apply an update action to the current editable engine profile.
 	private static void SetVehicleEngineProfileValue(Action<SirenSfxProfile> updater, bool clamp)
 	{
 		if (!TryGetVehicleEngineEditableProfile(out SirenSfxProfile profile))
@@ -975,6 +990,7 @@ public sealed partial class SirenChangerSettings
 		}
 	}
 
+	// Resolve current editable ambient profile or fallback to template when none is selected.
 	private static SirenSfxProfile GetAmbientEditableProfile()
 	{
 		if (TryGetAmbientEditableProfile(out SirenSfxProfile profile))
@@ -985,6 +1001,7 @@ public sealed partial class SirenChangerSettings
 		return SirenChangerMod.AmbientProfileTemplate;
 	}
 
+	// Try resolve current editable ambient profile from custom profile map.
 	private static bool TryGetAmbientEditableProfile(out SirenSfxProfile profile)
 	{
 		profile = null!;
@@ -997,6 +1014,7 @@ public sealed partial class SirenChangerSettings
 		return SirenChangerMod.AmbientConfig.TryGetProfile(key, out profile);
 	}
 
+	// Resolve copy-source profile for ambient editor from default, detected, or custom entries.
 	private static bool TryGetAmbientCopySourceProfile(out SirenSfxProfile profile)
 	{
 		profile = null!;
@@ -1020,6 +1038,7 @@ public sealed partial class SirenChangerSettings
 		return SirenChangerMod.AmbientConfig.TryGetProfile(key, out profile);
 	}
 
+	// Apply an update action to the current editable ambient profile.
 	private static void SetAmbientProfileValue(Action<SirenSfxProfile> updater, bool clamp)
 	{
 		if (!TryGetAmbientEditableProfile(out SirenSfxProfile profile))
@@ -1034,6 +1053,7 @@ public sealed partial class SirenChangerSettings
 		}
 	}
 
+	// Copy all editable SFX fields from source to target using clamped source values.
 	private static void CopyProfileValues(SirenSfxProfile target, SirenSfxProfile source)
 	{
 		SirenSfxProfile clone = source.ClampCopy();

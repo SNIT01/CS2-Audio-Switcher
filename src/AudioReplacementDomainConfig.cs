@@ -357,6 +357,7 @@ internal sealed class AudioReplacementDomainConfig
 
 	private static string NormalizeSelection(string selection)
 	{
+		// Canonicalize empty/alias values to the default selection token.
 		if (string.IsNullOrWhiteSpace(selection))
 		{
 			return SirenReplacementConfig.DefaultSelectionToken;
@@ -373,6 +374,7 @@ internal sealed class AudioReplacementDomainConfig
 
 	internal static bool IsDefaultSelection(string? selection)
 	{
+		// Empty strings and explicit default token both mean "use original audio".
 		string normalized = selection?.Trim() ?? string.Empty;
 		if (normalized.Length == 0)
 		{
@@ -394,6 +396,7 @@ internal sealed class AudioReplacementDomainConfig
 
 	private static Dictionary<string, SirenSfxProfile> NormalizeProfiles(Dictionary<string, SirenSfxProfile>? source)
 	{
+		// Deduplicate keys case-insensitively and store clamped profile copies.
 		Dictionary<string, SirenSfxProfile> result = new Dictionary<string, SirenSfxProfile>(StringComparer.OrdinalIgnoreCase);
 		if (source == null)
 		{
@@ -416,6 +419,7 @@ internal sealed class AudioReplacementDomainConfig
 
 	private static List<string> NormalizeTargetList(List<string>? source)
 	{
+		// Trim, dedupe, and sort for deterministic UI ordering.
 		List<string> result = new List<string>();
 		if (source == null)
 		{
@@ -440,6 +444,7 @@ internal sealed class AudioReplacementDomainConfig
 
 	private static List<string> NormalizeTextList(List<string>? source)
 	{
+		// Trim and dedupe while preserving insertion order.
 		List<string> result = new List<string>();
 		if (source == null)
 		{
@@ -494,6 +499,7 @@ internal sealed class AudioReplacementDomainConfig
 
 	private static bool DictionariesEqualIgnoreCase(Dictionary<string, string> left, Dictionary<string, string> right)
 	{
+		// Key lookup is case-insensitive by dictionary comparer; values remain ordinal.
 		if (ReferenceEquals(left, right))
 		{
 			return true;

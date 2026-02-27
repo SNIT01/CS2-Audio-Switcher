@@ -12,6 +12,7 @@ namespace SirenChanger;
 // Discovers optional Audio Switcher module packs and exposes their audio entries.
 internal static class AudioModuleCatalog
 {
+	// Prefix used to distinguish module-backed selections from local custom files.
 	internal const string ModuleSelectionPrefix = "__module__";
 
 	private const string kManifestFileName = "AudioSwitcherModule.json";
@@ -32,6 +33,7 @@ internal static class AudioModuleCatalog
 
 	internal static bool Refresh(ILog log, string currentModRootPath)
 	{
+		// Re-scan all candidate roots and replace in-memory catalogs only when content changed.
 		Dictionary<string, ModuleAudioEntry> nextSirens = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 		Dictionary<string, ModuleAudioEntry> nextVehicleEngines = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 		Dictionary<string, ModuleAudioEntry> nextAmbient = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
@@ -63,6 +65,7 @@ internal static class AudioModuleCatalog
 
 	internal static string[] GetProfileKeys(DeveloperAudioDomain domain)
 	{
+		// Stable ordering keeps dropdown values deterministic between scans.
 		Dictionary<string, ModuleAudioEntry> map = GetDomainMap(domain);
 		if (map.Count == 0)
 		{
@@ -76,6 +79,7 @@ internal static class AudioModuleCatalog
 
 	internal static bool TryGetFilePath(DeveloperAudioDomain domain, string profileKey, out string filePath)
 	{
+		// Resolve module path only when key exists and file is still present on disk.
 		filePath = string.Empty;
 		string normalized = SirenPathUtils.NormalizeProfileKey(profileKey ?? string.Empty);
 		if (string.IsNullOrWhiteSpace(normalized))
@@ -100,6 +104,7 @@ internal static class AudioModuleCatalog
 
 	internal static bool TryGetProfileTemplate(DeveloperAudioDomain domain, string profileKey, out SirenSfxProfile profile)
 	{
+		// Return a defensive clone so callers cannot mutate catalog state.
 		profile = null!;
 		string normalized = SirenPathUtils.NormalizeProfileKey(profileKey ?? string.Empty);
 		if (string.IsNullOrWhiteSpace(normalized))
@@ -149,6 +154,7 @@ internal static class AudioModuleCatalog
 
 	private static List<string> CollectCandidateRoots(string currentModRootPath)
 	{
+		// Merge roots from loaded mods and known directories, using priority for dedupe ordering.
 		Dictionary<string, int> roots = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 		string currentRoot = string.Empty;
 		if (!string.IsNullOrWhiteSpace(currentModRootPath))
@@ -193,6 +199,7 @@ internal static class AudioModuleCatalog
 
 	private static void AddKnownModRoots(IDictionary<string, int> roots, string currentModRootPath)
 	{
+		// Include managed and unmanaged workshop/cache locations used by the game launcher.
 		string userData = Environment.GetEnvironmentVariable("CSII_USERDATAPATH") ?? string.Empty;
 		string gameUserData = !string.IsNullOrWhiteSpace(userData)
 			? userData
@@ -276,6 +283,7 @@ internal static class AudioModuleCatalog
 		IDictionary<string, ModuleAudioEntry> ambient,
 		ILog log)
 	{
+		// Accept both current and legacy manifest file names for backward compatibility.
 		string manifestPath = ResolveManifestPath(rootPath);
 		if (string.IsNullOrWhiteSpace(manifestPath))
 		{
@@ -327,6 +335,7 @@ internal static class AudioModuleCatalog
 		IDictionary<string, ModuleAudioEntry> destination,
 		ILog log)
 	{
+		// Normalize and validate every entry before inserting into the domain map.
 		if (entries == null || entries.Count == 0)
 		{
 			return;
@@ -369,6 +378,7 @@ internal static class AudioModuleCatalog
 
 	private static string BuildProfileKey(DeveloperAudioDomain domain, string moduleId, string entryKey, string filePath)
 	{
+		// Keys are namespaced by module and domain to avoid collisions with local profiles.
 		string normalizedModuleId = SanitizeModuleSegment(moduleId);
 		if (string.IsNullOrWhiteSpace(normalizedModuleId))
 		{
@@ -410,6 +420,7 @@ internal static class AudioModuleCatalog
 
 	private static bool TryResolveModuleAudioPath(string rootPath, string relativePath, out string absolutePath)
 	{
+		// Normalize and enforce root containment to block path traversal in manifests.
 		absolutePath = string.Empty;
 		string normalizedRelative = SirenPathUtils.NormalizeProfileKey(relativePath ?? string.Empty);
 		if (string.IsNullOrWhiteSpace(normalizedRelative))
@@ -473,6 +484,7 @@ internal static class AudioModuleCatalog
 
 	private static string BuildModuleId(AudioModuleManifest manifest, string rootPath)
 	{
+		// Prefer explicit ID, then display name, then folder name as a final fallback.
 		string raw = manifest.ModuleId ?? string.Empty;
 		if (string.IsNullOrWhiteSpace(raw))
 		{
@@ -489,6 +501,7 @@ internal static class AudioModuleCatalog
 
 	private static string SanitizeModuleSegment(string value)
 	{
+		// Keep module identifier URL/path-safe and deterministic across platforms.
 		if (string.IsNullOrWhiteSpace(value))
 		{
 			return string.Empty;
@@ -576,6 +589,7 @@ internal static class AudioModuleCatalog
 		IDictionary<string, ModuleAudioEntry> left,
 		IDictionary<string, ModuleAudioEntry> right)
 	{
+		// Content comparison avoids unnecessary UI refreshes when only object references changed.
 		if (ReferenceEquals(left, right))
 		{
 			return true;
@@ -657,6 +671,7 @@ internal static class AudioModuleCatalog
 	}
 
 	[DataContract]
+	// On-disk schema for module manifests.
 	private sealed class AudioModuleManifest
 	{
 		[DataMember(Order = 1, Name = "schemaVersion")]
@@ -679,6 +694,7 @@ internal static class AudioModuleCatalog
 	}
 
 	[DataContract]
+	// One manifest entry mapping a key to an audio file and optional SFX template.
 	private sealed class AudioModuleManifestEntry
 	{
 		[DataMember(Order = 1, Name = "key")]
@@ -694,6 +710,7 @@ internal static class AudioModuleCatalog
 		public SirenSfxProfile? Profile { get; set; }
 	}
 
+	// Cached resolved module entry stored per domain.
 	private sealed class ModuleAudioEntry
 	{
 		public ModuleAudioEntry(

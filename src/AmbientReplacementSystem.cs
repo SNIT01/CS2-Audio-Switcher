@@ -15,6 +15,7 @@ namespace SirenChanger;
 // Runtime ECS system that applies configured custom ambient audio selections.
 public sealed partial class AmbientReplacementSystem : GameSystemBase
 {
+	// Prefab index and runtime lookup cache for ambient-capable SFX prefabs.
 	private PrefabSystem m_PrefabSystem = null!;
 
 	private EntityQuery m_PrefabQuery = default;
@@ -40,6 +41,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 
 	protected override void OnUpdate()
 	{
+		// Rebuild all runtime bindings after game loading completes.
 		if (GameManager.instance.isGameLoading)
 		{
 			m_WasLoading = true;
@@ -69,6 +71,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 
 		WaveClipLoader.PollAsyncLoads();
 		int currentAudioLoadVersion = WaveClipLoader.AsyncCompletionVersion;
+		// Re-apply only when config values changed or async clip loading finished.
 		if (m_LastAppliedConfigVersion == SirenChangerMod.ConfigVersion &&
 			m_LastAppliedAudioLoadVersion == currentAudioLoadVersion)
 		{
@@ -82,6 +85,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 
 	private void ResetSessionState()
 	{
+		// Keep prefab references valid across map/editor transitions.
 		m_TargetsBuilt = false;
 		SirenChangerMod.ResetDetectedAudioDomain(DeveloperAudioDomain.Ambient);
 		m_AmbientSfxByPrefab.Clear();
@@ -92,6 +96,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 
 	private void BuildTargetCache()
 	{
+		// Build one deterministic list of ambient targets and snapshots for default restore.
 		m_AmbientSfxByPrefab.Clear();
 		m_DefaultAmbientSfxByPrefab.Clear();
 		SirenChangerMod.BeginDetectedAudioCollection(DeveloperAudioDomain.Ambient);
@@ -158,6 +163,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 	}
 	private static bool IsAmbientTarget(string prefabName, SFX sfx)
 	{
+		// Prefer explicit mixer groups, then fallback to name-based heuristics.
 		if (sfx.m_MixerGroup == MixerGroup.Ambient ||
 			sfx.m_MixerGroup == MixerGroup.AudioGroups ||
 			sfx.m_MixerGroup == MixerGroup.Disasters)
@@ -185,6 +191,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 		AudioReplacementDomainConfig config = SirenChangerMod.AmbientConfig;
 		config.Normalize(SirenChangerMod.AmbientCustomFolderName);
 
+		// Always restore defaults first so toggles/fallbacks never stack stale overrides.
 		RestoreAllTargetDefaults();
 		if (!config.Enabled)
 		{
@@ -224,6 +231,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 
 	private void RestoreAllTargetDefaults()
 	{
+		// Restore captured startup SFX state for every detected ambient target.
 		foreach (KeyValuePair<string, SirenSfxSnapshot> pair in m_DefaultAmbientSfxByPrefab)
 		{
 			if (m_AmbientSfxByPrefab.TryGetValue(pair.Key, out SFX sfx) && sfx != null)
@@ -235,6 +243,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 
 	private static bool ApplyResolvedSelectionToSfx(SFX sfx, ResolvedSelection resolved)
 	{
+		// Default means "leave original snapshot as-is"; non-default mutates live SFX.
 		switch (resolved.Outcome)
 		{
 			case ResolvedSelectionOutcome.CustomClip:
@@ -255,6 +264,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 		Dictionary<string, SelectionLoadResult> selectionLoadCache,
 		string contextLabel)
 	{
+		// Resolve requested selection first, then fallback according to user policy.
 		if (AudioReplacementDomainConfig.IsDefaultSelection(selectionKey))
 		{
 			return ResolvedSelection.Default();
@@ -288,6 +298,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 		Dictionary<string, SelectionLoadResult> selectionLoadCache,
 		string contextLabel)
 	{
+		// Guard against invalid fallback loops before attempting alternate load.
 		string alternateSelection = config.AlternateFallbackSelection;
 		if (AudioReplacementDomainConfig.IsDefaultSelection(alternateSelection))
 		{
@@ -322,6 +333,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 		Dictionary<string, SelectionLoadResult> selectionLoadCache,
 		out SelectionLoadResult result)
 	{
+		// Cache avoids repeatedly decoding the same custom file during one apply pass.
 		string normalizedSelection = AudioReplacementDomainConfig.NormalizeProfileKey(selectionKey);
 		if (selectionLoadCache.TryGetValue(normalizedSelection, out result))
 		{
@@ -380,6 +392,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 		CustomClip
 	}
 
+	// Lightweight tagged union for resolved target behavior.
 	private sealed class ResolvedSelection
 	{
 		public ResolvedSelectionOutcome Outcome { get; set; }
@@ -418,6 +431,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 		}
 	}
 
+	// Per-selection load result memoized during one apply pass.
 	private sealed class SelectionLoadResult
 	{
 		public bool Success { get; set; }
