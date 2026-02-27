@@ -21,8 +21,6 @@ internal enum DeveloperAudioDomain
 // Developer-tab catalog/state for detected runtime sounds and utility actions.
 public sealed partial class SirenChangerMod
 {
-	private const string kDeveloperExportsFolderName = "Exports";
-
 	private const string kDetectedCopySourcePrefix = "__detected_sfx__";
 
 	private const string kDeveloperModuleManifestFileName = "AudioSwitcherModule.json";
@@ -724,13 +722,6 @@ public sealed partial class SirenChangerMod
 		SetDeveloperStatus(domain, $"Previewing detected {GetDeveloperDomainSingularLabel(domain)} '{entry.DisplayName}'.", isWarning: false);
 	}
 
-	// Export selected detected entry for one domain as a WAV file.
-	internal static void ExportDeveloperSelection(DeveloperAudioDomain domain)
-	{
-		SetDeveloperStatus(domain, "Export from the Developer tab is currently disabled.", isWarning: true);
-	}
-
-	
 	// Build a standalone module from local custom audio files and profiles.
 	internal static void CreateDeveloperModuleFromLocalAudio()
 	{
@@ -1602,166 +1593,6 @@ public sealed partial class SirenChangerMod
 		}
 
 		OptionsVersion++;
-	}
-
-	private static string GetDeveloperExportDirectory(DeveloperAudioDomain domain, bool ensureExists)
-	{
-		// Domain-specific export path under the mod's settings directory.
-		string domainFolder;
-		switch (domain)
-		{
-			case DeveloperAudioDomain.Siren:
-				domainFolder = "Sirens";
-				break;
-			case DeveloperAudioDomain.VehicleEngine:
-				domainFolder = "Vehicle Engines";
-				break;
-			default:
-				domainFolder = "Ambient Sounds";
-				break;
-		}
-
-		string directory = Path.Combine(SettingsDirectory, kDeveloperExportsFolderName, domainFolder);
-		if (ensureExists)
-		{
-			Directory.CreateDirectory(directory);
-		}
-
-		return directory;
-	}
-
-	private static string BuildDeveloperExportBaseName(DetectedAudioEntry entry)
-	{
-		// Use prefab+clip names to generate a human-readable export filename stem.
-		string prefab = SanitizeExportFileNameSegment(entry.PrefabName);
-		string clip = SanitizeExportFileNameSegment(entry.ClipName);
-		if (string.Equals(prefab, clip, StringComparison.OrdinalIgnoreCase))
-		{
-			return prefab;
-		}
-
-		return $"{prefab}_{clip}";
-	}
-
-	private static string SanitizeExportFileNameSegment(string value)
-	{
-		// Replace invalid filename chars so generated files are portable.
-		string source = string.IsNullOrWhiteSpace(value) ? "audio" : value.Trim();
-		char[] invalid = Path.GetInvalidFileNameChars();
-		StringBuilder builder = new StringBuilder(source.Length);
-		for (int i = 0; i < source.Length; i++)
-		{
-			char c = source[i];
-			if (Array.IndexOf(invalid, c) >= 0 || c == '/' || c == '\\' || char.IsControl(c))
-			{
-				builder.Append('_');
-			}
-			else
-			{
-				builder.Append(c);
-			}
-		}
-
-		string sanitized = builder.ToString().Trim().Trim('.');
-		return string.IsNullOrWhiteSpace(sanitized) ? "audio" : sanitized;
-	}
-
-	private static string BuildUniqueExportPath(string directory, string baseName, string extension)
-	{
-		// Primary timestamped name, then indexed fallback, then GUID as last resort.
-		string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
-		string candidate = Path.Combine(directory, $"{baseName}_{timestamp}{extension}");
-		if (!File.Exists(candidate))
-		{
-			return candidate;
-		}
-
-		for (int i = 2; i < 1000; i++)
-		{
-			string indexed = Path.Combine(directory, $"{baseName}_{timestamp}_{i}{extension}");
-			if (!File.Exists(indexed))
-			{
-				return indexed;
-			}
-		}
-
-		return Path.Combine(directory, $"{baseName}_{Guid.NewGuid():N}{extension}");
-	}
-
-	private static bool TryEncodeAudioClipToWave(AudioClip clip, out byte[] waveBytes, out string error)
-	{
-		// Encode Unity float PCM samples to a 16-bit PCM WAV byte stream.
-		waveBytes = Array.Empty<byte>();
-		error = string.Empty;
-
-		if (clip == null)
-		{
-			error = "Audio clip is unavailable.";
-			return false;
-		}
-
-		int channels = clip.channels;
-		int sampleRate = clip.frequency;
-		int samplesPerChannel = clip.samples;
-		if (channels <= 0 || sampleRate <= 0 || samplesPerChannel <= 0)
-		{
-			error = "Audio clip has no readable PCM sample data.";
-			return false;
-		}
-
-		int sampleCount = samplesPerChannel * channels;
-		float[] samples = new float[sampleCount];
-		try
-		{
-			if (!clip.GetData(samples, 0))
-			{
-				error = "Unity could not read sample data from this clip.";
-				return false;
-			}
-		}
-		catch (Exception ex)
-		{
-			error = $"Unable to read clip samples: {ex.Message}";
-			return false;
-		}
-
-		byte[] pcmData = new byte[sampleCount * 2];
-		int writeIndex = 0;
-		for (int i = 0; i < samples.Length; i++)
-		{
-			float clamped = Mathf.Clamp(samples[i], -1f, 1f);
-			short pcmSample = (short)Mathf.RoundToInt(clamped * short.MaxValue);
-			pcmData[writeIndex++] = (byte)(pcmSample & 0xFF);
-			pcmData[writeIndex++] = (byte)((pcmSample >> 8) & 0xFF);
-		}
-
-		int byteRate = sampleRate * channels * 2;
-		short blockAlign = (short)(channels * 2);
-		int dataSize = pcmData.Length;
-		int riffChunkSize = 36 + dataSize;
-
-		using MemoryStream stream = new MemoryStream(44 + dataSize);
-		using (BinaryWriter writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true))
-		{
-			writer.Write(Encoding.ASCII.GetBytes("RIFF"));
-			writer.Write(riffChunkSize);
-			writer.Write(Encoding.ASCII.GetBytes("WAVE"));
-			writer.Write(Encoding.ASCII.GetBytes("fmt "));
-			writer.Write(16);
-			writer.Write((short)1);
-			writer.Write((short)channels);
-			writer.Write(sampleRate);
-			writer.Write(byteRate);
-			writer.Write(blockAlign);
-			writer.Write((short)16);
-			writer.Write(Encoding.ASCII.GetBytes("data"));
-			writer.Write(dataSize);
-			writer.Write(pcmData);
-			writer.Flush();
-		}
-
-		waveBytes = stream.ToArray();
-		return true;
 	}
 
 	private static string FormatFloat(float value)

@@ -73,12 +73,6 @@ internal static class WaveClipLoader
 
 	public static int AsyncCompletionVersion => s_AsyncCompletionVersion;
 
-	// Compatibility wrapper for existing call sites that only care about success/failure.
-	public static bool TryLoadAudio(string filePath, out AudioClip clip, out string error)
-	{
-		return LoadAudio(filePath, out clip, out error) == AudioLoadStatus.Success;
-	}
-
 	// Entry point: try cache first, then decode according to extension.
 	internal static AudioLoadStatus LoadAudio(string filePath, out AudioClip clip, out string error)
 	{

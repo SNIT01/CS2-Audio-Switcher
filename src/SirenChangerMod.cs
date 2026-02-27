@@ -1054,13 +1054,6 @@ public sealed partial class SirenChangerMod : IMod
 		}
 	}
 
-	// Invalidate dropdown caches and bump config/options versions when catalog changes.
-	private static void NotifyCatalogChanged()
-	{
-		ConfigVersion++;
-		NotifyOptionsCatalogChanged();
-	}
-
 	// Invalidate dropdown caches and bump options version when labels/catalog visibility changed.
 	private static void NotifyOptionsCatalogChanged()
 	{
