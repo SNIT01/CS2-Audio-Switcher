@@ -8,12 +8,14 @@ using UnityEngine.Scripting;
 
 namespace SirenChanger;
 
-[SettingsUITabOrder(kSirensTab, kVehiclesTab, kAmbientTab, kDeveloperTab)]
-[SettingsUIGroupOrder(kGeneralGroup, kVehicleGroup, kVehicleOverrideGroup, kFallbackGroup, kProfileGroup, kDiagnosticsGroup, kVehicleSetupGroup, kVehicleOverrideTargetGroup, kVehicleFallbackGroup, kVehicleProfileGroup, kVehicleDiagnosticsGroup, kAmbientSetupGroup, kAmbientTargetGroup, kAmbientFallbackGroup, kAmbientProfileGroup, kAmbientDiagnosticsGroup, kDeveloperSirenGroup, kDeveloperEngineGroup, kDeveloperAmbientGroup, kDeveloperModuleGroup)]
+[SettingsUITabOrder(kGeneralTab, kSirensTab, kVehiclesTab, kAmbientTab, kDeveloperTab)]
+[SettingsUIGroupOrder(kGeneralGroup, kCitySoundSetGroup, kVehicleGroup, kVehicleOverrideGroup, kFallbackGroup, kProfileGroup, kDiagnosticsGroup, kVehicleSetupGroup, kVehicleOverrideTargetGroup, kVehicleFallbackGroup, kVehicleProfileGroup, kAmbientSetupGroup, kAmbientTargetGroup, kAmbientFallbackGroup, kAmbientProfileGroup, kDeveloperSirenGroup, kDeveloperEngineGroup, kDeveloperAmbientGroup, kDeveloperModuleGroup)]
 [SettingsUIShowGroupName]
 // Options UI binding surface for all configurable siren changer behavior.
 public sealed partial class SirenChangerSettings : ModSetting
 {
+	public const string kGeneralTab = "General";
+
 	public const string kSirensTab = "Sirens";
 
 	public const string kVehiclesTab = "Vehicle Engines";
@@ -21,6 +23,8 @@ public sealed partial class SirenChangerSettings : ModSetting
 	public const string kAmbientTab = "Ambient Sounds";
 
 	public const string kGeneralGroup = "Siren Setup";
+
+	public const string kCitySoundSetGroup = "City Sound Sets";
 
 	public const string kVehicleGroup = "Siren Defaults";
 
@@ -33,6 +37,8 @@ public sealed partial class SirenChangerSettings : ModSetting
 	public const string kDiagnosticsGroup = "Siren Diagnostics";
 
 	private const string kSirenRescanButtonGroup = "Siren Scan Actions";
+
+	private const string kCitySoundSetButtonGroup = "City Sound Set Actions";
 
 	public SirenChangerSettings(IMod mod)
 		: base(mod)
@@ -75,6 +81,153 @@ public sealed partial class SirenChangerSettings : ModSetting
 	[SettingsUIDescription(overrideValue: "Shows the last emergency vehicle prefab scan time and summary.")]
 	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowEmergencyVehicleScanWarning))]
 	public string EmergencyVehiclePrefabScanStatus => SirenChangerMod.GetVehiclePrefabScanStatusText();
+
+	// City sound-set management controls shown on the General tab.
+	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUIDisplayName(overrideValue: "Auto Apply Sound Set Per City")]
+	[SettingsUIDescription(overrideValue: "Automatically switch to the mapped sound set when a city is loaded.")]
+	public bool AutoApplySoundSetPerCity
+	{
+		get => SirenChangerMod.GetAutoApplyCitySoundSets();
+		set => SirenChangerMod.SetAutoApplyCitySoundSets(value);
+	}
+
+	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetCitySoundSetOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Sound Set")]
+	[SettingsUIDescription(overrideValue: "Select the sound set to activate, edit, or bind to the current city.")]
+	public string SelectedCitySoundSet
+	{
+		get => SirenChangerMod.GetSelectedCitySoundSetForOptions();
+		set => SirenChangerMod.SetSelectedCitySoundSetForOptions(value);
+	}
+
+	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kCitySoundSetButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Activate Selected Set")]
+	[SettingsUIDescription(overrideValue: "Load the selected sound set now.")]
+	public bool ActivateSelectedCitySoundSet
+	{
+		set => SirenChangerMod.ActivateSelectedCitySoundSetFromOptions();
+	}
+
+	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kCitySoundSetButtonGroup)]
+	[SettingsUIConfirmation]
+	[SettingsUIDisplayName(overrideValue: "Update Selected Set")]
+	[SettingsUIDescription(overrideValue: "Save current settings into the selected sound set.")]
+	public bool UpdateSelectedCitySoundSet
+	{
+		set => SirenChangerMod.UpdateSelectedCitySoundSetFromOptions();
+	}
+
+	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUITextInput]
+	[SettingsUIDisplayName(overrideValue: "Set Name")]
+	[SettingsUIDescription(overrideValue: "Name used by Create New Set From Active and Rename Selected Set.")]
+	public string NewCitySoundSetName
+	{
+		get => SirenChangerMod.GetNewCitySoundSetNameForOptions();
+		set => SirenChangerMod.SetNewCitySoundSetNameForOptions(value);
+	}
+
+	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kCitySoundSetButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Create New Set From Active")]
+	[SettingsUIDescription(overrideValue: "Create a new sound set by cloning the current active set.")]
+	public bool CreateNewCitySoundSet
+	{
+		set => SirenChangerMod.CreateCitySoundSetFromOptions();
+	}
+
+	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsRenameCitySoundSetDisabled))]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kCitySoundSetButtonGroup)]
+	[SettingsUIConfirmation]
+	[SettingsUIDisplayName(overrideValue: "Rename Selected Set")]
+	[SettingsUIDescription(overrideValue: "Rename the selected sound set without changing its ID or bindings.")]
+	public bool RenameSelectedCitySoundSet
+	{
+		set => SirenChangerMod.RenameSelectedCitySoundSetFromOptions();
+	}
+
+	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kCitySoundSetButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Duplicate Selected Set")]
+	[SettingsUIDescription(overrideValue: "Create a copy of the selected sound set and its config files.")]
+	public bool DuplicateSelectedCitySoundSet
+	{
+		set => SirenChangerMod.DuplicateSelectedCitySoundSetFromOptions();
+	}
+
+	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeleteCitySoundSetDisabled))]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kCitySoundSetButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Delete Selected Set")]
+	[SettingsUIDescription(overrideValue: "Delete the selected sound set. City bindings are reassigned to Default.")]
+	public bool DeleteSelectedCitySoundSet
+	{
+		set => SirenChangerMod.DeleteSelectedCitySoundSetFromOptions();
+	}
+
+	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsBindCitySoundSetDisabled))]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kCitySoundSetButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Bind Current City To Selected Set")]
+	[SettingsUIDescription(overrideValue: "Map the currently loaded city to the selected sound set.")]
+	public bool BindCurrentCityToSelectedSet
+	{
+		set => SirenChangerMod.BindCurrentCityToSelectedSoundSetFromOptions();
+	}
+
+	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsClearCitySoundSetBindingDisabled))]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kCitySoundSetButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Clear Current City Binding")]
+	[SettingsUIDescription(overrideValue: "Remove any custom sound-set mapping for the currently loaded city.")]
+	public bool ClearCurrentCityBinding
+	{
+		set => SirenChangerMod.ClearCurrentCitySoundSetBindingFromOptions();
+	}
+
+	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetCitySoundSetBindingOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Saved City Binding")]
+	[SettingsUIDescription(overrideValue: "Select a saved city binding to inspect or remove.")]
+	public string SelectedCitySoundSetBinding
+	{
+		get => SirenChangerMod.GetSelectedCitySoundSetBindingGuidForOptions();
+		set => SirenChangerMod.SetSelectedCitySoundSetBindingGuidForOptions(value);
+	}
+
+	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsRemoveSelectedCityBindingDisabled))]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kCitySoundSetButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Remove Selected Saved Binding")]
+	[SettingsUIDescription(overrideValue: "Remove the selected saved city binding entry.")]
+	public bool RemoveSelectedCitySoundSetBinding
+	{
+		set => SirenChangerMod.RemoveSelectedCitySoundSetBindingFromOptions();
+	}
+
+	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowCitySoundSetWarning))]
+	[SettingsUIDisplayName(overrideValue: "City Sound Set Status")]
+	[SettingsUIDescription(overrideValue: "Shows active set, detected city identity, and binding status.")]
+	public string CitySoundSetStatus => SirenChangerMod.GetCitySoundSetStatusText();
 
 	// Per-vehicle, per-region siren selection dropdowns.
 	[SettingsUISection(kSirensTab, kVehicleGroup)]
@@ -552,6 +705,7 @@ public sealed partial class SirenChangerSettings : ModSetting
 
 	[SettingsUISection(kSirensTab, kDiagnosticsGroup)]
 	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Custom Siren File Scan Status")]
 	[SettingsUIDescription(overrideValue: "Shows the latest custom siren folder scan summary and changed files.")]
 	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowCustomSirenCatalogWarning))]
@@ -559,6 +713,7 @@ public sealed partial class SirenChangerSettings : ModSetting
 
 	[SettingsUISection(kSirensTab, kDiagnosticsGroup)]
 	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Validation Report")]
 	[SettingsUIDescription(overrideValue: "Shows the latest validation errors and warnings for your configuration.")]
 	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowValidationWarning))]
@@ -670,6 +825,42 @@ public sealed partial class SirenChangerSettings : ModSetting
 		return IsSpecificVehicleOverrideDisabled();
 	}
 
+	// Condition helper: prevent deleting the Default sound set.
+	public bool IsDeleteCitySoundSetDisabled()
+	{
+		return SirenChangerMod.IsSelectedCitySoundSetDefault();
+	}
+
+	// Condition helper: prevent renaming the Default sound set.
+	public bool IsRenameCitySoundSetDisabled()
+	{
+		return SirenChangerMod.IsSelectedCitySoundSetDefault();
+	}
+
+	// Condition helper: city binding actions require a loaded city identity.
+	public bool IsBindCitySoundSetDisabled()
+	{
+		return !SirenChangerMod.HasCurrentCityIdentity();
+	}
+
+	// Condition helper: clearing binding only applies when current city has one.
+	public bool IsClearCitySoundSetBindingDisabled()
+	{
+		return !SirenChangerMod.HasCurrentCitySoundSetBinding();
+	}
+
+	// Condition helper: remove-selected action needs a valid saved-binding selection.
+	public bool IsRemoveSelectedCityBindingDisabled()
+	{
+		return !SirenChangerMod.HasSelectedCitySoundSetBindingForOptions();
+	}
+
+	// Warning helper: show warning when auto-apply is on but no city is currently loaded.
+	public bool ShowCitySoundSetWarning()
+	{
+		return SirenChangerMod.GetAutoApplyCitySoundSets() && !SirenChangerMod.HasCurrentCityIdentity();
+	}
+
 	// Warning helper: indicate that no custom siren profiles are currently available.
 	public bool ShowCustomSirenCatalogWarning()
 	{
@@ -728,6 +919,20 @@ public sealed partial class SirenChangerSettings : ModSetting
 	public static DropdownItem<string>[] GetSpecificVehiclePrefabOptions()
 	{
 		return SirenChangerMod.BuildVehiclePrefabDropdownItems();
+	}
+
+	// Dropdown source for city sound-set selection.
+	[Preserve]
+	public static DropdownItem<string>[] GetCitySoundSetOptions()
+	{
+		return SirenChangerMod.BuildCitySoundSetDropdownItems();
+	}
+
+	// Dropdown source for saved city-binding management.
+	[Preserve]
+	public static DropdownItem<string>[] GetCitySoundSetBindingOptions()
+	{
+		return SirenChangerMod.BuildCitySoundSetBindingDropdownItems();
 	}
 
 	// Dropdown source for profile preview selectors (includes built-in Default sample).

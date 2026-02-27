@@ -122,15 +122,7 @@ public sealed partial class SirenChangerMod : IMod
 		}
 
 		SettingsDirectory = SirenPathUtils.GetSettingsDirectory(ensureExists: true);
-		Config = SirenReplacementConfig.LoadOrCreate(SettingsDirectory, Log);
-		VehicleEngineConfig = AudioReplacementDomainConfig.LoadOrCreate(
-			SirenPathUtils.GetSettingsFilePath(SettingsDirectory, VehicleEngineSettingsFileName),
-			VehicleEngineCustomFolderName,
-			Log);
-		AmbientConfig = AudioReplacementDomainConfig.LoadOrCreate(
-			SirenPathUtils.GetSettingsFilePath(SettingsDirectory, AmbientSettingsFileName),
-			AmbientCustomFolderName,
-			Log);
+		InitializeCitySoundProfiles();
 
 		LoadKnownVehiclePrefabsFromConfig();
 		LoadKnownVehicleEnginePrefabsFromConfig();
@@ -143,6 +135,7 @@ public sealed partial class SirenChangerMod : IMod
 		RegisterOptionsPanelLocalization(m_Settings);
 		m_Settings.RegisterInOptionsUI();
 
+		updateSystem.UpdateAfter<CitySoundProfileRuntimeSystem>(SystemUpdatePhase.GameSimulation);
 		updateSystem.UpdateAfter<SirenReplacementSystem>(SystemUpdatePhase.GameSimulation);
 		updateSystem.UpdateAfter<VehicleEngineReplacementSystem>(SystemUpdatePhase.GameSimulation);
 		updateSystem.UpdateAfter<AmbientReplacementSystem>(SystemUpdatePhase.GameSimulation);
@@ -909,14 +902,27 @@ public sealed partial class SirenChangerMod : IMod
 	// Persist all config files to disk.
 	internal static void SaveConfig()
 	{
-		string sirenSettingsPath = SirenPathUtils.GetSettingsFilePath(SettingsDirectory);
+		string activeSet = GetActiveSoundSetId();
+
+		string sirenSettingsPath = GetSoundSetSettingsPath(
+			activeSet,
+			SirenReplacementConfig.SettingsFileName,
+			ensureDirectoryExists: true);
 		SirenReplacementConfig.Save(sirenSettingsPath, Config, Log);
 
-		string engineSettingsPath = SirenPathUtils.GetSettingsFilePath(SettingsDirectory, VehicleEngineSettingsFileName);
+		string engineSettingsPath = GetSoundSetSettingsPath(
+			activeSet,
+			VehicleEngineSettingsFileName,
+			ensureDirectoryExists: true);
 		AudioReplacementDomainConfig.Save(engineSettingsPath, VehicleEngineConfig, Log);
 
-		string ambientSettingsPath = SirenPathUtils.GetSettingsFilePath(SettingsDirectory, AmbientSettingsFileName);
+		string ambientSettingsPath = GetSoundSetSettingsPath(
+			activeSet,
+			AmbientSettingsFileName,
+			ensureDirectoryExists: true);
 		AudioReplacementDomainConfig.Save(ambientSettingsPath, AmbientConfig, Log);
+
+		SaveCitySoundProfileRegistry();
 	}
 
 	// Register a localized title for the top-level options panel used by this mod.
@@ -967,12 +973,14 @@ public sealed partial class SirenChangerMod : IMod
 			[settings.GetSettingsLocaleID()] = kOptionsPanelDisplayName
 		};
 
+		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kGeneralTab);
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kSirensTab);
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kVehiclesTab);
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kAmbientTab);
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kDeveloperTab);
 
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kGeneralGroup);
+		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kCitySoundSetGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kVehicleGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kVehicleOverrideGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kFallbackGroup);
@@ -983,13 +991,11 @@ public sealed partial class SirenChangerMod : IMod
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kVehicleOverrideTargetGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kVehicleFallbackGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kVehicleProfileGroup);
-		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kVehicleDiagnosticsGroup);
 
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kAmbientSetupGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kAmbientTargetGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kAmbientFallbackGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kAmbientProfileGroup);
-		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kAmbientDiagnosticsGroup);
 
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kDeveloperSirenGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kDeveloperEngineGroup);
@@ -997,6 +1003,7 @@ public sealed partial class SirenChangerMod : IMod
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kDeveloperModuleGroup);
 
 		AddOptionGroupLocalization(entries, settings, "Siren Scan Actions");
+		AddOptionGroupLocalization(entries, settings, "City Sound Set Actions");
 		AddOptionGroupLocalization(entries, settings, "Engine Scan Actions");
 		AddOptionGroupLocalization(entries, settings, "Ambient Scan Actions");
 

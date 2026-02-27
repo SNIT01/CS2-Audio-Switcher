@@ -145,6 +145,12 @@ public sealed class SirenReplacementConfig
 	public static SirenReplacementConfig LoadOrCreate(string settingsDirectory, ILog log)
 	{
 		string settingsPath = SirenPathUtils.GetSettingsFilePath(settingsDirectory);
+		return LoadOrCreateFromPath(settingsPath, log);
+	}
+
+	// Load config from an explicit settings file path or create defaults if missing/invalid.
+	public static SirenReplacementConfig LoadOrCreateFromPath(string settingsPath, ILog log)
+	{
 		if (!File.Exists(settingsPath))
 		{
 			SirenReplacementConfig created = CreateDefault();

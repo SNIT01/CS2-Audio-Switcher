@@ -15,7 +15,6 @@ public sealed partial class SirenChangerSettings
 	public const string kVehicleOverrideTargetGroup = "Specific Vehicle Engine Overrides";
 	public const string kVehicleFallbackGroup = "Missing Engine Sound Behavior";
 	public const string kVehicleProfileGroup = "Engine Profile Editor";
-	public const string kVehicleDiagnosticsGroup = "Engine Diagnostics";
 
 	private const string kVehicleRescanButtonGroup = "Engine Scan Actions";
 
@@ -24,7 +23,6 @@ public sealed partial class SirenChangerSettings
 	public const string kAmbientTargetGroup = "Specific Ambient Target Overrides";
 	public const string kAmbientFallbackGroup = "Missing Ambient Sound Behavior";
 	public const string kAmbientProfileGroup = "Ambient Profile Editor";
-	public const string kAmbientDiagnosticsGroup = "Ambient Diagnostics";
 
 	private const string kAmbientRescanButtonGroup = "Ambient Scan Actions";
 
@@ -323,8 +321,9 @@ public sealed partial class SirenChangerSettings
 		get => GetVehicleEngineEditableProfile().FadeOutSeconds;
 		set => SetVehicleEngineProfileValue(profile => profile.FadeOutSeconds = value, clamp: true);
 	}
-	[SettingsUISection(kVehiclesTab, kVehicleDiagnosticsGroup)]
+	[SettingsUISection(kVehiclesTab, kVehicleSetupGroup)]
 	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Custom Engine File Scan Status")]
 	[SettingsUIDescription(overrideValue: "Shows the latest custom engine folder scan summary and changed files.")]
 	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowVehicleEngineCatalogWarning))]
@@ -625,8 +624,9 @@ public sealed partial class SirenChangerSettings
 		get => GetAmbientEditableProfile().FadeOutSeconds;
 		set => SetAmbientProfileValue(profile => profile.FadeOutSeconds = value, clamp: true);
 	}
-	[SettingsUISection(kAmbientTab, kAmbientDiagnosticsGroup)]
+	[SettingsUISection(kAmbientTab, kAmbientSetupGroup)]
 	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Custom Ambient File Scan Status")]
 	[SettingsUIDescription(overrideValue: "Shows the latest custom ambient folder scan summary and changed files.")]
 	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowAmbientCatalogWarning))]
