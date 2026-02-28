@@ -594,8 +594,7 @@ public sealed partial class SirenChangerMod
 					scannedPrefabCount = prefabEntities.Length;
 					for (int i = 0; i < prefabEntities.Length; i++)
 					{
-						PrefabBase prefab = prefabSystem.GetPrefab<PrefabBase>(prefabEntities[i]);
-						if (prefab == null)
+						if (!TryGetPrefabSafe(prefabSystem, prefabEntities[i], out PrefabBase prefab))
 						{
 							continue;
 						}
@@ -734,8 +733,7 @@ public sealed partial class SirenChangerMod
 					scannedPrefabCount = prefabEntities.Length;
 					for (int i = 0; i < prefabEntities.Length; i++)
 					{
-						PrefabBase prefab = prefabSystem.GetPrefab<PrefabBase>(prefabEntities[i]);
-						if (prefab == null)
+						if (!TryGetPrefabSafe(prefabSystem, prefabEntities[i], out PrefabBase prefab))
 						{
 							continue;
 						}

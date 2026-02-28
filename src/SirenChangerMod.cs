@@ -130,6 +130,7 @@ public sealed partial class SirenChangerMod : IMod
 		SyncCustomSirenCatalog(saveIfChanged: true);
 		SyncCustomVehicleEngineCatalog(saveIfChanged: true);
 		SyncCustomAmbientCatalog(saveIfChanged: true);
+		SyncCustomTransitAnnouncementCatalog(saveIfChanged: true);
 
 		m_Settings = new SirenChangerSettings(this);
 		RegisterOptionsPanelLocalization(m_Settings);
@@ -139,6 +140,7 @@ public sealed partial class SirenChangerMod : IMod
 		updateSystem.UpdateAfter<SirenReplacementSystem>(SystemUpdatePhase.GameSimulation);
 		updateSystem.UpdateAfter<VehicleEngineReplacementSystem>(SystemUpdatePhase.GameSimulation);
 		updateSystem.UpdateAfter<AmbientReplacementSystem>(SystemUpdatePhase.GameSimulation);
+		updateSystem.UpdateAfter<TransitAnnouncementSystem>(SystemUpdatePhase.GameSimulation);
 
 		Log.Info($"Loaded. Mod path: {ModRootPath}");
 	}
@@ -159,6 +161,7 @@ public sealed partial class SirenChangerMod : IMod
 		s_DefaultSirenPreviewClip = null;
 		s_DefaultVehicleEnginePreviewClip = null;
 		s_DefaultAmbientPreviewClip = null;
+		TransitAnnouncementAudioPlayer.Release();
 		WaveClipLoader.ReleaseLoadedClips();
 	}
 
@@ -367,6 +370,8 @@ public sealed partial class SirenChangerMod : IMod
 		Config.Normalize();
 		VehicleEngineConfig.Normalize(VehicleEngineCustomFolderName);
 		AmbientConfig.Normalize(AmbientCustomFolderName);
+		TransitAnnouncementConfig.Normalize(TransitAnnouncementCustomFolderName);
+		NormalizeTransitAnnouncementTargets();
 		if (saveToDisk)
 		{
 			SaveConfig();
@@ -747,7 +752,16 @@ public sealed partial class SirenChangerMod : IMod
 	internal static void RunValidationFromOptions()
 	{
 		Config.Normalize();
-		SirenValidationResult result = SirenConfigValidator.Validate(Config, SettingsDirectory);
+		VehicleEngineConfig.Normalize(VehicleEngineCustomFolderName);
+		AmbientConfig.Normalize(AmbientCustomFolderName);
+		TransitAnnouncementConfig.Normalize(TransitAnnouncementCustomFolderName);
+		NormalizeTransitAnnouncementTargets();
+		SirenValidationResult result = SirenConfigValidator.Validate(
+			Config,
+			VehicleEngineConfig,
+			AmbientConfig,
+			TransitAnnouncementConfig,
+			SettingsDirectory);
 		Config.LastValidationUtcTicks = DateTime.UtcNow.Ticks;
 		Config.LastValidationReport = result.ReportText;
 		SaveConfig();
@@ -922,6 +936,12 @@ public sealed partial class SirenChangerMod : IMod
 			ensureDirectoryExists: true);
 		AudioReplacementDomainConfig.Save(ambientSettingsPath, AmbientConfig, Log);
 
+		string transitAnnouncementSettingsPath = GetSoundSetSettingsPath(
+			activeSet,
+			TransitAnnouncementSettingsFileName,
+			ensureDirectoryExists: true);
+		AudioReplacementDomainConfig.Save(transitAnnouncementSettingsPath, TransitAnnouncementConfig, Log);
+
 		SaveCitySoundProfileRegistry();
 	}
 
@@ -974,6 +994,7 @@ public sealed partial class SirenChangerMod : IMod
 		};
 
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kGeneralTab);
+		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kPublicTransportTab);
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kSirensTab);
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kVehiclesTab);
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kAmbientTab);
@@ -981,6 +1002,7 @@ public sealed partial class SirenChangerMod : IMod
 
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kGeneralGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kCitySoundSetGroup);
+		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kTransitAnnouncementGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kVehicleGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kVehicleOverrideGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kFallbackGroup);
@@ -1004,8 +1026,14 @@ public sealed partial class SirenChangerMod : IMod
 
 		AddOptionGroupLocalization(entries, settings, "Siren Scan Actions");
 		AddOptionGroupLocalization(entries, settings, "City Sound Set Actions");
+		AddOptionGroupLocalization(entries, settings, "Transit Announcement Actions");
 		AddOptionGroupLocalization(entries, settings, "Engine Scan Actions");
 		AddOptionGroupLocalization(entries, settings, "Ambient Scan Actions");
+		AddOptionGroupLocalization(entries, settings, "Siren Include Actions");
+		AddOptionGroupLocalization(entries, settings, "Engine Include Actions");
+		AddOptionGroupLocalization(entries, settings, "Ambient Include Actions");
+		AddOptionGroupLocalization(entries, settings, "Transit Include Actions");
+		AddOptionGroupLocalization(entries, settings, "Module Selection Actions");
 
 		return entries;
 	}
@@ -1086,6 +1114,8 @@ public sealed partial class SirenChangerMod : IMod
 		s_VehicleEnginePrefabDropdown = Array.Empty<DropdownItem<string>>();
 		s_AmbientTargetDropdownCacheVersion = -1;
 		s_AmbientTargetDropdown = Array.Empty<DropdownItem<string>>();
+		s_TransitAnnouncementDropdownCacheVersion = -1;
+		s_TransitAnnouncementDropdownWithDefault = Array.Empty<DropdownItem<string>>();
 	}
 
 		// Update scan telemetry fields for one generic domain config.
@@ -1319,8 +1349,8 @@ public sealed partial class SirenChangerMod : IMod
 					scannedPrefabCount = prefabEntities.Length;
 					for (int i = 0; i < prefabEntities.Length; i++)
 					{
-						PrefabBase prefab = prefabSystem.GetPrefab<PrefabBase>(prefabEntities[i]);
-						if (prefab == null || !IsEmergencyVehiclePrefab(prefab))
+						if (!TryGetPrefabSafe(prefabSystem, prefabEntities[i], out PrefabBase prefab) ||
+							!IsEmergencyVehiclePrefab(prefab))
 						{
 							continue;
 						}
@@ -1341,6 +1371,21 @@ public sealed partial class SirenChangerMod : IMod
 		catch (Exception ex)
 		{
 			Log.Warn($"Emergency vehicle prefab scan skipped world '{world.Name}': {ex.Message}");
+			return false;
+		}
+	}
+
+	// Resolve PrefabData entity handles defensively; invalid indices can appear transiently during world churn.
+	private static bool TryGetPrefabSafe(PrefabSystem prefabSystem, Entity prefabEntity, out PrefabBase prefab)
+	{
+		prefab = null!;
+		try
+		{
+			prefab = prefabSystem.GetPrefab<PrefabBase>(prefabEntity);
+			return prefab != null;
+		}
+		catch (ArgumentOutOfRangeException)
+		{
 			return false;
 		}
 	}

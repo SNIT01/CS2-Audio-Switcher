@@ -25,11 +25,11 @@ internal static class AudioModuleCatalog
 
 	private static readonly Dictionary<string, ModuleAudioEntry> s_AmbientEntries = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 
+	private static readonly Dictionary<string, ModuleAudioEntry> s_TransitAnnouncementEntries = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
+
 	private static string[] s_ModuleRoots = Array.Empty<string>();
 
 	private const int kRootPriorityActiveLoadedMod = 0;
-
-	private const int kRootPriorityKnownLocation = 100;
 
 	internal static bool Refresh(ILog log, string currentModRootPath)
 	{
@@ -37,18 +37,20 @@ internal static class AudioModuleCatalog
 		Dictionary<string, ModuleAudioEntry> nextSirens = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 		Dictionary<string, ModuleAudioEntry> nextVehicleEngines = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 		Dictionary<string, ModuleAudioEntry> nextAmbient = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
+		Dictionary<string, ModuleAudioEntry> nextTransitAnnouncements = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 		List<string> rootList = CollectCandidateRoots(currentModRootPath);
 
 		for (int i = 0; i < rootList.Count; i++)
 		{
 			string rootPath = rootList[i];
-			TryLoadManifestFromRoot(rootPath, nextSirens, nextVehicleEngines, nextAmbient, log);
+			TryLoadManifestFromRoot(rootPath, nextSirens, nextVehicleEngines, nextAmbient, nextTransitAnnouncements, log);
 		}
 
 		bool changed =
 			!DictionaryContentEquals(s_SirenEntries, nextSirens) ||
 			!DictionaryContentEquals(s_VehicleEngineEntries, nextVehicleEngines) ||
 			!DictionaryContentEquals(s_AmbientEntries, nextAmbient) ||
+			!DictionaryContentEquals(s_TransitAnnouncementEntries, nextTransitAnnouncements) ||
 			!SequenceEqualsIgnoreCase(s_ModuleRoots, rootList);
 		if (!changed)
 		{
@@ -58,8 +60,9 @@ internal static class AudioModuleCatalog
 		ReplaceEntries(s_SirenEntries, nextSirens);
 		ReplaceEntries(s_VehicleEngineEntries, nextVehicleEngines);
 		ReplaceEntries(s_AmbientEntries, nextAmbient);
+		ReplaceEntries(s_TransitAnnouncementEntries, nextTransitAnnouncements);
 		s_ModuleRoots = rootList.ToArray();
-		log.Info($"Audio module scan complete. Roots: {s_ModuleRoots.Length}, Sirens: {s_SirenEntries.Count}, Engines: {s_VehicleEngineEntries.Count}, Ambient: {s_AmbientEntries.Count}");
+		log.Info($"Audio module scan complete. Roots: {s_ModuleRoots.Length}, Sirens: {s_SirenEntries.Count}, Engines: {s_VehicleEngineEntries.Count}, Ambient: {s_AmbientEntries.Count}, Transit: {s_TransitAnnouncementEntries.Count}");
 		return true;
 	}
 
@@ -154,7 +157,7 @@ internal static class AudioModuleCatalog
 
 	private static List<string> CollectCandidateRoots(string currentModRootPath)
 	{
-		// Merge roots from loaded mods and known directories, using priority for dedupe ordering.
+		// Discover module roots from mods that are active in the current playset/session only.
 		Dictionary<string, int> roots = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 		string currentRoot = string.Empty;
 		if (!string.IsNullOrWhiteSpace(currentModRootPath))
@@ -163,7 +166,6 @@ internal static class AudioModuleCatalog
 		}
 
 		AddActiveExecutableRoots(roots, currentRoot);
-		AddKnownModRoots(roots, currentRoot);
 		return roots
 			.OrderBy(static pair => pair.Value)
 			.ThenBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase)
@@ -179,9 +181,25 @@ internal static class AudioModuleCatalog
 			return;
 		}
 
+		HashSet<string> enabledModNames = BuildEnabledModNameSet(manager);
 		foreach (ModManager.ModInfo modInfo in manager)
 		{
 			if (modInfo?.asset == null)
+			{
+				continue;
+			}
+
+			// Guard against manager entries that are present but not active for this session.
+			if (!modInfo.isLoaded)
+			{
+				continue;
+			}
+
+			string modName = (modInfo.name ?? string.Empty).Trim();
+			string assemblyFullName = (modInfo.assemblyFullName ?? string.Empty).Trim();
+			if (enabledModNames.Count > 0 &&
+				!enabledModNames.Contains(modName) &&
+				!enabledModNames.Contains(assemblyFullName))
 			{
 				continue;
 			}
@@ -197,51 +215,30 @@ internal static class AudioModuleCatalog
 		}
 	}
 
-	private static void AddKnownModRoots(IDictionary<string, int> roots, string currentModRootPath)
+	// Query enabled-mod names from the currently selected playset.
+	private static HashSet<string> BuildEnabledModNameSet(ModManager manager)
 	{
-		// Include managed and unmanaged workshop/cache locations used by the game launcher.
-		string userData = Environment.GetEnvironmentVariable("CSII_USERDATAPATH") ?? string.Empty;
-		string gameUserData = !string.IsNullOrWhiteSpace(userData)
-			? userData
-			: Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Colossal Order", "Cities Skylines II");
-		if (string.IsNullOrWhiteSpace(gameUserData))
-		{
-			return;
-		}
-
-		string[] parentDirectories = new[]
-		{
-			Path.Combine(gameUserData, "Mods"),
-			Path.Combine(gameUserData, ".cache", "Mods", "mods_subscribed"),
-			Path.Combine(gameUserData, ".cache", "Mods", "mods_unmanaged"),
-			Path.Combine(gameUserData, ".cache", "Mods", "mods_workInProgress")
-		};
-
-		for (int i = 0; i < parentDirectories.Length; i++)
-		{
-			AddRootChildren(roots, parentDirectories[i], currentModRootPath, kRootPriorityKnownLocation);
-		}
-	}
-
-	private static void AddRootChildren(IDictionary<string, int> roots, string parentDirectory, string currentModRootPath, int priority)
-	{
-		if (string.IsNullOrWhiteSpace(parentDirectory) || !Directory.Exists(parentDirectory))
-		{
-			return;
-		}
-
+		HashSet<string> enabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		try
 		{
-			IEnumerable<string> directories = Directory.EnumerateDirectories(parentDirectory, "*", SearchOption.TopDirectoryOnly);
-			foreach (string directory in directories)
+			string[] names = manager.ListModsEnabled() ?? Array.Empty<string>();
+			for (int i = 0; i < names.Length; i++)
 			{
-				AddRoot(roots, directory, currentModRootPath, priority);
+				string normalized = (names[i] ?? string.Empty).Trim();
+				if (string.IsNullOrWhiteSpace(normalized))
+				{
+					continue;
+				}
+
+				enabled.Add(normalized);
 			}
 		}
 		catch
 		{
-			// Ignore inaccessible entries and continue with available candidates.
+			// If the enabled-mod list is unavailable, fall back to isLoaded filtering.
 		}
+
+		return enabled;
 	}
 
 	private static void AddRoot(IDictionary<string, int> roots, string? rootPath, string currentModRootPath, int priority)
@@ -281,6 +278,7 @@ internal static class AudioModuleCatalog
 		IDictionary<string, ModuleAudioEntry> sirens,
 		IDictionary<string, ModuleAudioEntry> vehicleEngines,
 		IDictionary<string, ModuleAudioEntry> ambient,
+		IDictionary<string, ModuleAudioEntry> transitAnnouncements,
 		ILog log)
 	{
 		// Accept both current and legacy manifest file names for backward compatibility.
@@ -320,10 +318,12 @@ internal static class AudioModuleCatalog
 		List<AudioModuleManifestEntry> sirenEntries = manifest.Sirens ?? new List<AudioModuleManifestEntry>();
 		List<AudioModuleManifestEntry> vehicleEngineEntries = manifest.VehicleEngines ?? new List<AudioModuleManifestEntry>();
 		List<AudioModuleManifestEntry> ambientEntries = manifest.Ambient ?? new List<AudioModuleManifestEntry>();
+		List<AudioModuleManifestEntry> transitAnnouncementEntries = manifest.TransitAnnouncements ?? new List<AudioModuleManifestEntry>();
 
 		RegisterEntries(rootPath, moduleId, moduleDisplayName, DeveloperAudioDomain.Siren, sirenEntries, sirens, log);
 		RegisterEntries(rootPath, moduleId, moduleDisplayName, DeveloperAudioDomain.VehicleEngine, vehicleEngineEntries, vehicleEngines, log);
 		RegisterEntries(rootPath, moduleId, moduleDisplayName, DeveloperAudioDomain.Ambient, ambientEntries, ambient, log);
+		RegisterEntries(rootPath, moduleId, moduleDisplayName, DeveloperAudioDomain.TransitAnnouncement, transitAnnouncementEntries, transitAnnouncements, log);
 	}
 
 	private static void RegisterEntries(
@@ -544,6 +544,8 @@ internal static class AudioModuleCatalog
 				return "vehicle-engines";
 			case DeveloperAudioDomain.Ambient:
 				return "ambient";
+			case DeveloperAudioDomain.TransitAnnouncement:
+				return "transit-announcements";
 			default:
 				return "unknown";
 		}
@@ -567,6 +569,11 @@ internal static class AudioModuleCatalog
 			return true;
 		}
 
+		if (s_TransitAnnouncementEntries.TryGetValue(normalizedKey, out entry))
+		{
+			return true;
+		}
+
 		return false;
 	}
 
@@ -580,6 +587,8 @@ internal static class AudioModuleCatalog
 				return s_VehicleEngineEntries;
 			case DeveloperAudioDomain.Ambient:
 				return s_AmbientEntries;
+			case DeveloperAudioDomain.TransitAnnouncement:
+				return s_TransitAnnouncementEntries;
 			default:
 				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown audio module domain.");
 		}
@@ -691,6 +700,9 @@ internal static class AudioModuleCatalog
 
 		[DataMember(Order = 6, Name = "ambient")]
 		public List<AudioModuleManifestEntry> Ambient { get; set; } = new List<AudioModuleManifestEntry>();
+
+		[DataMember(Order = 7, Name = "transitAnnouncements")]
+		public List<AudioModuleManifestEntry> TransitAnnouncements { get; set; } = new List<AudioModuleManifestEntry>();
 	}
 
 	[DataContract]

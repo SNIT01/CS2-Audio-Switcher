@@ -105,14 +105,15 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 		bool templateSet = false;
 		AudioClip? defaultPreviewClip = null;
 		HashSet<string> discoveredTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		int skippedInvalidPrefabEntities = 0;
 
 		using (NativeArray<Entity> prefabEntities = m_PrefabQuery.ToEntityArray(Allocator.Temp))
 		{
 			for (int i = 0; i < prefabEntities.Length; i++)
 			{
-				PrefabBase prefab = m_PrefabSystem.GetPrefab<PrefabBase>(prefabEntities[i]);
-				if (prefab == null)
+				if (!TryGetPrefab(prefabEntities[i], out PrefabBase prefab))
 				{
+					skippedInvalidPrefabEntities++;
 					continue;
 				}
 
@@ -142,6 +143,12 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 					templateSet = true;
 				}
 			}
+		}
+
+		if (skippedInvalidPrefabEntities > 0)
+		{
+			SirenChangerMod.Log.Warn(
+				$"Skipped {skippedInvalidPrefabEntities} prefab entities while building ambient cache because PrefabData was invalid.");
 		}
 
 		if (m_AmbientSfxByPrefab.Count == 0)
@@ -383,6 +390,21 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 		result.FilePath = filePath;
 		selectionLoadCache[normalizedSelection] = result;
 		return true;
+	}
+
+	// Guard against transient PrefabData entries whose prefab indices are invalid during world/prefab churn.
+	private bool TryGetPrefab(Entity prefabEntity, out PrefabBase prefab)
+	{
+		prefab = null!;
+		try
+		{
+			prefab = m_PrefabSystem.GetPrefab<PrefabBase>(prefabEntity);
+			return prefab != null;
+		}
+		catch (ArgumentOutOfRangeException)
+		{
+			return false;
+		}
 	}
 
 	private enum ResolvedSelectionOutcome

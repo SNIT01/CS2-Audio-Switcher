@@ -12,11 +12,14 @@ public sealed partial class SirenChangerMod
 	// Persistent city->sound-set registry and set metadata.
 	private static CitySoundProfileRegistry s_CitySoundProfileRegistry = CitySoundProfileRegistry.CreateDefault();
 
-	// Last detected loaded-city identity (GUID-only matching key).
+	// Last detected loaded-city identity (GUID is the primary binding key).
 	private static string s_CurrentCitySaveAssetGuid = string.Empty;
 
 	// Human-readable city label shown in status text and binding lists.
 	private static string s_CurrentCityDisplayName = string.Empty;
+
+	// Session GUID read from loaded save metadata, used only for safe binding migration.
+	private static string s_CurrentCitySessionGuid = string.Empty;
 
 	// Last city sound-set status message shown in options UI.
 	private static string s_CitySoundSetStatus = "No city sound-set decision has been made yet.";
@@ -135,7 +138,7 @@ public sealed partial class SirenChangerMod
 			: normalized;
 	}
 
-	// Load siren/engine/ambient configs for one set and update active-selection metadata.
+	// Load siren/engine/ambient/transit-announcement configs for one set and update active-selection metadata.
 	private static void LoadSoundSetConfig(string setId)
 	{
 		string normalizedSet = EnsureSoundSetExists(setId, setId);
@@ -163,9 +166,20 @@ public sealed partial class SirenChangerMod
 			AmbientCustomFolderName,
 			Log);
 
+		string transitAnnouncementSettingsPath = GetSoundSetSettingsPath(
+			normalizedSet,
+			TransitAnnouncementSettingsFileName,
+			ensureDirectoryExists: true);
+		TransitAnnouncementConfig = AudioReplacementDomainConfig.LoadOrCreate(
+			transitAnnouncementSettingsPath,
+			TransitAnnouncementCustomFolderName,
+			Log);
+
 		Config.Normalize();
 		VehicleEngineConfig.Normalize(VehicleEngineCustomFolderName);
 		AmbientConfig.Normalize(AmbientCustomFolderName);
+		TransitAnnouncementConfig.Normalize(TransitAnnouncementCustomFolderName);
+		NormalizeTransitAnnouncementTargets();
 
 		s_CitySoundProfileRegistry.ActiveSetId = normalizedSet;
 		s_CitySoundProfileRegistry.SelectedSetId = s_CitySoundProfileRegistry.ContainsSet(s_CitySoundProfileRegistry.SelectedSetId)
@@ -195,6 +209,7 @@ public sealed partial class SirenChangerMod
 		SyncCustomSirenCatalog(saveIfChanged: true);
 		SyncCustomVehicleEngineCatalog(saveIfChanged: true);
 		SyncCustomAmbientCatalog(saveIfChanged: true);
+		SyncCustomTransitAnnouncementCatalog(saveIfChanged: true);
 
 		ConfigVersion++;
 		NotifyOptionsCatalogChanged();
@@ -253,24 +268,143 @@ public sealed partial class SirenChangerMod
 		}
 
 		string targetSetId = s_CitySoundProfileRegistry.ResolveBoundSetId(s_CurrentCitySaveAssetGuid);
-		bool switched = ActivateSoundSetInternal(targetSetId, reason, forceReload: false);
+		bool hadDirectBinding = s_CitySoundProfileRegistry.HasBindingForCity(s_CurrentCitySaveAssetGuid);
+		bool migratedBinding = false;
+		if (!hadDirectBinding && TryAutoBindCurrentCityBySessionGuid(out string migratedSetId))
+		{
+			targetSetId = migratedSetId;
+			migratedBinding = true;
+		}
+
+		string applyReason = migratedBinding
+			? $"{reason}; session-guid binding migration"
+			: reason;
+		bool switched = ActivateSoundSetInternal(targetSetId, applyReason, forceReload: false);
 		if (!switched)
 		{
-			s_CitySoundSetStatus =
-				$"City {GetCurrentCityLabel()} uses sound set '{GetSoundSetDisplayName(targetSetId)}'.";
+			if (migratedBinding)
+			{
+				s_CitySoundSetStatus =
+					$"City {GetCurrentCityLabel()} binding migrated to this save GUID and uses sound set '{GetSoundSetDisplayName(targetSetId)}'.";
+			}
+			else
+			{
+				s_CitySoundSetStatus =
+					$"City {GetCurrentCityLabel()} uses sound set '{GetSoundSetDisplayName(targetSetId)}'.";
+			}
+
 			OptionsVersion++;
 		}
 	}
 
+	// Resolve one session GUID to exactly one bound set; ambiguous session matches are rejected.
+	private static bool TryGetUniqueSetForSessionGuid(string sessionGuid, out string setId, out int matchedBindingCount)
+	{
+		setId = CitySoundProfileRegistry.DefaultSetId;
+		matchedBindingCount = 0;
+		string normalizedSessionGuid = CitySoundProfileRegistry.NormalizeSessionGuid(sessionGuid);
+		if (string.IsNullOrWhiteSpace(normalizedSessionGuid))
+		{
+			return false;
+		}
+
+		HashSet<string> matchedSetIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		for (int i = 0; i < s_CitySoundProfileRegistry.Bindings.Count; i++)
+		{
+			CitySoundProfileBinding binding = s_CitySoundProfileRegistry.Bindings[i];
+			string bindingSessionGuid = CitySoundProfileRegistry.NormalizeSessionGuid(binding.SaveSessionGuid);
+			if (!string.Equals(bindingSessionGuid, normalizedSessionGuid, StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+
+			matchedBindingCount++;
+			matchedSetIds.Add(CitySoundProfileRegistry.NormalizeSetId(binding.SetId));
+		}
+
+		if (matchedSetIds.Count != 1)
+		{
+			return false;
+		}
+
+		setId = EnsureSoundSetExists(matchedSetIds.First(), matchedSetIds.First());
+		return true;
+	}
+
+	// Auto-create a GUID binding for the currently loaded save using existing session-guid metadata.
+	private static bool TryAutoBindCurrentCityBySessionGuid(out string migratedSetId)
+	{
+		migratedSetId = CitySoundProfileRegistry.DefaultSetId;
+		if (!HasCurrentCityIdentity() || string.IsNullOrWhiteSpace(s_CurrentCitySessionGuid))
+		{
+			return false;
+		}
+
+		if (!TryGetUniqueSetForSessionGuid(s_CurrentCitySessionGuid, out string resolvedSetId, out int matchCount))
+		{
+			if (matchCount > 1)
+			{
+				Log.Warn(
+					$"Session-guid migration skipped for city {GetCurrentCityLabel()} because session GUID '{s_CurrentCitySessionGuid}' maps to multiple sets.");
+			}
+
+			return false;
+		}
+
+		bool changed = s_CitySoundProfileRegistry.UpsertBinding(
+			s_CurrentCitySaveAssetGuid,
+			resolvedSetId,
+			s_CurrentCityDisplayName,
+			string.Empty,
+			s_CurrentCitySessionGuid);
+		if (!changed)
+		{
+			return false;
+		}
+
+		migratedSetId = resolvedSetId;
+		s_SelectedCityBindingGuidForOptions = s_CurrentCitySaveAssetGuid;
+		SaveCitySoundProfileRegistry();
+		NotifyOptionsCatalogChanged();
+		Log.Info(
+			$"Migrated city sound-set binding to save GUID {s_CurrentCitySaveAssetGuid} using session GUID {s_CurrentCitySessionGuid}.");
+		return true;
+	}
+
+	// Backfill metadata for existing bindings when display/session information changes.
+	private static void RefreshCurrentCityBindingMetadata()
+	{
+		if (!HasCurrentCityIdentity() || !s_CitySoundProfileRegistry.HasBindingForCity(s_CurrentCitySaveAssetGuid))
+		{
+			return;
+		}
+
+		string boundSet = s_CitySoundProfileRegistry.ResolveBoundSetId(s_CurrentCitySaveAssetGuid);
+		if (!s_CitySoundProfileRegistry.UpsertBinding(
+			s_CurrentCitySaveAssetGuid,
+			boundSet,
+			s_CurrentCityDisplayName,
+			string.Empty,
+			s_CurrentCitySessionGuid))
+		{
+			return;
+		}
+
+		SaveCitySoundProfileRegistry();
+		NotifyOptionsCatalogChanged();
+	}
+
 	// Receive city identity updates from runtime load detection and trigger auto-apply flow.
-	internal static void UpdateCurrentCityContext(string saveAssetGuid, string displayName)
+	internal static void UpdateCurrentCityContext(string saveAssetGuid, string displayName, string saveSessionGuid = "")
 	{
 		string normalizedGuid = CitySoundProfileRegistry.NormalizeGuidKey(saveAssetGuid);
 		string normalizedDisplayName = (displayName ?? string.Empty).Trim();
+		string normalizedSessionGuid = CitySoundProfileRegistry.NormalizeSessionGuid(saveSessionGuid);
 
 		bool changed =
 			!string.Equals(s_CurrentCitySaveAssetGuid, normalizedGuid, StringComparison.OrdinalIgnoreCase) ||
-			!string.Equals(s_CurrentCityDisplayName, normalizedDisplayName, StringComparison.Ordinal);
+			!string.Equals(s_CurrentCityDisplayName, normalizedDisplayName, StringComparison.Ordinal) ||
+			!string.Equals(s_CurrentCitySessionGuid, normalizedSessionGuid, StringComparison.OrdinalIgnoreCase);
 		if (!changed)
 		{
 			return;
@@ -278,6 +412,8 @@ public sealed partial class SirenChangerMod
 
 		s_CurrentCitySaveAssetGuid = normalizedGuid;
 		s_CurrentCityDisplayName = normalizedDisplayName;
+		s_CurrentCitySessionGuid = normalizedSessionGuid;
+		RefreshCurrentCityBindingMetadata();
 
 		if (s_CitySoundProfileRegistry.AutoApplyByCity)
 		{
@@ -775,7 +911,8 @@ public sealed partial class SirenChangerMod
 			s_CurrentCitySaveAssetGuid,
 			targetSet,
 			s_CurrentCityDisplayName,
-			string.Empty);
+			string.Empty,
+			s_CurrentCitySessionGuid);
 		s_SelectedCityBindingGuidForOptions = s_CurrentCitySaveAssetGuid;
 		SaveCitySoundProfileRegistry();
 		if (changed)
@@ -812,6 +949,7 @@ public sealed partial class SirenChangerMod
 		DuplicateSirenSettingsFile(normalizedSourceSet, normalizedTargetSet);
 		DuplicateDomainSettingsFile(normalizedSourceSet, normalizedTargetSet, VehicleEngineSettingsFileName, VehicleEngineCustomFolderName);
 		DuplicateDomainSettingsFile(normalizedSourceSet, normalizedTargetSet, AmbientSettingsFileName, AmbientCustomFolderName);
+		DuplicateDomainSettingsFile(normalizedSourceSet, normalizedTargetSet, TransitAnnouncementSettingsFileName, TransitAnnouncementCustomFolderName);
 	}
 
 	private static void DuplicateSirenSettingsFile(string sourceSetId, string targetSetId)
@@ -891,6 +1029,12 @@ public sealed partial class SirenChangerMod
 			AmbientSettingsFileName,
 			ensureDirectoryExists: true);
 		AudioReplacementDomainConfig.Save(ambientSettingsPath, AmbientConfig, Log);
+
+		string transitAnnouncementSettingsPath = GetSoundSetSettingsPath(
+			normalizedSet,
+			TransitAnnouncementSettingsFileName,
+			ensureDirectoryExists: true);
+		AudioReplacementDomainConfig.Save(transitAnnouncementSettingsPath, TransitAnnouncementConfig, Log);
 	}
 
 	// Expose currently active set ID for runtime systems that need set context.

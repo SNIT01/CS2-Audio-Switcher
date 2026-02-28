@@ -15,7 +15,8 @@ internal enum DeveloperAudioDomain
 {
 	Siren,
 	VehicleEngine,
-	Ambient
+	Ambient,
+	TransitAnnouncement
 }
 
 // Developer-tab catalog/state for detected runtime sounds and utility actions.
@@ -65,11 +66,15 @@ public sealed partial class SirenChangerMod
 
 	private static string s_DeveloperModuleSelectedLocalAmbientKey = string.Empty;
 
+	private static string s_DeveloperModuleSelectedLocalTransitAnnouncementKey = string.Empty;
+
 	private static readonly HashSet<string> s_DeveloperModuleIncludedSirens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 	private static readonly HashSet<string> s_DeveloperModuleIncludedEngines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 	private static readonly HashSet<string> s_DeveloperModuleIncludedAmbient = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+	private static readonly HashSet<string> s_DeveloperModuleIncludedTransitAnnouncements = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 	private static bool s_DeveloperModuleIncludeInitialized;
 
@@ -486,8 +491,9 @@ public sealed partial class SirenChangerMod
 		List<string> sirenKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.Siren);
 		List<string> engineKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.VehicleEngine);
 		List<string> ambientKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.Ambient);
+		List<string> transitAnnouncementKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.TransitAnnouncement);
 
-		int totalAvailable = sirenKeys.Count + engineKeys.Count + ambientKeys.Count;
+		int totalAvailable = sirenKeys.Count + engineKeys.Count + ambientKeys.Count + transitAnnouncementKeys.Count;
 		if (totalAvailable == 0)
 		{
 			SetDeveloperModuleStatus("No local audio files are currently available to include.", isWarning: true);
@@ -522,6 +528,15 @@ public sealed partial class SirenChangerMod
 			}
 		}
 
+		HashSet<string> transitIncluded = GetDeveloperModuleIncludedSet(DeveloperAudioDomain.TransitAnnouncement);
+		for (int i = 0; i < transitAnnouncementKeys.Count; i++)
+		{
+			if (transitIncluded.Add(transitAnnouncementKeys[i]))
+			{
+				added++;
+			}
+		}
+
 		SetDeveloperModuleStatus(
 			added > 0
 				? $"Included {added} local file(s). Total included: {GetTotalDeveloperModuleIncludedCount()}."
@@ -543,6 +558,7 @@ public sealed partial class SirenChangerMod
 		s_DeveloperModuleIncludedSirens.Clear();
 		s_DeveloperModuleIncludedEngines.Clear();
 		s_DeveloperModuleIncludedAmbient.Clear();
+		s_DeveloperModuleIncludedTransitAnnouncements.Clear();
 		SetDeveloperModuleStatus("Cleared all included local audio files.", isWarning: false);
 	}
 
@@ -553,8 +569,9 @@ public sealed partial class SirenChangerMod
 		List<string> sirenKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.Siren);
 		List<string> engineKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.VehicleEngine);
 		List<string> ambientKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.Ambient);
+		List<string> transitAnnouncementKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.TransitAnnouncement);
 
-		int totalAvailable = sirenKeys.Count + engineKeys.Count + ambientKeys.Count;
+		int totalAvailable = sirenKeys.Count + engineKeys.Count + ambientKeys.Count + transitAnnouncementKeys.Count;
 		if (totalAvailable == 0)
 		{
 			return "No local custom audio files are currently available.";
@@ -565,6 +582,7 @@ public sealed partial class SirenChangerMod
 		AppendDeveloperModuleInclusionSummary(builder, "Sirens", sirenKeys, s_DeveloperModuleIncludedSirens);
 		AppendDeveloperModuleInclusionSummary(builder, "Vehicle Engines", engineKeys, s_DeveloperModuleIncludedEngines);
 		AppendDeveloperModuleInclusionSummary(builder, "Ambient Sounds", ambientKeys, s_DeveloperModuleIncludedAmbient);
+		AppendDeveloperModuleInclusionSummary(builder, "Transit Announcements", transitAnnouncementKeys, s_DeveloperModuleIncludedTransitAnnouncements);
 		return builder.ToString();
 	}
 
@@ -786,7 +804,17 @@ public sealed partial class SirenChangerMod
 				ref skippedUnsupported,
 				ref skippedModuleSelections);
 
-			int totalExported = sirenEntries.Count + engineEntries.Count + ambientEntries.Count;
+			List<DeveloperModuleManifestEntry> transitAnnouncementEntries = ExportLocalProfilesToModule(
+				TransitAnnouncementConfig.CustomProfiles,
+				TransitAnnouncementConfig.CustomFolderName,
+				"Audio/TransitAnnouncements",
+				moduleRootPath,
+				s_DeveloperModuleIncludedTransitAnnouncements,
+				ref skippedMissing,
+				ref skippedUnsupported,
+				ref skippedModuleSelections);
+
+			int totalExported = sirenEntries.Count + engineEntries.Count + ambientEntries.Count + transitAnnouncementEntries.Count;
 			if (totalExported == 0)
 			{
 				TryDeleteDirectory(moduleRootPath);
@@ -803,21 +831,30 @@ public sealed partial class SirenChangerMod
 				DisplayName = displayName,
 				Sirens = sirenEntries,
 				VehicleEngines = engineEntries,
-				Ambient = ambientEntries
+				Ambient = ambientEntries,
+				TransitAnnouncements = transitAnnouncementEntries
 			};
 
 			string manifestPath = Path.Combine(moduleRootPath, kDeveloperModuleManifestFileName);
 			string manifestJson = JsonDataSerializer.Serialize(manifest);
 			File.WriteAllText(manifestPath, manifestJson, new UTF8Encoding(false));
-			WriteDeveloperModuleReadme(moduleRootPath, displayName, moduleId, sirenEntries.Count, engineEntries.Count, ambientEntries.Count);
+			WriteDeveloperModuleReadme(
+				moduleRootPath,
+				displayName,
+				moduleId,
+				sirenEntries.Count,
+				engineEntries.Count,
+				ambientEntries.Count,
+				transitAnnouncementEntries.Count);
 
 			SetDeveloperModuleStatus(
-				$"Created module '{displayName}' at '{moduleRootPath}'. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}. Skipped missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}.",
+				$"Created module '{displayName}' at '{moduleRootPath}'. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Transit: {transitAnnouncementEntries.Count}. Skipped missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}.",
 				isWarning: false);
 
 			SyncCustomSirenCatalog(saveIfChanged: true, forceStatusRefresh: true);
 			SyncCustomVehicleEngineCatalog(saveIfChanged: true, forceStatusRefresh: true);
 			SyncCustomAmbientCatalog(saveIfChanged: true, forceStatusRefresh: true);
+			SyncCustomTransitAnnouncementCatalog(saveIfChanged: true, forceStatusRefresh: true);
 		}
 		catch (Exception ex)
 		{
@@ -1068,11 +1105,13 @@ public sealed partial class SirenChangerMod
 		List<string> sirenKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.Siren);
 		List<string> engineKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.VehicleEngine);
 		List<string> ambientKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.Ambient);
+		List<string> transitAnnouncementKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.TransitAnnouncement);
 
 		bool changed = false;
 		changed |= SyncDeveloperModuleDomainState(DeveloperAudioDomain.Siren, sirenKeys);
 		changed |= SyncDeveloperModuleDomainState(DeveloperAudioDomain.VehicleEngine, engineKeys);
 		changed |= SyncDeveloperModuleDomainState(DeveloperAudioDomain.Ambient, ambientKeys);
+		changed |= SyncDeveloperModuleDomainState(DeveloperAudioDomain.TransitAnnouncement, transitAnnouncementKeys);
 
 		if (!s_DeveloperModuleIncludeInitialized)
 		{
@@ -1095,6 +1134,14 @@ public sealed partial class SirenChangerMod
 			for (int i = 0; i < ambientKeys.Count; i++)
 			{
 				if (s_DeveloperModuleIncludedAmbient.Add(ambientKeys[i]))
+				{
+					changed = true;
+				}
+			}
+
+			for (int i = 0; i < transitAnnouncementKeys.Count; i++)
+			{
+				if (s_DeveloperModuleIncludedTransitAnnouncements.Add(transitAnnouncementKeys[i]))
 				{
 					changed = true;
 				}
@@ -1195,8 +1242,12 @@ public sealed partial class SirenChangerMod
 				return Config.CustomSirenProfiles;
 			case DeveloperAudioDomain.VehicleEngine:
 				return VehicleEngineConfig.CustomProfiles;
-			default:
+			case DeveloperAudioDomain.Ambient:
 				return AmbientConfig.CustomProfiles;
+			case DeveloperAudioDomain.TransitAnnouncement:
+				return TransitAnnouncementConfig.CustomProfiles;
+			default:
+				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown local audio domain.");
 		}
 	}
 
@@ -1213,10 +1264,16 @@ public sealed partial class SirenChangerMod
 				return string.IsNullOrWhiteSpace(VehicleEngineConfig.CustomFolderName)
 					? VehicleEngineCustomFolderName
 					: VehicleEngineConfig.CustomFolderName;
-			default:
+			case DeveloperAudioDomain.Ambient:
 				return string.IsNullOrWhiteSpace(AmbientConfig.CustomFolderName)
 					? AmbientCustomFolderName
 					: AmbientConfig.CustomFolderName;
+			case DeveloperAudioDomain.TransitAnnouncement:
+				return string.IsNullOrWhiteSpace(TransitAnnouncementConfig.CustomFolderName)
+					? TransitAnnouncementCustomFolderName
+					: TransitAnnouncementConfig.CustomFolderName;
+			default:
+				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown local audio domain.");
 		}
 	}
 
@@ -1229,8 +1286,12 @@ public sealed partial class SirenChangerMod
 				return ref s_DeveloperModuleSelectedLocalSirenKey;
 			case DeveloperAudioDomain.VehicleEngine:
 				return ref s_DeveloperModuleSelectedLocalEngineKey;
-			default:
+			case DeveloperAudioDomain.Ambient:
 				return ref s_DeveloperModuleSelectedLocalAmbientKey;
+			case DeveloperAudioDomain.TransitAnnouncement:
+				return ref s_DeveloperModuleSelectedLocalTransitAnnouncementKey;
+			default:
+				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown local audio domain.");
 		}
 	}
 
@@ -1243,8 +1304,12 @@ public sealed partial class SirenChangerMod
 				return s_DeveloperModuleIncludedSirens;
 			case DeveloperAudioDomain.VehicleEngine:
 				return s_DeveloperModuleIncludedEngines;
-			default:
+			case DeveloperAudioDomain.Ambient:
 				return s_DeveloperModuleIncludedAmbient;
+			case DeveloperAudioDomain.TransitAnnouncement:
+				return s_DeveloperModuleIncludedTransitAnnouncements;
+			default:
+				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown local audio domain.");
 		}
 	}
 
@@ -1257,8 +1322,12 @@ public sealed partial class SirenChangerMod
 				return "No local siren files found";
 			case DeveloperAudioDomain.VehicleEngine:
 				return "No local engine files found";
-			default:
+			case DeveloperAudioDomain.Ambient:
 				return "No local ambient files found";
+			case DeveloperAudioDomain.TransitAnnouncement:
+				return "No local transit announcement files found";
+			default:
+				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown local audio domain.");
 		}
 	}
 
@@ -1271,15 +1340,22 @@ public sealed partial class SirenChangerMod
 				return "siren";
 			case DeveloperAudioDomain.VehicleEngine:
 				return "engine";
-			default:
+			case DeveloperAudioDomain.Ambient:
 				return "ambient";
+			case DeveloperAudioDomain.TransitAnnouncement:
+				return "transit announcement";
+			default:
+				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown local audio domain.");
 		}
 	}
 
 	// Aggregate count of currently included local module-builder files across all domains.
 	private static int GetTotalDeveloperModuleIncludedCount()
 	{
-		return s_DeveloperModuleIncludedSirens.Count + s_DeveloperModuleIncludedEngines.Count + s_DeveloperModuleIncludedAmbient.Count;
+		return s_DeveloperModuleIncludedSirens.Count +
+			s_DeveloperModuleIncludedEngines.Count +
+			s_DeveloperModuleIncludedAmbient.Count +
+			s_DeveloperModuleIncludedTransitAnnouncements.Count;
 	}
 
 	// Append one domain's include summary block with per-file lines.
@@ -1352,7 +1428,8 @@ public sealed partial class SirenChangerMod
 		string moduleId,
 		int sirenCount,
 		int engineCount,
-		int ambientCount)
+		int ambientCount,
+		int transitAnnouncementCount)
 	{
 		StringBuilder builder = new StringBuilder(512);
 		builder.AppendLine("Audio Switcher Generated Module");
@@ -1363,6 +1440,7 @@ public sealed partial class SirenChangerMod
 		builder.Append("Sirens: ").AppendLine(sirenCount.ToString(CultureInfo.InvariantCulture));
 		builder.Append("Vehicle Engines: ").AppendLine(engineCount.ToString(CultureInfo.InvariantCulture));
 		builder.Append("Ambient Sounds: ").AppendLine(ambientCount.ToString(CultureInfo.InvariantCulture));
+		builder.Append("Transit Announcements: ").AppendLine(transitAnnouncementCount.ToString(CultureInfo.InvariantCulture));
 		builder.AppendLine();
 		builder.AppendLine("Generated by Audio Switcher Developer > Module Builder.");
 
@@ -1449,8 +1527,10 @@ public sealed partial class SirenChangerMod
 				return s_DetectedSirenAudio;
 			case DeveloperAudioDomain.VehicleEngine:
 				return s_DetectedEngineAudio;
-			default:
+			case DeveloperAudioDomain.Ambient:
 				return s_DetectedAmbientAudio;
+			default:
+				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown detected audio domain.");
 		}
 	}
 
@@ -1463,8 +1543,10 @@ public sealed partial class SirenChangerMod
 				return ref s_DeveloperSelectedSirenKey;
 			case DeveloperAudioDomain.VehicleEngine:
 				return ref s_DeveloperSelectedEngineKey;
-			default:
+			case DeveloperAudioDomain.Ambient:
 				return ref s_DeveloperSelectedAmbientKey;
+			default:
+				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown detected audio domain.");
 		}
 	}
 
@@ -1477,8 +1559,10 @@ public sealed partial class SirenChangerMod
 				return ref s_DeveloperSirenStatus;
 			case DeveloperAudioDomain.VehicleEngine:
 				return ref s_DeveloperEngineStatus;
-			default:
+			case DeveloperAudioDomain.Ambient:
 				return ref s_DeveloperAmbientStatus;
+			default:
+				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown detected audio domain.");
 		}
 	}
 
@@ -1534,8 +1618,10 @@ public sealed partial class SirenChangerMod
 				return "siren sound";
 			case DeveloperAudioDomain.VehicleEngine:
 				return "vehicle engine sound";
-			default:
+			case DeveloperAudioDomain.Ambient:
 				return "ambient sound";
+			default:
+				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown detected audio domain.");
 		}
 	}
 
@@ -1547,8 +1633,10 @@ public sealed partial class SirenChangerMod
 				return "siren sounds";
 			case DeveloperAudioDomain.VehicleEngine:
 				return "vehicle engine sounds";
-			default:
+			case DeveloperAudioDomain.Ambient:
 				return "ambient sounds";
+			default:
+				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown detected audio domain.");
 		}
 	}
 
@@ -1560,8 +1648,10 @@ public sealed partial class SirenChangerMod
 				return "No detected siren sounds";
 			case DeveloperAudioDomain.VehicleEngine:
 				return "No detected vehicle engine sounds";
-			default:
+			case DeveloperAudioDomain.Ambient:
 				return "No detected ambient sounds";
+			default:
+				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown detected audio domain.");
 		}
 	}
 
@@ -1573,8 +1663,10 @@ public sealed partial class SirenChangerMod
 				return "No detected siren sounds are available yet. Load a map/editor session to detect sounds.";
 			case DeveloperAudioDomain.VehicleEngine:
 				return "No detected vehicle engine sounds are available yet. Load a map/editor session to detect sounds.";
-			default:
+			case DeveloperAudioDomain.Ambient:
 				return "No detected ambient sounds are available yet. Load a map/editor session to detect sounds.";
+			default:
+				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown detected audio domain.");
 		}
 	}
 
@@ -1622,6 +1714,9 @@ public sealed partial class SirenChangerMod
 
 		[DataMember(Order = 6, Name = "ambient")]
 		public List<DeveloperModuleManifestEntry> Ambient { get; set; } = new List<DeveloperModuleManifestEntry>();
+
+		[DataMember(Order = 7, Name = "transitAnnouncements")]
+		public List<DeveloperModuleManifestEntry> TransitAnnouncements { get; set; } = new List<DeveloperModuleManifestEntry>();
 	}
 
 	[DataContract]

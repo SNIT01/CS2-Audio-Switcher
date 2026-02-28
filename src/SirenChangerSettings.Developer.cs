@@ -23,6 +23,8 @@ public sealed partial class SirenChangerSettings
 
 	private const string kDeveloperModuleAmbientButtonGroup = "Ambient Include Actions";
 
+	private const string kDeveloperModuleTransitButtonGroup = "Transit Include Actions";
+
 	private const string kDeveloperModuleBulkButtonGroup = "Module Selection Actions";
 
 	[SettingsUISection(kDeveloperTab, kDeveloperSirenGroup)]
@@ -258,6 +260,37 @@ public sealed partial class SirenChangerSettings
 	}
 
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetModuleBuilderLocalTransitAnnouncementOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Local Transit Announcement File")]
+	[SettingsUIDescription(overrideValue: "Select a local custom transit announcement file to include or exclude from the module.")]
+	public string DeveloperModuleLocalTransitAnnouncementSelection
+	{
+		get => SirenChangerMod.GetDeveloperModuleLocalAudioSelection(DeveloperAudioDomain.TransitAnnouncement);
+		set => SirenChangerMod.SetDeveloperModuleLocalAudioSelection(DeveloperAudioDomain.TransitAnnouncement, value);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kDeveloperModuleTransitButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Include Selected Transit Announcement")]
+	[SettingsUIDescription(overrideValue: "Add the selected local transit announcement file to the module include list.")]
+	public bool IncludeSelectedModuleTransitAnnouncement
+	{
+		set => SirenChangerMod.IncludeSelectedLocalAudioInModule(DeveloperAudioDomain.TransitAnnouncement);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kDeveloperModuleTransitButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Exclude Selected Transit Announcement")]
+	[SettingsUIDescription(overrideValue: "Remove the selected local transit announcement file from the module include list.")]
+	public bool ExcludeSelectedModuleTransitAnnouncement
+	{
+		set => SirenChangerMod.ExcludeSelectedLocalAudioFromModule(DeveloperAudioDomain.TransitAnnouncement);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kDeveloperModuleBulkButtonGroup)]
 	[SettingsUIDisplayName(overrideValue: "Include All Local Audio")]
@@ -286,7 +319,7 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
 	[SettingsUIDisplayName(overrideValue: "Create Module From Local Audio")]
-	[SettingsUIDescription(overrideValue: "Create a standalone module using selected local custom siren, engine, and ambient files plus current SFX profiles.")]
+	[SettingsUIDescription(overrideValue: "Create a standalone module using selected local custom siren, engine, ambient, and transit announcement files plus current SFX profiles.")]
 	public bool CreateModuleFromLocalAudio
 	{
 		set => SirenChangerMod.CreateDeveloperModuleFromLocalAudio();
@@ -350,5 +383,11 @@ public sealed partial class SirenChangerSettings
 	public static DropdownItem<string>[] GetModuleBuilderLocalAmbientOptions()
 	{
 		return SirenChangerMod.BuildDeveloperModuleLocalAudioDropdown(DeveloperAudioDomain.Ambient);
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetModuleBuilderLocalTransitAnnouncementOptions()
+	{
+		return SirenChangerMod.BuildDeveloperModuleLocalAudioDropdown(DeveloperAudioDomain.TransitAnnouncement);
 	}
 }

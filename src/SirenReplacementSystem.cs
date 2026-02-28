@@ -122,14 +122,15 @@ public sealed partial class SirenReplacementSystem : GameSystemBase
 		SirenSfxProfile template = SirenSfxProfile.CreateFallback();
 		AudioClip? defaultPreviewClip = null;
 		HashSet<string> discoveredVehiclePrefabs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		int skippedInvalidPrefabEntities = 0;
 
 		using (NativeArray<Entity> prefabEntities = m_PrefabQuery.ToEntityArray(Allocator.Temp))
 		{
 			for (int i = 0; i < prefabEntities.Length; i++)
 			{
-				PrefabBase prefab = m_PrefabSystem.GetPrefab<PrefabBase>(prefabEntities[i]);
-				if (prefab == null)
+				if (!TryGetPrefab(prefabEntities[i], out PrefabBase prefab))
 				{
+					skippedInvalidPrefabEntities++;
 					continue;
 				}
 
@@ -160,6 +161,12 @@ public sealed partial class SirenReplacementSystem : GameSystemBase
 
 				TryRegisterVehicleTarget(prefab, prefabName, discoveredVehiclePrefabs);
 			}
+		}
+
+		if (skippedInvalidPrefabEntities > 0)
+		{
+			SirenChangerMod.Log.Warn(
+				$"Skipped {skippedInvalidPrefabEntities} prefab entities while building siren cache because PrefabData was invalid.");
 		}
 
 		if (m_TargetSfxByPrefab.Count == 0)
@@ -694,8 +701,7 @@ public sealed partial class SirenReplacementSystem : GameSystemBase
 		{
 			for (int i = 0; i < prefabEntities.Length; i++)
 			{
-				PrefabBase prefab = m_PrefabSystem.GetPrefab<PrefabBase>(prefabEntities[i]);
-				if (prefab == null)
+				if (!TryGetPrefab(prefabEntities[i], out PrefabBase prefab))
 				{
 					continue;
 				}
@@ -728,6 +734,21 @@ public sealed partial class SirenReplacementSystem : GameSystemBase
 		}
 
 		return entries;
+	}
+
+	// Guard against transient PrefabData entries whose prefab indices are invalid during world/prefab churn.
+	private bool TryGetPrefab(Entity prefabEntity, out PrefabBase prefab)
+	{
+		prefab = null!;
+		try
+		{
+			prefab = m_PrefabSystem.GetPrefab<PrefabBase>(prefabEntity);
+			return prefab != null;
+		}
+		catch (ArgumentOutOfRangeException)
+		{
+			return false;
+		}
 	}
 
 	// Discover emergency vehicle prefab -> siren prefab relationship from EffectSource links.
@@ -918,6 +939,7 @@ public sealed partial class SirenReplacementSystem : GameSystemBase
 			ContainsTextToken(prefabName, "agent") ||
 			ContainsTextToken(prefabName, "administration") ||
 			ContainsTextToken(prefabName, "admin") ||
+			ContainsTextToken(prefabName, "unmarked") ||
 			ContainsTextToken(prefabName, "sheriff"))
 		{
 			vehicleType = EmergencySirenVehicleType.Police;

@@ -837,6 +837,7 @@ public sealed partial class SirenChangerSettings
 	{
 		ResetVehicleEngineDefaults();
 		ResetAmbientDefaults();
+		ResetTransitAnnouncementDefaults();
 	}
 
 	// Restore engine-domain configuration and re-seed profile values from the detected template.

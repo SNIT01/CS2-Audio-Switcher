@@ -280,7 +280,8 @@ internal sealed class CitySoundProfileRegistry
 		string saveAssetGuid,
 		string setId,
 		string lastSeenDisplayName,
-		string lastSeenMapName)
+		string lastSeenMapName,
+		string saveSessionGuid)
 	{
 		// Insert/update one GUID binding and only mark changed when meaningful fields differ.
 		string normalizedGuid = NormalizeGuidKey(saveAssetGuid);
@@ -290,6 +291,7 @@ internal sealed class CitySoundProfileRegistry
 		}
 
 		string normalizedSet = NormalizeExistingSetId(setId, Sets);
+		string normalizedSessionGuid = NormalizeSessionGuid(saveSessionGuid);
 		int bindingIndex = -1;
 		if (!string.IsNullOrWhiteSpace(normalizedGuid))
 		{
@@ -311,6 +313,7 @@ internal sealed class CitySoundProfileRegistry
 				SaveAssetGuid = normalizedGuid,
 				SaveInfoId = string.Empty,
 				SetId = normalizedSet,
+				SaveSessionGuid = normalizedSessionGuid,
 				LastSeenDisplayName = (lastSeenDisplayName ?? string.Empty).Trim(),
 				LastSeenMapName = (lastSeenMapName ?? string.Empty).Trim(),
 				LastSeenUtcTicks = DateTime.UtcNow.Ticks
@@ -328,6 +331,12 @@ internal sealed class CitySoundProfileRegistry
 		if (!string.Equals(binding.SetId, normalizedSet, StringComparison.OrdinalIgnoreCase))
 		{
 			binding.SetId = normalizedSet;
+			changed = true;
+		}
+
+		if (!string.Equals(binding.SaveSessionGuid, normalizedSessionGuid, StringComparison.OrdinalIgnoreCase))
+		{
+			binding.SaveSessionGuid = normalizedSessionGuid;
 			changed = true;
 		}
 
@@ -470,6 +479,23 @@ internal sealed class CitySoundProfileRegistry
 		return parsed.ToString();
 	}
 
+	// Normalize and validate persisted session GUID values used for safe binding migration.
+	internal static string NormalizeSessionGuid(string? rawSessionGuid)
+	{
+		string normalized = (rawSessionGuid ?? string.Empty).Trim();
+		if (string.IsNullOrWhiteSpace(normalized))
+		{
+			return string.Empty;
+		}
+
+		if (!Guid.TryParse(normalized, out Guid parsed) || parsed == Guid.Empty)
+		{
+			return string.Empty;
+		}
+
+		return parsed.ToString("D");
+	}
+
 	// Resolve the registry JSON path under the mod settings directory.
 	internal static string GetRegistryPath(string settingsDirectory)
 	{
@@ -568,6 +594,7 @@ internal sealed class CitySoundProfileRegistry
 				SaveAssetGuid = guid,
 				SaveInfoId = string.Empty,
 				SetId = setId,
+				SaveSessionGuid = NormalizeSessionGuid(current.SaveSessionGuid),
 				LastSeenDisplayName = (current.LastSeenDisplayName ?? string.Empty).Trim(),
 				LastSeenMapName = (current.LastSeenMapName ?? string.Empty).Trim(),
 				LastSeenUtcTicks = current.LastSeenUtcTicks
@@ -610,11 +637,14 @@ internal sealed class CitySoundProfileBinding
 	public string SetId { get; set; } = CitySoundProfileRegistry.DefaultSetId;
 
 	[DataMember(Order = 4)]
-	public string LastSeenDisplayName { get; set; } = string.Empty;
+	public string SaveSessionGuid { get; set; } = string.Empty;
 
 	[DataMember(Order = 5)]
-	public string LastSeenMapName { get; set; } = string.Empty;
+	public string LastSeenDisplayName { get; set; } = string.Empty;
 
 	[DataMember(Order = 6)]
+	public string LastSeenMapName { get; set; } = string.Empty;
+
+	[DataMember(Order = 7)]
 	public long LastSeenUtcTicks { get; set; }
 }

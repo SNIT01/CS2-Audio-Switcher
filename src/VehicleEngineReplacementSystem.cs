@@ -142,14 +142,15 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		bool templateSet = false;
 		AudioClip? defaultPreviewClip = null;
 		HashSet<string> discoveredVehiclePrefabs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		int skippedInvalidPrefabEntities = 0;
 
 		using (NativeArray<Entity> prefabEntities = m_PrefabQuery.ToEntityArray(Allocator.Temp))
 		{
 			for (int i = 0; i < prefabEntities.Length; i++)
 			{
-				PrefabBase prefab = m_PrefabSystem.GetPrefab<PrefabBase>(prefabEntities[i]);
-				if (prefab == null)
+				if (!TryGetPrefab(prefabEntities[i], out PrefabBase prefab))
 				{
+					skippedInvalidPrefabEntities++;
 					continue;
 				}
 
@@ -179,6 +180,12 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 				TryRegisterVehicleTargets(prefab, prefabName, discoveredVehiclePrefabs);
 			}
+		}
+
+		if (skippedInvalidPrefabEntities > 0)
+		{
+			SirenChangerMod.Log.Warn(
+				$"Skipped {skippedInvalidPrefabEntities} prefab entities while building vehicle engine cache because PrefabData was invalid.");
 		}
 
 		if (m_EngineSfxByPrefab.Count == 0)
@@ -510,6 +517,21 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 	{
 		string cleanVehicle = (vehiclePrefabName ?? string.Empty).Replace(' ', '_');
 		return $"SC_Engine_{enginePrefabName}_{cleanVehicle}";
+	}
+
+	// Guard against transient PrefabData entries whose prefab indices are invalid during world/prefab churn.
+	private bool TryGetPrefab(Entity prefabEntity, out PrefabBase prefab)
+	{
+		prefab = null!;
+		try
+		{
+			prefab = m_PrefabSystem.GetPrefab<PrefabBase>(prefabEntity);
+			return prefab != null;
+		}
+		catch (ArgumentOutOfRangeException)
+		{
+			return false;
+		}
 	}
 
 	private void TryRegisterVehicleTargets(PrefabBase prefab, string prefabName, ISet<string> discoveredVehiclePrefabs)
