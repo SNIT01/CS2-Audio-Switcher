@@ -293,6 +293,16 @@ public sealed partial class SirenChangerMod
 		return TransitAnnouncementConfig.SynchronizeTargets(s_TransitAnnouncementTargetKeys);
 	}
 
+	// Apply global Public Transport tab playback controls to one resolved announcement profile.
+	internal static SirenSfxProfile BuildTransitAnnouncementPlaybackProfile(SirenSfxProfile profile)
+	{
+		SirenSfxProfile effective = (profile ?? SirenSfxProfile.CreateFallback()).ClampCopy();
+		effective.Volume = Mathf.Clamp01(TransitAnnouncementConfig.GlobalAnnouncementVolume);
+		effective.MinDistance = Mathf.Max(0f, TransitAnnouncementConfig.GlobalAnnouncementMinDistance);
+		effective.MaxDistance = Mathf.Max(effective.MinDistance + 0.01f, TransitAnnouncementConfig.GlobalAnnouncementMaxDistance);
+		return effective;
+	}
+
 	// Human-readable slot label used in logs and status messages.
 	internal static string GetTransitAnnouncementSlotLabel(TransitAnnouncementSlot slot)
 	{

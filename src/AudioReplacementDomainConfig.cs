@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
 using Colossal.Logging;
+using UnityEngine;
 
 namespace SirenChanger;
 
@@ -43,6 +44,15 @@ internal sealed class AudioReplacementDomainConfig
 
 	[DataMember(Order = 11)]
 	public string AlternateFallbackSelection { get; set; } = SirenReplacementConfig.DefaultSelectionToken;
+
+	[DataMember(Order = 12)]
+	public float GlobalAnnouncementVolume { get; set; } = 1f;
+
+	[DataMember(Order = 13)]
+	public float GlobalAnnouncementMinDistance { get; set; } = 12f;
+
+	[DataMember(Order = 14)]
+	public float GlobalAnnouncementMaxDistance { get; set; } = 120f;
 
 	[DataMember(Order = 20)]
 	public long LastCatalogScanUtcTicks { get; set; }
@@ -143,6 +153,9 @@ internal sealed class AudioReplacementDomainConfig
 		EditProfileSelection = NormalizeProfileKey(EditProfileSelection);
 		CopyFromProfileSelection = NormalizeProfileKey(CopyFromProfileSelection);
 		AlternateFallbackSelection = NormalizeSelection(AlternateFallbackSelection);
+		GlobalAnnouncementVolume = Mathf.Clamp(GlobalAnnouncementVolume, 0f, 1f);
+		GlobalAnnouncementMinDistance = Mathf.Max(0f, GlobalAnnouncementMinDistance);
+		GlobalAnnouncementMaxDistance = Mathf.Max(GlobalAnnouncementMinDistance + 0.01f, GlobalAnnouncementMaxDistance);
 
 		if (!Enum.IsDefined(typeof(SirenFallbackBehavior), MissingSelectionFallbackBehavior))
 		{

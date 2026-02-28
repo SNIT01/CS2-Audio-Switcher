@@ -1,6 +1,7 @@
 using System;
 using Game.Settings;
 using Game.UI.Widgets;
+using UnityEngine;
 using UnityEngine.Scripting;
 
 namespace SirenChanger;
@@ -17,6 +18,49 @@ public sealed partial class SirenChangerSettings
 	{
 		get => SirenChangerMod.TransitAnnouncementConfig.Enabled;
 		set => SirenChangerMod.TransitAnnouncementConfig.Enabled = value;
+	}
+
+	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementGroup)]
+	[SettingsUISlider(min = 0f, max = 100f, step = 1f, unit = "percentageSingleFraction", scalarMultiplier = 100f, updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Announcement Volume")]
+	[SettingsUIDescription(overrideValue: "Global volume for all public transport arrival/departure announcements.")]
+	public float TransitAnnouncementGlobalVolume
+	{
+		get => SirenChangerMod.TransitAnnouncementConfig.GlobalAnnouncementVolume;
+		set => SirenChangerMod.TransitAnnouncementConfig.GlobalAnnouncementVolume = Mathf.Clamp01(value);
+	}
+
+	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementGroup)]
+	[SettingsUISlider(min = 0f, max = 250f, step = 0.5f, unit = "floatSingleFraction", updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Announcement Min Distance")]
+	[SettingsUIDescription(overrideValue: "Global distance where announcement attenuation begins.")]
+	public float TransitAnnouncementGlobalMinDistance
+	{
+		get => SirenChangerMod.TransitAnnouncementConfig.GlobalAnnouncementMinDistance;
+		set
+		{
+			AudioReplacementDomainConfig config = SirenChangerMod.TransitAnnouncementConfig;
+			config.GlobalAnnouncementMinDistance = Mathf.Max(0f, value);
+			if (config.GlobalAnnouncementMaxDistance < config.GlobalAnnouncementMinDistance + 0.01f)
+			{
+				// Keep distance constraints valid while users drag either slider.
+				config.GlobalAnnouncementMaxDistance = config.GlobalAnnouncementMinDistance + 0.01f;
+			}
+		}
+	}
+
+	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementGroup)]
+	[SettingsUISlider(min = 1f, max = 500f, step = 1f, unit = "floatSingleFraction", updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Announcement Max Distance")]
+	[SettingsUIDescription(overrideValue: "Global distance where announcements reach minimum audible level.")]
+	public float TransitAnnouncementGlobalMaxDistance
+	{
+		get => SirenChangerMod.TransitAnnouncementConfig.GlobalAnnouncementMaxDistance;
+		set
+		{
+			AudioReplacementDomainConfig config = SirenChangerMod.TransitAnnouncementConfig;
+			config.GlobalAnnouncementMaxDistance = Mathf.Max(config.GlobalAnnouncementMinDistance + 0.01f, value);
+		}
 	}
 
 	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementGroup)]
@@ -158,6 +202,9 @@ public sealed partial class SirenChangerSettings
 		config.KnownTargets.Clear();
 		config.MissingSelectionFallbackBehavior = SirenFallbackBehavior.Default;
 		config.AlternateFallbackSelection = SirenReplacementConfig.DefaultSelectionToken;
+		config.GlobalAnnouncementVolume = 1f;
+		config.GlobalAnnouncementMinDistance = 12f;
+		config.GlobalAnnouncementMaxDistance = 120f;
 		config.LastCatalogScanUtcTicks = 0;
 		config.LastCatalogScanFileCount = 0;
 		config.LastCatalogScanAddedCount = 0;

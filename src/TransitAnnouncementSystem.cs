@@ -561,7 +561,8 @@ internal static class TransitAnnouncementAudioPlayer
 			return false;
 		}
 
-		SirenSfxProfile clamped = (profile ?? SirenSfxProfile.CreateFallback()).ClampCopy();
+		// Apply global announcement controls before assigning AudioSource properties.
+		SirenSfxProfile clamped = SirenChangerMod.BuildTransitAnnouncementPlaybackProfile(profile);
 		source.transform.position = position;
 		source.Stop();
 		source.clip = clip;

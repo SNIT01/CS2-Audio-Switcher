@@ -120,7 +120,7 @@ public sealed partial class SirenChangerSettings : ModSetting
 	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kCitySoundSetButtonGroup)]
-	[SettingsUIConfirmation]
+	[SettingsUIConfirmation(overrideConfirmMessageValue: "Overwrite the selected sound set with the current active settings?")]
 	[SettingsUIDisplayName(overrideValue: "Update Selected Set")]
 	[SettingsUIDescription(overrideValue: "Save current settings into the selected sound set.")]
 	public bool UpdateSelectedCitySoundSet
@@ -152,7 +152,7 @@ public sealed partial class SirenChangerSettings : ModSetting
 	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsRenameCitySoundSetDisabled))]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kCitySoundSetButtonGroup)]
-	[SettingsUIConfirmation]
+	[SettingsUIConfirmation(overrideConfirmMessageValue: "Rename the selected sound set using the value in Set Name?")]
 	[SettingsUIDisplayName(overrideValue: "Rename Selected Set")]
 	[SettingsUIDescription(overrideValue: "Rename the selected sound set without changing its ID or bindings.")]
 	public bool RenameSelectedCitySoundSet
@@ -174,6 +174,7 @@ public sealed partial class SirenChangerSettings : ModSetting
 	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeleteCitySoundSetDisabled))]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kCitySoundSetButtonGroup)]
+	[SettingsUIConfirmation(overrideConfirmMessageValue: "Delete the selected sound set? Any city bindings to it will be reassigned to Default.")]
 	[SettingsUIDisplayName(overrideValue: "Delete Selected Set")]
 	[SettingsUIDescription(overrideValue: "Delete the selected sound set. City bindings are reassigned to Default.")]
 	public bool DeleteSelectedCitySoundSet

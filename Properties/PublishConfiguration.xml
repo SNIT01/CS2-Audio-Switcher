@@ -5,6 +5,8 @@
 	<LongDescription>
     Audio Switcher lets you replace siren, vehicle engine, and ambient sounds with custom WAV/OGG files.
 
+    **Now also supports public transport PA announcements and sound sets!**
+
     Supports local audio and modules.
 
     Custom audio is tunable via SFX behavior with settings such as volume, pitch, spatial blend, doppler, spread, min/max distance, looping, and fades.
@@ -18,10 +20,16 @@
     Ambient sounds and engines sounds apply to specific prefabs.
 
     CHECK OUT:
-    - Improved Aircraft Sounds: https://mods.paradoxplaza.com/mods/135438/Windows
-    - How to create module: https://github.com/SNIT01/ImprovedAircraftSounds
+    * Improved Aircraft Sounds: https://mods.paradoxplaza.com/mods/135438/Windows
+    * How to create module: https://github.com/SNIT01/ImprovedAircraftSounds
+
+    Known issues:
+    * Sound set may not always apply correct if a save is renamed.
+    * Changing some vehicles assigned to transport line may lead to dead prefab.
   </LongDescription>
 	<Thumbnail Value="Images/Audio Switcher Logo.png" />
+  <Screenshot Value="Images/Screen_Gen.jpg" />
+  <Screenshot Value="Images/Screen_PT.jpg" />
 	<Screenshot Value="Images/Screen_Siren.jpg" />
   <Screenshot Value="Images/Screen_Siren2.jpg" />
 	<Screenshot Value="Images/Screen_Engine.jpg" />
@@ -30,14 +38,14 @@
   <Screenshot Value="Images/Screen_Dev.jpg" />
   <Screenshot Value="Images/Screen_Dev2.jpg" />
   <!--CHANGE LOG-->
-	<ChangeLog Value="Added better images." />
+	<ChangeLog Value="Bug fixes, first iteration of sound sets, first iteration of public transport announcements" />
   <Tag Value="" />
   <!--Link to the forum post where the mod can be discussed-->
-  <ForumLink Value="" />
+  <ForumLink Value="https://forum.paradoxplaza.com/forum/threads/audio-switcher.1903848/" />
   <!--Version of the mod-->
-  <ModVersion Value="1.5" />
+  <ModVersion Value="1.7" />
   <!--Recommended version of the base game to use the mod-->
-  <GameVersion Value="1.5.4f1" />
+  <GameVersion Value="1.5.5f1" />
   <!--Dependency for the mod, can be set multiple times-->
   <Dependency Id="" />
   <!--Required DLC, can be set multiple times. Supported values are "Landmark Buildings", "San Fransisco Set", "Beach Properties", "Urban Promenades", "Modern Architecture"-->
