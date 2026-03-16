@@ -54,6 +54,14 @@ internal sealed class AudioReplacementDomainConfig
 	[DataMember(Order = 14)]
 	public float GlobalAnnouncementMaxDistance { get; set; } = 120f;
 
+	// Transit-only: optional user text spoken before dynamic stop/service speech.
+	[DataMember(Order = 15)]
+	public Dictionary<string, string> TransitAnnouncementCustomTextByTarget { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+	// Transit-only: per-service preferred TTS voice names (train/bus/metro/tram).
+	[DataMember(Order = 16)]
+	public Dictionary<string, string> TransitAnnouncementVoiceByService { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
 	[DataMember(Order = 20)]
 	public long LastCatalogScanUtcTicks { get; set; }
 
@@ -165,6 +173,8 @@ internal sealed class AudioReplacementDomainConfig
 		CustomProfiles = NormalizeProfiles(CustomProfiles);
 		KnownTargets = NormalizeTargetList(KnownTargets);
 		TargetSelections = NormalizeTargetSelections(TargetSelections, CustomProfiles.Keys);
+		TransitAnnouncementCustomTextByTarget = NormalizeSpeechTextByTarget(TransitAnnouncementCustomTextByTarget);
+		TransitAnnouncementVoiceByService = NormalizeVoiceSelectionMap(TransitAnnouncementVoiceByService);
 		TargetSelectionTarget = NormalizeTargetKey(TargetSelectionTarget);
 		LastCatalogScanChangedFiles = NormalizeTextList(LastCatalogScanChangedFiles);
 		LastValidationReport ??= string.Empty;
@@ -358,6 +368,20 @@ internal sealed class AudioReplacementDomainConfig
 			changed = true;
 		}
 
+		Dictionary<string, string> normalizedCustomText = NormalizeSpeechTextByTarget(TransitAnnouncementCustomTextByTarget);
+		if (!DictionariesEqualIgnoreCase(TransitAnnouncementCustomTextByTarget, normalizedCustomText))
+		{
+			TransitAnnouncementCustomTextByTarget = normalizedCustomText;
+			changed = true;
+		}
+
+		Dictionary<string, string> normalizedVoiceSelections = NormalizeVoiceSelectionMap(TransitAnnouncementVoiceByService);
+		if (!DictionariesEqualIgnoreCase(TransitAnnouncementVoiceByService, normalizedVoiceSelections))
+		{
+			TransitAnnouncementVoiceByService = normalizedVoiceSelections;
+			changed = true;
+		}
+
 		string normalizedTarget = NormalizeTargetKey(TargetSelectionTarget);
 		if (!string.Equals(TargetSelectionTarget, normalizedTarget, StringComparison.Ordinal))
 		{
@@ -474,6 +498,63 @@ internal sealed class AudioReplacementDomainConfig
 			}
 
 			result.Add(value);
+		}
+
+		return result;
+	}
+
+	private static Dictionary<string, string> NormalizeSpeechTextByTarget(Dictionary<string, string>? source)
+	{
+		Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		if (source == null)
+		{
+			return result;
+		}
+
+		foreach (KeyValuePair<string, string> entry in source)
+		{
+			string targetKey = NormalizeTargetKey(entry.Key);
+			if (string.IsNullOrWhiteSpace(targetKey))
+			{
+				continue;
+			}
+
+			// Keep raw user text so spaces are preserved while editing in options UI.
+			string rawText = entry.Value ?? string.Empty;
+			if (string.IsNullOrWhiteSpace(rawText))
+			{
+				continue;
+			}
+
+			result[targetKey] = rawText;
+		}
+
+		return result;
+	}
+
+	private static Dictionary<string, string> NormalizeVoiceSelectionMap(Dictionary<string, string>? source)
+	{
+		Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		if (source == null)
+		{
+			return result;
+		}
+
+		foreach (KeyValuePair<string, string> entry in source)
+		{
+			string key = NormalizeTargetKey(entry.Key);
+			if (string.IsNullOrWhiteSpace(key))
+			{
+				continue;
+			}
+
+			string voice = TransitAnnouncementTtsService.NormalizeVoiceSelection(entry.Value ?? string.Empty);
+			if (string.IsNullOrWhiteSpace(voice))
+			{
+				continue;
+			}
+
+			result[key] = voice;
 		}
 
 		return result;

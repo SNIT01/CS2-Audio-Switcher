@@ -161,6 +161,7 @@ public sealed partial class SirenChangerMod : IMod
 		s_DefaultSirenPreviewClip = null;
 		s_DefaultVehicleEnginePreviewClip = null;
 		s_DefaultAmbientPreviewClip = null;
+		TransitAnnouncementTtsService.Release();
 		TransitAnnouncementAudioPlayer.Release();
 		WaveClipLoader.ReleaseLoadedClips();
 	}
@@ -372,6 +373,7 @@ public sealed partial class SirenChangerMod : IMod
 		AmbientConfig.Normalize(AmbientCustomFolderName);
 		TransitAnnouncementConfig.Normalize(TransitAnnouncementCustomFolderName);
 		NormalizeTransitAnnouncementTargets();
+		NormalizeTransitAnnouncementSpeechSettings();
 		if (saveToDisk)
 		{
 			SaveConfig();
@@ -756,6 +758,7 @@ public sealed partial class SirenChangerMod : IMod
 		AmbientConfig.Normalize(AmbientCustomFolderName);
 		TransitAnnouncementConfig.Normalize(TransitAnnouncementCustomFolderName);
 		NormalizeTransitAnnouncementTargets();
+		NormalizeTransitAnnouncementSpeechSettings();
 		SirenValidationResult result = SirenConfigValidator.Validate(
 			Config,
 			VehicleEngineConfig,
@@ -1116,6 +1119,8 @@ public sealed partial class SirenChangerMod : IMod
 		s_AmbientTargetDropdown = Array.Empty<DropdownItem<string>>();
 		s_TransitAnnouncementDropdownCacheVersion = -1;
 		s_TransitAnnouncementDropdownWithDefault = Array.Empty<DropdownItem<string>>();
+		s_TransitAnnouncementVoiceDropdownCacheVersion = -1;
+		s_TransitAnnouncementVoiceDropdown = Array.Empty<DropdownItem<string>>();
 	}
 
 		// Update scan telemetry fields for one generic domain config.

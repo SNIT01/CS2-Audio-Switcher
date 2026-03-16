@@ -180,6 +180,7 @@ public sealed partial class SirenChangerMod
 		AmbientConfig.Normalize(AmbientCustomFolderName);
 		TransitAnnouncementConfig.Normalize(TransitAnnouncementCustomFolderName);
 		NormalizeTransitAnnouncementTargets();
+		NormalizeTransitAnnouncementSpeechSettings();
 
 		s_CitySoundProfileRegistry.ActiveSetId = normalizedSet;
 		s_CitySoundProfileRegistry.SelectedSetId = s_CitySoundProfileRegistry.ContainsSet(s_CitySoundProfileRegistry.SelectedSetId)

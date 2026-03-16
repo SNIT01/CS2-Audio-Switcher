@@ -24,7 +24,7 @@
     * How to create module: https://github.com/SNIT01/ImprovedAircraftSounds
 
     Known issues:
-    * Sound set may not always apply correct if a save is renamed.
+    * Sound set may not always apply correctly if a save is renamed.
     * Changing some vehicles assigned to transport line may lead to dead prefab.
   </LongDescription>
 	<Thumbnail Value="Images/Audio Switcher Logo.png" />

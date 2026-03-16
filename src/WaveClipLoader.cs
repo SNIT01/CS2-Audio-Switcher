@@ -252,8 +252,29 @@ internal static class WaveClipLoader
 	// Decode PCM/float WAV bytes and create a Unity clip.
 	private static bool TryLoadWavInternal(string normalizedPath, out AudioClip clip, out string error)
 	{
-		clip = null!;
 		byte[] wavBytes = File.ReadAllBytes(normalizedPath);
+		return TryCreateClipFromWavBytes(
+			wavBytes,
+			$"SC_{Path.GetFileNameWithoutExtension(normalizedPath)}",
+			out clip,
+			out error);
+	}
+
+	// Decode WAV bytes and create an in-memory Unity clip (used by file and TTS paths).
+	internal static bool TryCreateClipFromWavBytes(
+		byte[] wavBytes,
+		string clipName,
+		out AudioClip clip,
+		out string error)
+	{
+		clip = null!;
+		error = string.Empty;
+		if (wavBytes == null || wavBytes.Length == 0)
+		{
+			error = "WAV payload was empty.";
+			return false;
+		}
+
 		float[] samples;
 		int channels;
 		int sampleRate;
@@ -265,7 +286,14 @@ internal static class WaveClipLoader
 		}
 
 		int sampleFrames = samples.Length / channels;
-		AudioClip loaded = AudioClip.Create($"SC_{Path.GetFileNameWithoutExtension(normalizedPath)}", sampleFrames, channels, sampleRate, stream: false);
+		if (sampleFrames <= 0)
+		{
+			error = "WAV payload contained no sample frames.";
+			return false;
+		}
+
+		string resolvedClipName = string.IsNullOrWhiteSpace(clipName) ? "SC_AudioClip" : clipName.Trim();
+		AudioClip loaded = AudioClip.Create(resolvedClipName, sampleFrames, channels, sampleRate, stream: false);
 		if (!loaded.SetData(samples, 0))
 		{
 			UnityEngine.Object.Destroy(loaded);
@@ -274,7 +302,6 @@ internal static class WaveClipLoader
 		}
 
 		clip = loaded;
-		error = string.Empty;
 		return true;
 	}
 
