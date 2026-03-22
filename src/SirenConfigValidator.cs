@@ -170,6 +170,41 @@ internal static class SirenConfigValidator
 					domainConfig.GetTargetSelection(target));
 			}
 
+			if (domain == DeveloperAudioDomain.TransitAnnouncement)
+			{
+				List<string> lineOverrideKeys = domainConfig.TransitAnnouncementLineSelections.Keys
+					.OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+					.ToList();
+				for (int i = 0; i < lineOverrideKeys.Count; i++)
+				{
+					string overrideKey = lineOverrideKeys[i];
+					if (!SirenChangerMod.TryParseTransitLineOverrideKey(overrideKey, out string slotKey, out string lineKey))
+					{
+						AddWarning($"{domainLabel} line override key '{overrideKey}' is invalid.");
+						continue;
+					}
+
+					string label = slotKey;
+					if (SirenChangerMod.TryParseTransitLineIdentity(lineKey, out TransitAnnouncementServiceType serviceType, out string lineStableId))
+					{
+						string lineDisplay = SirenChangerMod.GetTransitLineDisplayName(lineKey);
+						if (string.IsNullOrWhiteSpace(lineDisplay))
+						{
+							lineDisplay = lineStableId;
+						}
+
+						label = $"{SirenChangerMod.GetTransitAnnouncementServiceLabel(serviceType)} line '{lineDisplay}' ({slotKey})";
+					}
+
+					if (!domainConfig.TransitAnnouncementLineSelections.TryGetValue(overrideKey, out string lineSelection))
+					{
+						continue;
+					}
+
+					ValidateDomainSelection($"{domainLabel} line override {label}", domain, domainConfig, lineSelection);
+				}
+			}
+
 			if (domainConfig.MissingSelectionFallbackBehavior == SirenFallbackBehavior.AlternateCustomSiren)
 			{
 				if (AudioReplacementDomainConfig.IsDefaultSelection(domainConfig.AlternateFallbackSelection))

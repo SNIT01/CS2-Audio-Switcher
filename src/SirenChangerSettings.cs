@@ -9,7 +9,7 @@ using UnityEngine.Scripting;
 namespace SirenChanger;
 
 [SettingsUITabOrder(kGeneralTab, kPublicTransportTab, kSirensTab, kVehiclesTab, kAmbientTab, kDeveloperTab)]
-[SettingsUIGroupOrder(kGeneralGroup, kCitySoundSetGroup, kTransitAnnouncementGroup, kTransitAnnouncementTrainGroup, kTransitAnnouncementBusGroup, kTransitAnnouncementMetroGroup, kTransitAnnouncementTramGroup, kVehicleGroup, kVehicleOverrideGroup, kFallbackGroup, kProfileGroup, kDiagnosticsGroup, kVehicleSetupGroup, kVehicleOverrideTargetGroup, kVehicleFallbackGroup, kVehicleProfileGroup, kAmbientSetupGroup, kAmbientTargetGroup, kAmbientFallbackGroup, kAmbientProfileGroup, kDeveloperSirenGroup, kDeveloperEngineGroup, kDeveloperAmbientGroup, kDeveloperModuleGroup)]
+[SettingsUIGroupOrder(kGeneralGroup, kCitySoundSetGroup, kTransitAnnouncementGroup, kTransitAnnouncementLineGroup, kTransitAnnouncementTrainGroup, kTransitAnnouncementBusGroup, kTransitAnnouncementMetroGroup, kTransitAnnouncementTramGroup, kVehicleGroup, kVehicleOverrideGroup, kFallbackGroup, kProfileGroup, kDiagnosticsGroup, kVehicleSetupGroup, kVehicleOverrideTargetGroup, kVehicleFallbackGroup, kVehicleProfileGroup, kAmbientSetupGroup, kAmbientTargetGroup, kAmbientFallbackGroup, kAmbientProfileGroup, kDeveloperSirenGroup, kDeveloperEngineGroup, kDeveloperAmbientGroup, kDeveloperModuleGroup)]
 [SettingsUIShowGroupName]
 // Options UI binding surface for all configurable siren changer behavior.
 public sealed partial class SirenChangerSettings : ModSetting
@@ -29,6 +29,8 @@ public sealed partial class SirenChangerSettings : ModSetting
 	public const string kCitySoundSetGroup = "City Sound Sets";
 
 	public const string kTransitAnnouncementGroup = "Announcement Settings";
+
+	public const string kTransitAnnouncementLineGroup = "Line Overrides";
 
 	public const string kTransitAnnouncementTrainGroup = "Train";
 

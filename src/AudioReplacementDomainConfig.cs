@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
+using System.Text;
 using Colossal.Logging;
 using UnityEngine;
 
@@ -54,13 +55,21 @@ internal sealed class AudioReplacementDomainConfig
 	[DataMember(Order = 14)]
 	public float GlobalAnnouncementMaxDistance { get; set; } = 120f;
 
-	// Transit-only: optional user text spoken before dynamic stop/service speech.
+	// Transit-only: per-line overrides keyed by slot+line key for no-TTS announcement routing.
 	[DataMember(Order = 15)]
-	public Dictionary<string, string> TransitAnnouncementCustomTextByTarget { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+	public Dictionary<string, string> TransitAnnouncementLineSelections { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-	// Transit-only: per-service preferred TTS voice names (train/bus/metro/tram).
+	// Transit-only: discovered/known line keys used by options line editor dropdowns.
 	[DataMember(Order = 16)]
-	public Dictionary<string, string> TransitAnnouncementVoiceByService { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+	public List<string> TransitAnnouncementKnownLines { get; set; } = new List<string>();
+
+	// Transit-only: currently selected line key for options line editor controls.
+	[DataMember(Order = 17)]
+	public string TransitAnnouncementSelectedLine { get; set; } = string.Empty;
+
+	// Transit-only: user-facing line labels keyed by stable line identity.
+	[DataMember(Order = 18)]
+	public Dictionary<string, string> TransitAnnouncementLineDisplayByKey { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
 	[DataMember(Order = 20)]
 	public long LastCatalogScanUtcTicks { get; set; }
@@ -173,8 +182,33 @@ internal sealed class AudioReplacementDomainConfig
 		CustomProfiles = NormalizeProfiles(CustomProfiles);
 		KnownTargets = NormalizeTargetList(KnownTargets);
 		TargetSelections = NormalizeTargetSelections(TargetSelections, CustomProfiles.Keys);
-		TransitAnnouncementCustomTextByTarget = NormalizeSpeechTextByTarget(TransitAnnouncementCustomTextByTarget);
-		TransitAnnouncementVoiceByService = NormalizeVoiceSelectionMap(TransitAnnouncementVoiceByService);
+		TransitAnnouncementLineSelections = NormalizeTransitLineSelections(TransitAnnouncementLineSelections);
+		TransitAnnouncementKnownLines = NormalizeTransitLineList(TransitAnnouncementKnownLines);
+		TransitAnnouncementSelectedLine = NormalizeTransitLineKey(TransitAnnouncementSelectedLine);
+		TransitAnnouncementLineDisplayByKey = NormalizeTransitLineDisplayMap(TransitAnnouncementLineDisplayByKey);
+		if (!string.IsNullOrWhiteSpace(TransitAnnouncementSelectedLine) &&
+			TransitAnnouncementKnownLines.All(line => !string.Equals(line, TransitAnnouncementSelectedLine, StringComparison.OrdinalIgnoreCase)))
+		{
+			TransitAnnouncementKnownLines.Add(TransitAnnouncementSelectedLine);
+			TransitAnnouncementKnownLines.Sort(StringComparer.OrdinalIgnoreCase);
+		}
+
+		if (string.IsNullOrWhiteSpace(TransitAnnouncementSelectedLine))
+		{
+			TransitAnnouncementSelectedLine = TransitAnnouncementKnownLines.Count > 0
+				? TransitAnnouncementKnownLines[0]
+				: string.Empty;
+		}
+
+		HashSet<string> knownLineSet = new HashSet<string>(TransitAnnouncementKnownLines, StringComparer.OrdinalIgnoreCase);
+		List<string> staleDisplayLineKeys = TransitAnnouncementLineDisplayByKey.Keys
+			.Where(key => !knownLineSet.Contains(NormalizeTransitLineKey(key)))
+			.ToList();
+		for (int i = 0; i < staleDisplayLineKeys.Count; i++)
+		{
+			TransitAnnouncementLineDisplayByKey.Remove(staleDisplayLineKeys[i]);
+		}
+
 		TargetSelectionTarget = NormalizeTargetKey(TargetSelectionTarget);
 		LastCatalogScanChangedFiles = NormalizeTextList(LastCatalogScanChangedFiles);
 		LastValidationReport ??= string.Empty;
@@ -368,17 +402,72 @@ internal sealed class AudioReplacementDomainConfig
 			changed = true;
 		}
 
-		Dictionary<string, string> normalizedCustomText = NormalizeSpeechTextByTarget(TransitAnnouncementCustomTextByTarget);
-		if (!DictionariesEqualIgnoreCase(TransitAnnouncementCustomTextByTarget, normalizedCustomText))
+		Dictionary<string, string> normalizedLineSelections = NormalizeTransitLineSelections(TransitAnnouncementLineSelections);
+		if (available.Count > 0)
 		{
-			TransitAnnouncementCustomTextByTarget = normalizedCustomText;
+			List<string> staleLineOverrideKeys = normalizedLineSelections
+				.Where(pair => !available.Contains(pair.Value))
+				.Select(pair => pair.Key)
+				.ToList();
+			for (int i = 0; i < staleLineOverrideKeys.Count; i++)
+			{
+				normalizedLineSelections.Remove(staleLineOverrideKeys[i]);
+			}
+		}
+
+		if (!DictionariesEqualIgnoreCase(TransitAnnouncementLineSelections, normalizedLineSelections))
+		{
+			TransitAnnouncementLineSelections = normalizedLineSelections;
 			changed = true;
 		}
 
-		Dictionary<string, string> normalizedVoiceSelections = NormalizeVoiceSelectionMap(TransitAnnouncementVoiceByService);
-		if (!DictionariesEqualIgnoreCase(TransitAnnouncementVoiceByService, normalizedVoiceSelections))
+		Dictionary<string, string> normalizedLineDisplayMap = NormalizeTransitLineDisplayMap(TransitAnnouncementLineDisplayByKey);
+		if (!DictionariesEqualIgnoreCase(TransitAnnouncementLineDisplayByKey, normalizedLineDisplayMap))
 		{
-			TransitAnnouncementVoiceByService = normalizedVoiceSelections;
+			TransitAnnouncementLineDisplayByKey = normalizedLineDisplayMap;
+			changed = true;
+		}
+
+		List<string> normalizedKnownLines = NormalizeTransitLineList(TransitAnnouncementKnownLines);
+		if (!ListsEqualIgnoreCase(TransitAnnouncementKnownLines, normalizedKnownLines))
+		{
+			TransitAnnouncementKnownLines = normalizedKnownLines;
+			changed = true;
+		}
+
+		string normalizedSelectedLine = NormalizeTransitLineKey(TransitAnnouncementSelectedLine);
+		if (!string.IsNullOrWhiteSpace(normalizedSelectedLine) &&
+			TransitAnnouncementKnownLines.All(line => !string.Equals(line, normalizedSelectedLine, StringComparison.OrdinalIgnoreCase)))
+		{
+			TransitAnnouncementKnownLines.Add(normalizedSelectedLine);
+			TransitAnnouncementKnownLines.Sort(StringComparer.OrdinalIgnoreCase);
+			changed = true;
+		}
+
+		if (string.IsNullOrWhiteSpace(normalizedSelectedLine))
+		{
+			normalizedSelectedLine = TransitAnnouncementKnownLines.Count > 0
+				? TransitAnnouncementKnownLines[0]
+				: string.Empty;
+		}
+
+		if (!string.Equals(TransitAnnouncementSelectedLine, normalizedSelectedLine, StringComparison.Ordinal))
+		{
+			TransitAnnouncementSelectedLine = normalizedSelectedLine;
+			changed = true;
+		}
+
+		HashSet<string> knownLineSet = new HashSet<string>(TransitAnnouncementKnownLines, StringComparer.OrdinalIgnoreCase);
+		List<string> staleDisplayLineKeys = TransitAnnouncementLineDisplayByKey.Keys
+			.Where(key => !knownLineSet.Contains(NormalizeTransitLineKey(key)))
+			.ToList();
+		if (staleDisplayLineKeys.Count > 0)
+		{
+			for (int i = 0; i < staleDisplayLineKeys.Count; i++)
+			{
+				TransitAnnouncementLineDisplayByKey.Remove(staleDisplayLineKeys[i]);
+			}
+
 			changed = true;
 		}
 
@@ -503,7 +592,7 @@ internal sealed class AudioReplacementDomainConfig
 		return result;
 	}
 
-	private static Dictionary<string, string> NormalizeSpeechTextByTarget(Dictionary<string, string>? source)
+	private static Dictionary<string, string> NormalizeTransitLineDisplayMap(Dictionary<string, string>? source)
 	{
 		Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 		if (source == null)
@@ -513,51 +602,111 @@ internal sealed class AudioReplacementDomainConfig
 
 		foreach (KeyValuePair<string, string> entry in source)
 		{
-			string targetKey = NormalizeTargetKey(entry.Key);
-			if (string.IsNullOrWhiteSpace(targetKey))
-			{
-				continue;
-			}
-
-			// Keep raw user text so spaces are preserved while editing in options UI.
-			string rawText = entry.Value ?? string.Empty;
-			if (string.IsNullOrWhiteSpace(rawText))
-			{
-				continue;
-			}
-
-			result[targetKey] = rawText;
-		}
-
-		return result;
-	}
-
-	private static Dictionary<string, string> NormalizeVoiceSelectionMap(Dictionary<string, string>? source)
-	{
-		Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-		if (source == null)
-		{
-			return result;
-		}
-
-		foreach (KeyValuePair<string, string> entry in source)
-		{
-			string key = NormalizeTargetKey(entry.Key);
+			string key = NormalizeTransitLineKey(entry.Key);
 			if (string.IsNullOrWhiteSpace(key))
 			{
 				continue;
 			}
 
-			string voice = TransitAnnouncementTtsService.NormalizeVoiceSelection(entry.Value ?? string.Empty);
-			if (string.IsNullOrWhiteSpace(voice))
+			string displayName = NormalizeTransitDisplayText(entry.Value);
+			if (string.IsNullOrWhiteSpace(displayName))
 			{
 				continue;
 			}
 
-			result[key] = voice;
+			result[key] = displayName;
 		}
 
 		return result;
+	}
+
+	private static Dictionary<string, string> NormalizeTransitLineSelections(Dictionary<string, string>? source)
+	{
+		Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		if (source == null)
+		{
+			return result;
+		}
+
+		foreach (KeyValuePair<string, string> entry in source)
+		{
+			string key = NormalizeTransitLineKey(entry.Key);
+			if (string.IsNullOrWhiteSpace(key))
+			{
+				continue;
+			}
+
+			string selection = NormalizeSelection(entry.Value);
+			if (IsDefaultSelection(selection))
+			{
+				continue;
+			}
+
+			result[key] = selection;
+		}
+
+		return result;
+	}
+
+	private static List<string> NormalizeTransitLineList(List<string>? source)
+	{
+		List<string> result = new List<string>();
+		if (source == null)
+		{
+			return result;
+		}
+
+		HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		for (int i = 0; i < source.Count; i++)
+		{
+			string key = NormalizeTransitLineKey(source[i]);
+			if (string.IsNullOrWhiteSpace(key) || !seen.Add(key))
+			{
+				continue;
+			}
+
+			result.Add(key);
+		}
+
+		result.Sort(StringComparer.OrdinalIgnoreCase);
+		return result;
+	}
+
+	internal static string NormalizeTransitLineKey(string? key)
+	{
+		string normalized = key?.Trim() ?? string.Empty;
+		return normalized;
+	}
+
+	internal static string NormalizeTransitDisplayText(string? text)
+	{
+		string value = text ?? string.Empty;
+		if (string.IsNullOrWhiteSpace(value))
+		{
+			return string.Empty;
+		}
+
+		StringBuilder builder = new StringBuilder(value.Length);
+		bool sawWhitespace = false;
+		for (int i = 0; i < value.Length; i++)
+		{
+			char c = value[i];
+			if (char.IsWhiteSpace(c))
+			{
+				sawWhitespace = true;
+				continue;
+			}
+
+			if (sawWhitespace && builder.Length > 0)
+			{
+				builder.Append(' ');
+			}
+
+			builder.Append(c);
+			sawWhitespace = false;
+		}
+
+		return builder.ToString().Trim();
 	}
 
 	private static Dictionary<string, string> NormalizeTargetSelections(

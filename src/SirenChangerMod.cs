@@ -161,7 +161,6 @@ public sealed partial class SirenChangerMod : IMod
 		s_DefaultSirenPreviewClip = null;
 		s_DefaultVehicleEnginePreviewClip = null;
 		s_DefaultAmbientPreviewClip = null;
-		TransitAnnouncementTtsService.Release();
 		TransitAnnouncementAudioPlayer.Release();
 		WaveClipLoader.ReleaseLoadedClips();
 	}
@@ -1006,6 +1005,7 @@ public sealed partial class SirenChangerMod : IMod
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kGeneralGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kCitySoundSetGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kTransitAnnouncementGroup);
+		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kTransitAnnouncementLineGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kVehicleGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kVehicleOverrideGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kFallbackGroup);
@@ -1119,8 +1119,10 @@ public sealed partial class SirenChangerMod : IMod
 		s_AmbientTargetDropdown = Array.Empty<DropdownItem<string>>();
 		s_TransitAnnouncementDropdownCacheVersion = -1;
 		s_TransitAnnouncementDropdownWithDefault = Array.Empty<DropdownItem<string>>();
-		s_TransitAnnouncementVoiceDropdownCacheVersion = -1;
-		s_TransitAnnouncementVoiceDropdown = Array.Empty<DropdownItem<string>>();
+		s_TransitAnnouncementLineServiceDropdownCacheVersion = -1;
+		s_TransitAnnouncementLineServiceDropdown = Array.Empty<DropdownItem<string>>();
+		s_TransitAnnouncementLineDropdownCacheVersion = -1;
+		s_TransitAnnouncementLineDropdown = Array.Empty<DropdownItem<string>>();
 	}
 
 		// Update scan telemetry fields for one generic domain config.

@@ -1,8 +1,11 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.Serialization;
+using Colossal.IO.AssetDatabase;
 using Colossal.Logging;
 using Game.Modding;
 using Game.SceneFlow;
@@ -30,6 +33,10 @@ internal static class AudioModuleCatalog
 	private static string[] s_ModuleRoots = Array.Empty<string>();
 
 	private const int kRootPriorityActiveLoadedMod = 0;
+
+	private const int kRootPriorityActiveParadoxMod = 10;
+
+	private const int kRootPriorityKnownModuleRootScan = 20;
 
 	internal static bool Refresh(ILog log, string currentModRootPath)
 	{
@@ -157,7 +164,7 @@ internal static class AudioModuleCatalog
 
 	private static List<string> CollectCandidateRoots(string currentModRootPath)
 	{
-		// Discover module roots from mods that are active in the current playset/session only.
+		// Discover module roots from active executable mods, active PDX mods, and known module containers.
 		Dictionary<string, int> roots = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 		string currentRoot = string.Empty;
 		if (!string.IsNullOrWhiteSpace(currentModRootPath))
@@ -166,6 +173,8 @@ internal static class AudioModuleCatalog
 		}
 
 		AddActiveExecutableRoots(roots, currentRoot);
+		AddActiveParadoxModRoots(roots, currentRoot);
+		AddKnownModuleRoots(roots, currentRoot);
 		return roots
 			.OrderBy(static pair => pair.Value)
 			.ThenBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase)
@@ -213,6 +222,264 @@ internal static class AudioModuleCatalog
 			string? rootPath = Path.GetDirectoryName(assetPath);
 			AddRoot(roots, rootPath, currentModRootPath, kRootPriorityActiveLoadedMod);
 		}
+	}
+
+	private static void AddActiveParadoxModRoots(IDictionary<string, int> roots, string currentModRootPath)
+	{
+		try
+		{
+			if (!(AssetDatabase<ParadoxMods>.instance?.dataSource is ParadoxModsDataSource dataSource))
+			{
+				return;
+			}
+
+			string paradoxModsRoot = SafeGetFullPath(dataSource.rootPath ?? string.Empty);
+			MethodInfo? getActiveModsMethod = dataSource.GetType().GetMethod("GetActiveMods", BindingFlags.Public | BindingFlags.Instance);
+			if (getActiveModsMethod == null)
+			{
+				return;
+			}
+
+			object? activeModsObject = getActiveModsMethod.Invoke(dataSource, null);
+			if (!(activeModsObject is IEnumerable activeMods))
+			{
+				return;
+			}
+
+			foreach (object activeMod in activeMods)
+			{
+				string modPath = ReadParadoxModPath(activeMod);
+				if (!TryResolveModRootPath(modPath, paradoxModsRoot, out string resolvedRoot))
+				{
+					continue;
+				}
+
+				AddRoot(roots, resolvedRoot, currentModRootPath, kRootPriorityActiveParadoxMod);
+				AddContentRootVariants(roots, resolvedRoot, currentModRootPath, kRootPriorityActiveParadoxMod);
+			}
+		}
+		catch
+		{
+			// PDX source availability can vary during bootstrap; keep executable-mod discovery active.
+		}
+	}
+
+	private static string ReadParadoxModPath(object modRecord)
+	{
+		if (modRecord == null)
+		{
+			return string.Empty;
+		}
+
+		Type type = modRecord.GetType();
+		FieldInfo? pathField = type.GetField("path", BindingFlags.Public | BindingFlags.Instance);
+		if (pathField != null && pathField.FieldType == typeof(string))
+		{
+			return (pathField.GetValue(modRecord) as string ?? string.Empty).Trim();
+		}
+
+		PropertyInfo? pathProperty = type.GetProperty("path", BindingFlags.Public | BindingFlags.Instance);
+		if (pathProperty != null && pathProperty.PropertyType == typeof(string))
+		{
+			return (pathProperty.GetValue(modRecord, null) as string ?? string.Empty).Trim();
+		}
+
+		return string.Empty;
+	}
+
+	private static void AddKnownModuleRoots(IDictionary<string, int> roots, string currentModRootPath)
+	{
+		Dictionary<string, int> containers = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+		if (!string.IsNullOrWhiteSpace(currentModRootPath))
+		{
+			string? localModsRoot = Path.GetDirectoryName(currentModRootPath);
+			if (!string.IsNullOrWhiteSpace(localModsRoot))
+			{
+				string normalized = SafeGetFullPath(localModsRoot);
+				if (!string.IsNullOrWhiteSpace(normalized) && Directory.Exists(normalized))
+				{
+					AddContainerDepth(containers, normalized, 1);
+				}
+			}
+		}
+
+		try
+		{
+			if (AssetDatabase<ParadoxMods>.instance?.dataSource is ParadoxModsDataSource dataSource)
+			{
+				string paradoxModsRoot = SafeGetFullPath(dataSource.rootPath ?? string.Empty);
+				if (!string.IsNullOrWhiteSpace(paradoxModsRoot) && Directory.Exists(paradoxModsRoot))
+				{
+					AddContainerDepth(containers, paradoxModsRoot, 2);
+				}
+			}
+		}
+		catch
+		{
+			// Best-effort only.
+		}
+
+		foreach (KeyValuePair<string, int> container in containers)
+		{
+			AddManifestRootsFromContainer(roots, container.Key, currentModRootPath, kRootPriorityKnownModuleRootScan, container.Value);
+		}
+	}
+
+	private static void AddContainerDepth(IDictionary<string, int> containers, string path, int maxDepth)
+	{
+		if (containers.TryGetValue(path, out int existingDepth))
+		{
+			if (maxDepth > existingDepth)
+			{
+				containers[path] = maxDepth;
+			}
+
+			return;
+		}
+
+		containers.Add(path, maxDepth);
+	}
+
+	private static void AddManifestRootsFromContainer(
+		IDictionary<string, int> roots,
+		string containerPath,
+		string currentModRootPath,
+		int priority,
+		int maxDepth)
+	{
+		AddManifestRootIfPresent(roots, containerPath, currentModRootPath, priority);
+		if (maxDepth < 1)
+		{
+			return;
+		}
+
+		string[] firstLevel = EnumerateDirectoriesSafe(containerPath);
+		for (int i = 0; i < firstLevel.Length; i++)
+		{
+			string first = firstLevel[i];
+			AddManifestRootIfPresent(roots, first, currentModRootPath, priority);
+			if (maxDepth < 2)
+			{
+				continue;
+			}
+
+			string[] secondLevel = EnumerateDirectoriesSafe(first);
+			for (int j = 0; j < secondLevel.Length; j++)
+			{
+				AddManifestRootIfPresent(roots, secondLevel[j], currentModRootPath, priority);
+			}
+		}
+	}
+
+	private static void AddManifestRootIfPresent(IDictionary<string, int> roots, string rootPath, string currentModRootPath, int priority)
+	{
+		string normalizedRoot = SafeGetFullPath(rootPath);
+		if (string.IsNullOrWhiteSpace(normalizedRoot) || !Directory.Exists(normalizedRoot))
+		{
+			return;
+		}
+
+		if (HasManifestAtRoot(normalizedRoot))
+		{
+			AddRoot(roots, normalizedRoot, currentModRootPath, priority);
+		}
+
+		string contentRoot = Path.Combine(normalizedRoot, "content");
+		if (HasManifestAtRoot(contentRoot))
+		{
+			AddRoot(roots, contentRoot, currentModRootPath, priority);
+		}
+
+		string contentRootCapitalized = Path.Combine(normalizedRoot, "Content");
+		if (HasManifestAtRoot(contentRootCapitalized))
+		{
+			AddRoot(roots, contentRootCapitalized, currentModRootPath, priority);
+		}
+	}
+
+	private static void AddContentRootVariants(IDictionary<string, int> roots, string rootPath, string currentModRootPath, int priority)
+	{
+		AddRoot(roots, Path.Combine(rootPath, "content"), currentModRootPath, priority);
+		AddRoot(roots, Path.Combine(rootPath, "Content"), currentModRootPath, priority);
+	}
+
+	private static string[] EnumerateDirectoriesSafe(string path)
+	{
+		if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+		{
+			return Array.Empty<string>();
+		}
+
+		try
+		{
+			return Directory.GetDirectories(path);
+		}
+		catch
+		{
+			return Array.Empty<string>();
+		}
+	}
+
+	private static bool TryResolveModRootPath(string rawPath, string modsRootPath, out string resolvedRoot)
+	{
+		resolvedRoot = string.Empty;
+		string normalizedRaw = (rawPath ?? string.Empty).Trim();
+		if (string.IsNullOrWhiteSpace(normalizedRaw))
+		{
+			return false;
+		}
+
+		normalizedRaw = normalizedRaw
+			.Replace('/', Path.DirectorySeparatorChar)
+			.Replace('\\', Path.DirectorySeparatorChar);
+		if (TryResolveExistingDirectoryPath(normalizedRaw, out resolvedRoot))
+		{
+			return true;
+		}
+
+		if (Path.IsPathRooted(normalizedRaw) || string.IsNullOrWhiteSpace(modsRootPath))
+		{
+			return false;
+		}
+
+		string combined = Path.Combine(modsRootPath, normalizedRaw);
+		return TryResolveExistingDirectoryPath(combined, out resolvedRoot);
+	}
+
+	private static bool TryResolveExistingDirectoryPath(string inputPath, out string resolvedPath)
+	{
+		resolvedPath = string.Empty;
+		string normalized = SafeGetFullPath(inputPath);
+		if (string.IsNullOrWhiteSpace(normalized))
+		{
+			return false;
+		}
+
+		if (Directory.Exists(normalized))
+		{
+			resolvedPath = normalized;
+			return true;
+		}
+
+		if (!File.Exists(normalized))
+		{
+			return false;
+		}
+
+		string? parent = Path.GetDirectoryName(normalized);
+		if (string.IsNullOrWhiteSpace(parent))
+		{
+			return false;
+		}
+
+		string normalizedParent = SafeGetFullPath(parent);
+		if (string.IsNullOrWhiteSpace(normalizedParent) || !Directory.Exists(normalizedParent))
+		{
+			return false;
+		}
+
+		resolvedPath = normalizedParent;
+		return true;
 	}
 
 	// Query enabled-mod names from the currently selected playset.
@@ -480,6 +747,16 @@ internal static class AudioModuleCatalog
 		}
 
 		return string.Empty;
+	}
+
+	private static bool HasManifestAtRoot(string rootPath)
+	{
+		if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
+		{
+			return false;
+		}
+
+		return !string.IsNullOrWhiteSpace(ResolveManifestPath(rootPath));
 	}
 
 	private static string BuildModuleId(AudioModuleManifest manifest, string rootPath)
