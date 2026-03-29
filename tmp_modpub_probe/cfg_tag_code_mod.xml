@@ -1,0 +1,11 @@
+<Publish>
+  <DisplayName Value="Probe Code Mod Tag" />
+  <ShortDescription Value="Probe" />
+  <LongDescription>Probe</LongDescription>
+  <Thumbnail Value="../Images/Audio Switcher Logo.png" />
+  <ChangeLog Value="Probe" />
+  <ModVersion Value="0.0.1" />
+  <GameVersion Value="1.*" />
+  <Tag Value="Code Mod" />
+  <AccessLevel Value="Private" />
+</Publish>

@@ -788,7 +788,7 @@ internal static class AudioModuleCatalog
 		for (int i = 0; i < chars.Length; i++)
 		{
 			char c = chars[i];
-			if (char.IsLetterOrDigit(c) || c == '-' || c == '_')
+			if (char.IsLetterOrDigit(c) || c == '.' || c == '-' || c == '_')
 			{
 				continue;
 			}
@@ -802,7 +802,7 @@ internal static class AudioModuleCatalog
 			normalized = normalized.Replace("--", "-", StringComparison.Ordinal);
 		}
 
-		normalized = normalized.Trim('-');
+		normalized = normalized.Trim('-', '.');
 		if (string.IsNullOrWhiteSpace(normalized))
 		{
 			return string.Empty;

@@ -667,10 +667,15 @@ public sealed partial class SirenChangerMod : IMod
 		s_AmbientTargetDropdownCacheVersion = -1;
 		s_AmbientTargetDropdown = Array.Empty<DropdownItem<string>>();
 	}
-// Set the selected vehicle prefab used by options to edit per-vehicle overrides.
+	// Set the selected vehicle prefab used by options to edit per-vehicle overrides.
 	internal static void SetVehiclePrefabSelectionTargetFromOptions(string vehiclePrefabName)
 	{
+		string previous = Config.VehiclePrefabSelectionTarget;
 		Config.SetVehiclePrefabSelectionTarget(vehiclePrefabName);
+		if (!string.Equals(previous, Config.VehiclePrefabSelectionTarget, StringComparison.Ordinal))
+		{
+			OptionsVersion++;
+		}
 	}
 
 	// Read override value for currently selected vehicle prefab in options UI.
@@ -694,7 +699,10 @@ public sealed partial class SirenChangerMod : IMod
 			return;
 		}
 
-		Config.SetVehiclePrefabSelection(key, selection);
+		if (Config.SetVehiclePrefabSelection(key, selection))
+		{
+			OptionsVersion++;
+		}
 	}
 
 	// Read-only status text shown under per-vehicle override controls.
@@ -1029,7 +1037,7 @@ public sealed partial class SirenChangerMod : IMod
 
 		AddOptionGroupLocalization(entries, settings, "Siren Scan Actions");
 		AddOptionGroupLocalization(entries, settings, "City Sound Set Actions");
-		AddOptionGroupLocalization(entries, settings, "Transit Announcement Actions");
+		AddOptionGroupLocalization(entries, settings, "Transit Setup Actions");
 		AddOptionGroupLocalization(entries, settings, "Engine Scan Actions");
 		AddOptionGroupLocalization(entries, settings, "Ambient Scan Actions");
 		AddOptionGroupLocalization(entries, settings, "Siren Include Actions");

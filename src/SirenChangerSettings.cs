@@ -9,14 +9,14 @@ using UnityEngine.Scripting;
 namespace SirenChanger;
 
 [SettingsUITabOrder(kGeneralTab, kPublicTransportTab, kSirensTab, kVehiclesTab, kAmbientTab, kDeveloperTab)]
-[SettingsUIGroupOrder(kGeneralGroup, kCitySoundSetGroup, kTransitAnnouncementGroup, kTransitAnnouncementLineGroup, kTransitAnnouncementTrainGroup, kTransitAnnouncementBusGroup, kTransitAnnouncementMetroGroup, kTransitAnnouncementTramGroup, kVehicleGroup, kVehicleOverrideGroup, kFallbackGroup, kProfileGroup, kDiagnosticsGroup, kVehicleSetupGroup, kVehicleOverrideTargetGroup, kVehicleFallbackGroup, kVehicleProfileGroup, kAmbientSetupGroup, kAmbientTargetGroup, kAmbientFallbackGroup, kAmbientProfileGroup, kDeveloperSirenGroup, kDeveloperEngineGroup, kDeveloperAmbientGroup, kDeveloperModuleGroup)]
+[SettingsUIGroupOrder(kGeneralGroup, kCitySoundSetGroup, kTransitAnnouncementGroup, kTransitAnnouncementLineGroup, kVehicleGroup, kVehicleOverrideGroup, kFallbackGroup, kProfileGroup, kDiagnosticsGroup, kVehicleSetupGroup, kVehicleOverrideTargetGroup, kVehicleFallbackGroup, kVehicleProfileGroup, kAmbientSetupGroup, kAmbientTargetGroup, kAmbientFallbackGroup, kAmbientProfileGroup, kDeveloperSirenGroup, kDeveloperEngineGroup, kDeveloperAmbientGroup, kDeveloperModuleGroup)]
 [SettingsUIShowGroupName]
 // Options UI binding surface for all configurable siren changer behavior.
 public sealed partial class SirenChangerSettings : ModSetting
 {
 	public const string kGeneralTab = "General";
 
-	public const string kPublicTransportTab = "Public Transport";
+	public const string kPublicTransportTab = "Public Transport Audio";
 
 	public const string kSirensTab = "Sirens";
 
@@ -28,17 +28,9 @@ public sealed partial class SirenChangerSettings : ModSetting
 
 	public const string kCitySoundSetGroup = "City Sound Sets";
 
-	public const string kTransitAnnouncementGroup = "Announcement Settings";
+	public const string kTransitAnnouncementGroup = "Global Announcement Settings";
 
-	public const string kTransitAnnouncementLineGroup = "Line Overrides";
-
-	public const string kTransitAnnouncementTrainGroup = "Train";
-
-	public const string kTransitAnnouncementBusGroup = "Bus";
-
-	public const string kTransitAnnouncementMetroGroup = "Metro";
-
-	public const string kTransitAnnouncementTramGroup = "Tram";
+	public const string kTransitAnnouncementLineGroup = "Per-Line Overrides";
 
 	public const string kVehicleGroup = "Siren Defaults";
 
@@ -91,6 +83,7 @@ public sealed partial class SirenChangerSettings : ModSetting
 
 	[SettingsUISection(kSirensTab, kGeneralGroup)]
 	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Emergency Vehicle Prefab Scan Status")]
 	[SettingsUIDescription(overrideValue: "Shows the last emergency vehicle prefab scan time and summary.")]
 	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowEmergencyVehicleScanWarning))]
@@ -337,6 +330,7 @@ public sealed partial class SirenChangerSettings : ModSetting
 
 	[SettingsUISection(kSirensTab, kVehicleOverrideGroup)]
 	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Siren Override Status")]
 	[SettingsUIDescription(overrideValue: "Shows whether this prefab uses defaults or a specific siren override.")]
 	public string SpecificVehicleOverrideStatus => SirenChangerMod.GetSelectedVehicleOverrideStatusText();
@@ -397,6 +391,7 @@ public sealed partial class SirenChangerSettings : ModSetting
 
 	[SettingsUISection(kSirensTab, kProfileGroup)]
 	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Preview Status")]
 	[SettingsUIDescription(overrideValue: "Shows the result of the last preview action.")]
 	public string PreviewStatus => SirenChangerMod.GetPreviewStatusText();

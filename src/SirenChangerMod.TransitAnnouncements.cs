@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Game.UI.Widgets;
+using Unity.Entities;
 using UnityEngine;
 
 namespace SirenChanger;
@@ -68,7 +69,7 @@ public sealed partial class SirenChangerMod
 
 	internal static AudioReplacementDomainConfig TransitAnnouncementConfig { get; private set; } = AudioReplacementDomainConfig.CreateDefault(TransitAnnouncementCustomFolderName);
 
-	// Canonical target keys used as stable slots in TargetSelections.
+	// Canonical slot keys used when storing per-line overrides.
 	private static readonly string[] s_TransitAnnouncementLeadTargetKeys =
 	{
 		"train.arrival",
@@ -80,22 +81,6 @@ public sealed partial class SirenChangerMod
 		"tram.arrival",
 		"tram.departure"
 	};
-
-	// Canonical target keys for optional trailing clips in the sequence.
-	private static readonly string[] s_TransitAnnouncementTailTargetKeys =
-	{
-		"train.arrival.tail",
-		"train.departure.tail",
-		"bus.arrival.tail",
-		"bus.departure.tail",
-		"metro.arrival.tail",
-		"metro.departure.tail",
-		"tram.arrival.tail",
-		"tram.departure.tail"
-	};
-
-	private static readonly string[] s_TransitAnnouncementSelectionTargetKeys =
-		s_TransitAnnouncementLeadTargetKeys.Concat(s_TransitAnnouncementTailTargetKeys).ToArray();
 
 	private static readonly string[] s_TransitAnnouncementServiceVoiceKeys =
 	{
@@ -120,6 +105,9 @@ public sealed partial class SirenChangerMod
 	private static TransitAnnouncementServiceType s_TransitAnnouncementLineEditorService = TransitAnnouncementServiceType.Train;
 
 	private static readonly HashSet<string> s_ObservedTransitLinesThisSession = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+	private static string s_LastTransitLineScanStatus =
+		"No scan run yet. Click Scan Transit Lines in a loaded city session.";
 
 	// Sync transit-announcement custom files to profile keys and refresh scan metadata.
 	internal static bool SyncCustomTransitAnnouncementCatalog(bool saveIfChanged, bool forceStatusRefresh = false)
@@ -204,6 +192,49 @@ public sealed partial class SirenChangerMod
 		{
 			NotifyOptionsCatalogChanged();
 		}
+	}
+
+	// Scan active worlds for transit lines so per-line overrides can be prepared without waiting for announcements.
+	internal static void RefreshTransitLinesFromOptions()
+	{
+		HashSet<string> knownBefore = new HashSet<string>(
+			(TransitAnnouncementConfig.TransitAnnouncementKnownLines ?? new List<string>())
+			.Select(NormalizeTransitLineIdentity)
+			.Where(static key => !string.IsNullOrWhiteSpace(key)),
+			StringComparer.OrdinalIgnoreCase);
+
+		if (!TryScanTransitLines(
+				out int scannedWorldCount,
+				out int scannedVehicleCount,
+				out int observedLineCount,
+				out string status))
+		{
+			s_LastTransitLineScanStatus = status;
+			OptionsVersion++;
+			return;
+		}
+
+		HashSet<string> knownAfter = new HashSet<string>(
+			(TransitAnnouncementConfig.TransitAnnouncementKnownLines ?? new List<string>())
+			.Select(NormalizeTransitLineIdentity)
+			.Where(static key => !string.IsNullOrWhiteSpace(key)),
+			StringComparer.OrdinalIgnoreCase);
+		int addedCount = knownAfter.Count(line => !knownBefore.Contains(line));
+		if (addedCount > 0)
+		{
+			SaveConfig();
+			ConfigVersion++;
+		}
+
+		s_LastTransitLineScanStatus =
+			$"{status}\nScanned worlds: {scannedWorldCount}, vehicles: {scannedVehicleCount}, observed lines: {observedLineCount}\nAdded new lines: {addedCount}\nKnown lines total: {knownAfter.Count}";
+		OptionsVersion++;
+	}
+
+	// Status text for the last explicit transit-line scan action.
+	internal static string GetTransitLineScanStatusText()
+	{
+		return s_LastTransitLineScanStatus;
 	}
 
 	// Clear per-session observed-line memory when loading a new city/session.
@@ -384,7 +415,7 @@ public sealed partial class SirenChangerMod
 		string selectedLine = GetTransitAnnouncementSelectedLineForOptions();
 		if (string.IsNullOrWhiteSpace(selectedLine))
 		{
-			return $"No {GetTransitAnnouncementServiceLabel(s_TransitAnnouncementLineEditorService).ToLowerInvariant()} lines detected yet. Drive a line in this city to populate overrides.";
+			return $"No {GetTransitAnnouncementServiceLabel(s_TransitAnnouncementLineEditorService).ToLowerInvariant()} lines detected yet. Drive a line in this city or click Scan Transit Lines to populate overrides.";
 		}
 
 		if (!TryParseTransitLineIdentity(selectedLine, out TransitAnnouncementServiceType serviceType, out string lineStableId))
@@ -400,10 +431,10 @@ public sealed partial class SirenChangerMod
 		string arrivalSelection = GetTransitAnnouncementLineSelection(ResolveServiceSlot(serviceType, isArrival: true), selectedLine);
 		string departureSelection = GetTransitAnnouncementLineSelection(ResolveServiceSlot(serviceType, isArrival: false), selectedLine);
 		string arrivalText = AudioReplacementDomainConfig.IsDefaultSelection(arrivalSelection)
-			? "Default"
+			? "None"
 			: FormatSirenDisplayName(arrivalSelection);
 		string departureText = AudioReplacementDomainConfig.IsDefaultSelection(departureSelection)
-			? "Default"
+			? "None"
 			: FormatSirenDisplayName(departureSelection);
 		return $"Line: {lineDisplayName}\nLine ID: {lineStableId}\nService: {GetTransitAnnouncementServiceLabel(serviceType)}\nArrival override: {arrivalText}\nDeparture override: {departureText}";
 	}
@@ -478,38 +509,6 @@ public sealed partial class SirenChangerMod
 		return $"{BuildDomainCatalogScanStatusText(TransitAnnouncementConfig, "Rescan Custom Announcement Files")}\nFolder: {folderPath}";
 	}
 
-	// Read one slot lead-in selection value.
-	internal static string GetTransitAnnouncementSelection(TransitAnnouncementSlot slot)
-	{
-		return GetTransitAnnouncementLeadSelection(slot);
-	}
-
-	// Update one slot lead-in selection value.
-	internal static void SetTransitAnnouncementSelection(TransitAnnouncementSlot slot, string selection)
-	{
-		SetTransitAnnouncementLeadSelection(slot, selection);
-	}
-
-	internal static string GetTransitAnnouncementLeadSelection(TransitAnnouncementSlot slot)
-	{
-		return TransitAnnouncementConfig.GetTargetSelection(GetTransitAnnouncementLeadTargetKey(slot));
-	}
-
-	internal static void SetTransitAnnouncementLeadSelection(TransitAnnouncementSlot slot, string selection)
-	{
-		TransitAnnouncementConfig.SetTargetSelection(GetTransitAnnouncementLeadTargetKey(slot), selection);
-	}
-
-	internal static string GetTransitAnnouncementTailSelection(TransitAnnouncementSlot slot)
-	{
-		return TransitAnnouncementConfig.GetTargetSelection(GetTransitAnnouncementTailTargetKey(slot));
-	}
-
-	internal static void SetTransitAnnouncementTailSelection(TransitAnnouncementSlot slot, string selection)
-	{
-		TransitAnnouncementConfig.SetTargetSelection(GetTransitAnnouncementTailTargetKey(slot), selection);
-	}
-
 	// Build the full step sequence for one transit event without TTS dependencies.
 	internal static TransitAnnouncementLoadStatus TryBuildTransitAnnouncementSequence(
 		TransitAnnouncementSlot slot,
@@ -517,7 +516,7 @@ public sealed partial class SirenChangerMod
 		out List<TransitAnnouncementPlaybackSegment> segments,
 		out string message)
 	{
-		segments = new List<TransitAnnouncementPlaybackSegment>(2);
+		segments = new List<TransitAnnouncementPlaybackSegment>(1);
 		message = string.Empty;
 		if (!TransitAnnouncementConfig.Enabled)
 		{
@@ -545,25 +544,6 @@ public sealed partial class SirenChangerMod
 			pendingMessage = primaryMessage;
 		}
 
-		TransitAnnouncementLoadStatus tailStatus = TryAppendConfiguredAudioStep(
-			GetTransitAnnouncementTailSelection(slot),
-			"Tail audio",
-			segments,
-			out string tailMessage);
-		if (tailStatus == TransitAnnouncementLoadStatus.Failure)
-		{
-			message = tailMessage;
-			return TransitAnnouncementLoadStatus.Failure;
-		}
-
-		if (tailStatus == TransitAnnouncementLoadStatus.Pending)
-		{
-			hasPendingStep = true;
-			pendingMessage = string.IsNullOrWhiteSpace(pendingMessage)
-				? tailMessage
-				: pendingMessage;
-		}
-
 		if (hasPendingStep)
 		{
 			message = string.IsNullOrWhiteSpace(pendingMessage)
@@ -582,93 +562,25 @@ public sealed partial class SirenChangerMod
 		return TransitAnnouncementLoadStatus.Success;
 	}
 
-	// Resolve and load one slot lead-in clip using current config selections.
-	internal static TransitAnnouncementLoadStatus TryLoadTransitAnnouncementClip(
-		TransitAnnouncementSlot slot,
-		out AudioClip clip,
-		out SirenSfxProfile profile,
-		out string message)
-	{
-		return TryLoadTransitAnnouncementSelectionWithFallback(
-			GetTransitAnnouncementLeadSelection(slot),
-			out clip,
-			out profile,
-			out message);
-	}
-
 	private static TransitAnnouncementLoadStatus TryAppendPrimaryTransitAnnouncementStep(
 		TransitAnnouncementSlot slot,
 		string lineKey,
 		ICollection<TransitAnnouncementPlaybackSegment> segments,
 		out string message)
 	{
-		string defaultLeadSelection = GetTransitAnnouncementLeadSelection(slot);
 		string normalizedLineKey = NormalizeTransitLineIdentity(lineKey);
 		if (string.IsNullOrWhiteSpace(normalizedLineKey))
 		{
-			return TryAppendConfiguredAudioStep(
-				defaultLeadSelection,
-				"Primary announcement audio",
-				segments,
-				out message);
+			message = "Transit line could not be resolved for this vehicle.";
+			return TransitAnnouncementLoadStatus.NotConfigured;
 		}
 
 		string lineOverrideSelection = GetTransitAnnouncementLineSelection(slot, normalizedLineKey);
-		if (AudioReplacementDomainConfig.IsDefaultSelection(lineOverrideSelection))
-		{
-			return TryAppendConfiguredAudioStep(
-				defaultLeadSelection,
-				"Primary announcement audio",
-				segments,
-				out message);
-		}
-
-		TransitAnnouncementLoadStatus lineOverrideStatus = TryLoadTransitAnnouncementSelection(
-			AudioReplacementDomainConfig.NormalizeProfileKey(lineOverrideSelection),
-			out AudioClip lineClip,
-			out SirenSfxProfile lineProfile,
-			out string lineOverrideMessage);
-		if (lineOverrideStatus == TransitAnnouncementLoadStatus.Success)
-		{
-			segments.Add(new TransitAnnouncementPlaybackSegment(lineClip, lineProfile));
-			message = "Primary announcement loaded from line override.";
-			return TransitAnnouncementLoadStatus.Success;
-		}
-
-		if (lineOverrideStatus == TransitAnnouncementLoadStatus.Pending)
-		{
-			message = string.IsNullOrWhiteSpace(lineOverrideMessage)
-				? "Line override audio is still loading."
-				: lineOverrideMessage;
-			return TransitAnnouncementLoadStatus.Pending;
-		}
-
-		TransitAnnouncementLoadStatus fallbackStatus = TryAppendConfiguredAudioStep(
-			defaultLeadSelection,
-			"Primary announcement audio fallback",
+		return TryAppendConfiguredAudioStep(
+			lineOverrideSelection,
+			"Line announcement audio",
 			segments,
-			out string fallbackMessage);
-		switch (fallbackStatus)
-		{
-			case TransitAnnouncementLoadStatus.Success:
-				message =
-					$"Line override failed ({lineOverrideMessage}). Falling back to slot default lead clip.";
-				return TransitAnnouncementLoadStatus.Success;
-			case TransitAnnouncementLoadStatus.Pending:
-				message = string.IsNullOrWhiteSpace(fallbackMessage)
-					? "Slot default lead clip is still loading after line override failed."
-					: fallbackMessage;
-				return TransitAnnouncementLoadStatus.Pending;
-			case TransitAnnouncementLoadStatus.NotConfigured:
-				message = string.IsNullOrWhiteSpace(fallbackMessage)
-					? $"Line override failed ({lineOverrideMessage}) and no slot default lead clip is configured."
-					: fallbackMessage;
-				return TransitAnnouncementLoadStatus.NotConfigured;
-			default:
-				message =
-					$"Line override failed ({lineOverrideMessage}) and slot default lead clip failed ({fallbackMessage}).";
-				return TransitAnnouncementLoadStatus.Failure;
-		}
+			out message);
 	}
 
 	private static TransitAnnouncementLoadStatus TryAppendConfiguredAudioStep(
@@ -838,10 +750,87 @@ public sealed partial class SirenChangerMod
 		return TransitAnnouncementLoadStatus.Success;
 	}
 
-	// Keep slot target keys present so per-slot selections persist safely.
+	// Transit announcements are now line-only; remove any legacy slot target selections.
 	internal static bool NormalizeTransitAnnouncementTargets()
 	{
-		return TransitAnnouncementConfig.SynchronizeTargets(s_TransitAnnouncementSelectionTargetKeys);
+		bool changed = false;
+		if (TransitAnnouncementConfig.TargetSelections.Count > 0)
+		{
+			TransitAnnouncementConfig.TargetSelections.Clear();
+			changed = true;
+		}
+
+		if (TransitAnnouncementConfig.KnownTargets.Count > 0)
+		{
+			TransitAnnouncementConfig.KnownTargets.Clear();
+			changed = true;
+		}
+
+		if (!string.IsNullOrWhiteSpace(TransitAnnouncementConfig.TargetSelectionTarget))
+		{
+			TransitAnnouncementConfig.TargetSelectionTarget = string.Empty;
+			changed = true;
+		}
+
+		return changed;
+	}
+
+	// Run one explicit transit-line scan across currently loaded worlds.
+	private static bool TryScanTransitLines(
+		out int scannedWorldCount,
+		out int scannedVehicleCount,
+		out int observedLineCount,
+		out string status)
+	{
+		scannedWorldCount = 0;
+		scannedVehicleCount = 0;
+		observedLineCount = 0;
+		status = string.Empty;
+
+		string firstFailure = string.Empty;
+		var worlds = World.All;
+		for (int i = 0; i < worlds.Count; i++)
+		{
+			World world = worlds[i];
+			if (world == null || !world.IsCreated)
+			{
+				continue;
+			}
+
+			TransitAnnouncementSystem? transitSystem = world.GetExistingSystemManaged<TransitAnnouncementSystem>();
+			if (transitSystem == null)
+			{
+				continue;
+			}
+
+			if (!transitSystem.TryScanTransitLinesForOptions(
+					out int worldVehicleCount,
+					out int worldObservedLineCount,
+					out string worldStatus))
+			{
+				if (string.IsNullOrWhiteSpace(firstFailure) && !string.IsNullOrWhiteSpace(worldStatus))
+				{
+					firstFailure = worldStatus;
+				}
+
+				continue;
+			}
+
+			scannedWorldCount++;
+			scannedVehicleCount += worldVehicleCount;
+			observedLineCount += worldObservedLineCount;
+		}
+
+		if (scannedWorldCount == 0)
+		{
+			status = string.IsNullOrWhiteSpace(firstFailure)
+				? "No active transit simulation world is available. Load a city and retry."
+				: firstFailure;
+			return false;
+		}
+
+		status = $"Last scan: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+		return true;
 	}
 
 	// Keep transit line selections and known-line metadata aligned and normalized.
@@ -1124,15 +1113,13 @@ public sealed partial class SirenChangerMod
 		string overrideKey = BuildTransitLineOverrideKey(slotKey, normalizedLineKey);
 		if (!TryGetTransitAnnouncementSelectionByOverrideKey(overrideKey, out string selection))
 		{
-			// Compatibility fallback for overrides created before stable route IDs were introduced.
-			if (TryParseTransitLineIdentity(normalizedLineKey, out TransitAnnouncementServiceType serviceType, out _) &&
-				TryGetTransitAnnouncementSelectionByOverrideKey(
-					BuildTransitLineOverrideKey(slotKey, BuildLabelTransitLineIdentity(serviceType, GetTransitLineDisplayName(normalizedLineKey))),
+			if (!TryParseTransitLineIdentity(normalizedLineKey, out TransitAnnouncementServiceType serviceType, out string stableId) ||
+				!TryGetTransitAnnouncementSelectionWithLegacyFallback(
+					slotKey,
+					normalizedLineKey,
+					serviceType,
+					stableId,
 					out selection))
-			{
-				// Matched a legacy display-name-based line key.
-			}
-			else
 			{
 				return SirenReplacementConfig.DefaultSelectionToken;
 			}
@@ -1149,6 +1136,51 @@ public sealed partial class SirenChangerMod
 		selection = string.Empty;
 		return !string.IsNullOrWhiteSpace(overrideKey) &&
 			TransitAnnouncementConfig.TransitAnnouncementLineSelections.TryGetValue(overrideKey, out selection);
+	}
+
+	private static bool TryGetTransitAnnouncementSelectionWithLegacyFallback(
+		string slotKey,
+		string normalizedLineKey,
+		TransitAnnouncementServiceType serviceType,
+		string stableId,
+		out string selection)
+	{
+		// Legacy overrides may still use number/entity/label line identity formats.
+		foreach (string fallbackLineKey in GetTransitLineIdentityFallbackKeys(normalizedLineKey, serviceType, stableId))
+		{
+			if (string.IsNullOrWhiteSpace(fallbackLineKey) ||
+				string.Equals(fallbackLineKey, normalizedLineKey, StringComparison.OrdinalIgnoreCase))
+			{
+				continue;
+			}
+
+			string fallbackOverrideKey = BuildTransitLineOverrideKey(slotKey, fallbackLineKey);
+			if (TryGetTransitAnnouncementSelectionByOverrideKey(fallbackOverrideKey, out selection))
+			{
+				return true;
+			}
+		}
+
+		selection = string.Empty;
+		return false;
+	}
+
+	private static IEnumerable<string> GetTransitLineIdentityFallbackKeys(
+		string normalizedLineKey,
+		TransitAnnouncementServiceType serviceType,
+		string stableId)
+	{
+		if (TryParseRouteStableId(stableId, out int routeEntityIndex, out int routeEntityVersion, out int routeNumber))
+		{
+			if (routeNumber > 0)
+			{
+				yield return BuildTransitLineIdentity(serviceType, $"number:{routeNumber}");
+			}
+
+			yield return BuildTransitLineIdentity(serviceType, $"entity:{routeEntityIndex}:{routeEntityVersion}");
+		}
+
+		yield return BuildLabelTransitLineIdentity(serviceType, GetTransitLineDisplayName(normalizedLineKey));
 	}
 
 	internal static void SetTransitAnnouncementLineSelection(
@@ -1288,6 +1320,11 @@ public sealed partial class SirenChangerMod
 			return string.Empty;
 		}
 
+		if (TryParseRouteStableId(normalized, out int routeEntityIndex, out int routeEntityVersion, out int routeNumber))
+		{
+			return $"route:{routeEntityIndex}:{routeEntityVersion}:{routeNumber}";
+		}
+
 		if (normalized.StartsWith("number:", StringComparison.OrdinalIgnoreCase))
 		{
 			string numberText = normalized.Substring("number:".Length).Trim();
@@ -1321,12 +1358,53 @@ public sealed partial class SirenChangerMod
 			: $"label:{normalizedLabel}";
 	}
 
+	private static bool TryParseRouteStableId(
+		string stableId,
+		out int routeEntityIndex,
+		out int routeEntityVersion,
+		out int routeNumber)
+	{
+		routeEntityIndex = 0;
+		routeEntityVersion = 0;
+		routeNumber = 0;
+		string normalizedStableId = AudioReplacementDomainConfig.NormalizeTransitLineKey(stableId);
+		if (!normalizedStableId.StartsWith("route:", StringComparison.OrdinalIgnoreCase))
+		{
+			return false;
+		}
+
+		string[] parts = normalizedStableId.Substring("route:".Length).Split(':');
+		if (parts.Length != 3 ||
+			!int.TryParse(parts[0], out routeEntityIndex) ||
+			!int.TryParse(parts[1], out routeEntityVersion) ||
+			!int.TryParse(parts[2], out routeNumber) ||
+			routeEntityIndex < 0 ||
+			routeEntityVersion < 0 ||
+			routeNumber < 0)
+		{
+			routeEntityIndex = 0;
+			routeEntityVersion = 0;
+			routeNumber = 0;
+			return false;
+		}
+
+		return true;
+	}
+
 	private static string FormatTransitLineStableIdForDisplay(string stableId)
 	{
 		string normalizedStableId = NormalizeTransitLineStableId(stableId);
 		if (string.IsNullOrWhiteSpace(normalizedStableId))
 		{
 			return string.Empty;
+		}
+
+		if (TryParseRouteStableId(normalizedStableId, out int routeEntityIndex, out _, out int routeNumber) &&
+			routeEntityIndex >= 0)
+		{
+			return routeNumber > 0
+				? $"Line {routeNumber}"
+				: $"Route {routeEntityIndex}";
 		}
 
 		if (normalizedStableId.StartsWith("number:", StringComparison.OrdinalIgnoreCase))
@@ -1559,7 +1637,7 @@ public sealed partial class SirenChangerMod
 			new DropdownItem<string>
 			{
 				value = SirenReplacementConfig.DefaultSelectionToken,
-				displayName = "Default (None)"
+				displayName = "None (No announcement)"
 			}
 		};
 
@@ -1587,7 +1665,7 @@ public sealed partial class SirenChangerMod
 		s_TransitAnnouncementDropdownCacheVersion = OptionsVersion;
 	}
 
-	// Map a fixed slot enum to its stable lead target-selection key.
+	// Map a fixed slot enum to its stable per-line override slot key.
 	private static string GetTransitAnnouncementLeadTargetKey(TransitAnnouncementSlot slot)
 	{
 		switch (slot)
@@ -1608,32 +1686,6 @@ public sealed partial class SirenChangerMod
 				return s_TransitAnnouncementLeadTargetKeys[6];
 			case TransitAnnouncementSlot.TramDeparture:
 				return s_TransitAnnouncementLeadTargetKeys[7];
-			default:
-				return string.Empty;
-		}
-	}
-
-	// Map a fixed slot enum to its stable tail target-selection key.
-	private static string GetTransitAnnouncementTailTargetKey(TransitAnnouncementSlot slot)
-	{
-		switch (slot)
-		{
-			case TransitAnnouncementSlot.TrainArrival:
-				return s_TransitAnnouncementTailTargetKeys[0];
-			case TransitAnnouncementSlot.TrainDeparture:
-				return s_TransitAnnouncementTailTargetKeys[1];
-			case TransitAnnouncementSlot.BusArrival:
-				return s_TransitAnnouncementTailTargetKeys[2];
-			case TransitAnnouncementSlot.BusDeparture:
-				return s_TransitAnnouncementTailTargetKeys[3];
-			case TransitAnnouncementSlot.MetroArrival:
-				return s_TransitAnnouncementTailTargetKeys[4];
-			case TransitAnnouncementSlot.MetroDeparture:
-				return s_TransitAnnouncementTailTargetKeys[5];
-			case TransitAnnouncementSlot.TramArrival:
-				return s_TransitAnnouncementTailTargetKeys[6];
-			case TransitAnnouncementSlot.TramDeparture:
-				return s_TransitAnnouncementTailTargetKeys[7];
 			default:
 				return string.Empty;
 		}

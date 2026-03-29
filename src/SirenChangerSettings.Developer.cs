@@ -1,4 +1,6 @@
+using System;
 using Game.Settings;
+using Game.UI.Menu;
 using Game.UI.Widgets;
 using UnityEngine.Scripting;
 
@@ -15,17 +17,21 @@ public sealed partial class SirenChangerSettings
 
 	public const string kDeveloperAmbientGroup = "Detected Ambient Sounds";
 
-	public const string kDeveloperModuleGroup = "Module Builder";
+	public const string kDeveloperModuleGroup = "Module Creation & Upload";
 
-	private const string kDeveloperModuleSirenButtonGroup = "Siren Include Actions";
+	private const string kDeveloperModuleSirenButtonGroup = "Sirens";
 
-	private const string kDeveloperModuleEngineButtonGroup = "Engine Include Actions";
+	private const string kDeveloperModuleEngineButtonGroup = "Engines";
 
-	private const string kDeveloperModuleAmbientButtonGroup = "Ambient Include Actions";
+	private const string kDeveloperModuleAmbientButtonGroup = "Ambient";
 
-	private const string kDeveloperModuleTransitButtonGroup = "Transit Include Actions";
+	private const string kDeveloperModuleTransitButtonGroup = "Transit";
 
-	private const string kDeveloperModuleBulkButtonGroup = "Module Selection Actions";
+	private const string kDeveloperModuleBulkButtonGroup = "Selection";
+
+	private const string kDeveloperModuleBuildButtonGroup = "Build";
+
+	private const string kDeveloperModuleUploadButtonGroup = "Upload";
 
 	[SettingsUISection(kDeveloperTab, kDeveloperSirenGroup)]
 	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowDeveloperSirenWarning))]
@@ -129,7 +135,7 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUITextInput]
 	[SettingsUIDisplayName(overrideValue: "Module Display Name")]
-	[SettingsUIDescription(overrideValue: "Display name written into the generated module manifest.")]
+	[SettingsUIDescription(overrideValue: "Name used in generated manifests and upload metadata. Spaces are supported.")]
 	public string DeveloperModuleDisplayName
 	{
 		get => SirenChangerMod.GetDeveloperModuleDisplayName();
@@ -139,7 +145,7 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUITextInput]
 	[SettingsUIDisplayName(overrideValue: "Module ID")]
-	[SettingsUIDescription(overrideValue: "Stable module identifier written into AudioSwitcherModule.json.")]
+	[SettingsUIDescription(overrideValue: "Stable ID used in AudioSwitcherModule.json and uploads. Supports letters, numbers, periods, dashes, and underscores.")]
 	public string DeveloperModuleId
 	{
 		get => SirenChangerMod.GetDeveloperModuleId();
@@ -149,7 +155,7 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIDirectoryPicker]
 	[SettingsUIDisplayName(overrideValue: "Export Directory")]
-	[SettingsUIDescription(overrideValue: "Directory where the module folder will be created.")]
+	[SettingsUIDescription(overrideValue: "Destination folder for generated module packages.")]
 	public string DeveloperModuleExportDirectory
 	{
 		get => SirenChangerMod.GetDeveloperModuleExportDirectory();
@@ -158,8 +164,8 @@ public sealed partial class SirenChangerSettings
 
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUITextInput]
-	[SettingsUIDisplayName(overrideValue: "Output Folder Name")]
-	[SettingsUIDescription(overrideValue: "Folder created under the selected export directory for the generated module.")]
+	[SettingsUIDisplayName(overrideValue: "Package Folder Name")]
+	[SettingsUIDescription(overrideValue: "Folder name created under Export Directory.")]
 	public string DeveloperModuleFolderName
 	{
 		get => SirenChangerMod.GetDeveloperModuleFolderName();
@@ -170,7 +176,7 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetModuleBuilderLocalSirenOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Local Siren File")]
-	[SettingsUIDescription(overrideValue: "Select a local custom siren file to include or exclude from the module.")]
+	[SettingsUIDescription(overrideValue: "Choose a local siren file to add or remove from this package.")]
 	public string DeveloperModuleLocalSirenSelection
 	{
 		get => SirenChangerMod.GetDeveloperModuleLocalAudioSelection(DeveloperAudioDomain.Siren);
@@ -180,8 +186,8 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kDeveloperModuleSirenButtonGroup)]
-	[SettingsUIDisplayName(overrideValue: "Include Selected Siren")]
-	[SettingsUIDescription(overrideValue: "Add the selected local siren file to the module include list.")]
+	[SettingsUIDisplayName(overrideValue: "Add Selected Siren")]
+	[SettingsUIDescription(overrideValue: "Add the selected local siren file to this package.")]
 	public bool IncludeSelectedModuleSiren
 	{
 		set => SirenChangerMod.IncludeSelectedLocalAudioInModule(DeveloperAudioDomain.Siren);
@@ -190,8 +196,8 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kDeveloperModuleSirenButtonGroup)]
-	[SettingsUIDisplayName(overrideValue: "Exclude Selected Siren")]
-	[SettingsUIDescription(overrideValue: "Remove the selected local siren file from the module include list.")]
+	[SettingsUIDisplayName(overrideValue: "Remove Selected Siren")]
+	[SettingsUIDescription(overrideValue: "Remove the selected local siren file from this package.")]
 	public bool ExcludeSelectedModuleSiren
 	{
 		set => SirenChangerMod.ExcludeSelectedLocalAudioFromModule(DeveloperAudioDomain.Siren);
@@ -201,7 +207,7 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetModuleBuilderLocalEngineOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Local Engine File")]
-	[SettingsUIDescription(overrideValue: "Select a local custom engine file to include or exclude from the module.")]
+	[SettingsUIDescription(overrideValue: "Choose a local engine file to add or remove from this package.")]
 	public string DeveloperModuleLocalEngineSelection
 	{
 		get => SirenChangerMod.GetDeveloperModuleLocalAudioSelection(DeveloperAudioDomain.VehicleEngine);
@@ -211,8 +217,8 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kDeveloperModuleEngineButtonGroup)]
-	[SettingsUIDisplayName(overrideValue: "Include Selected Engine")]
-	[SettingsUIDescription(overrideValue: "Add the selected local engine file to the module include list.")]
+	[SettingsUIDisplayName(overrideValue: "Add Selected Engine")]
+	[SettingsUIDescription(overrideValue: "Add the selected local engine file to this package.")]
 	public bool IncludeSelectedModuleEngine
 	{
 		set => SirenChangerMod.IncludeSelectedLocalAudioInModule(DeveloperAudioDomain.VehicleEngine);
@@ -221,8 +227,8 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kDeveloperModuleEngineButtonGroup)]
-	[SettingsUIDisplayName(overrideValue: "Exclude Selected Engine")]
-	[SettingsUIDescription(overrideValue: "Remove the selected local engine file from the module include list.")]
+	[SettingsUIDisplayName(overrideValue: "Remove Selected Engine")]
+	[SettingsUIDescription(overrideValue: "Remove the selected local engine file from this package.")]
 	public bool ExcludeSelectedModuleEngine
 	{
 		set => SirenChangerMod.ExcludeSelectedLocalAudioFromModule(DeveloperAudioDomain.VehicleEngine);
@@ -232,7 +238,7 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetModuleBuilderLocalAmbientOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Local Ambient File")]
-	[SettingsUIDescription(overrideValue: "Select a local custom ambient file to include or exclude from the module.")]
+	[SettingsUIDescription(overrideValue: "Choose a local ambient file to add or remove from this package.")]
 	public string DeveloperModuleLocalAmbientSelection
 	{
 		get => SirenChangerMod.GetDeveloperModuleLocalAudioSelection(DeveloperAudioDomain.Ambient);
@@ -242,8 +248,8 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kDeveloperModuleAmbientButtonGroup)]
-	[SettingsUIDisplayName(overrideValue: "Include Selected Ambient")]
-	[SettingsUIDescription(overrideValue: "Add the selected local ambient file to the module include list.")]
+	[SettingsUIDisplayName(overrideValue: "Add Selected Ambient")]
+	[SettingsUIDescription(overrideValue: "Add the selected local ambient file to this package.")]
 	public bool IncludeSelectedModuleAmbient
 	{
 		set => SirenChangerMod.IncludeSelectedLocalAudioInModule(DeveloperAudioDomain.Ambient);
@@ -252,8 +258,8 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kDeveloperModuleAmbientButtonGroup)]
-	[SettingsUIDisplayName(overrideValue: "Exclude Selected Ambient")]
-	[SettingsUIDescription(overrideValue: "Remove the selected local ambient file from the module include list.")]
+	[SettingsUIDisplayName(overrideValue: "Remove Selected Ambient")]
+	[SettingsUIDescription(overrideValue: "Remove the selected local ambient file from this package.")]
 	public bool ExcludeSelectedModuleAmbient
 	{
 		set => SirenChangerMod.ExcludeSelectedLocalAudioFromModule(DeveloperAudioDomain.Ambient);
@@ -262,8 +268,8 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetModuleBuilderLocalTransitAnnouncementOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Local Transit Announcement File")]
-	[SettingsUIDescription(overrideValue: "Select a local custom transit announcement file to include or exclude from the module.")]
+	[SettingsUIDisplayName(overrideValue: "Local Line Announcement File")]
+	[SettingsUIDescription(overrideValue: "Choose a local line announcement file to add or remove from this package.")]
 	public string DeveloperModuleLocalTransitAnnouncementSelection
 	{
 		get => SirenChangerMod.GetDeveloperModuleLocalAudioSelection(DeveloperAudioDomain.TransitAnnouncement);
@@ -273,8 +279,8 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kDeveloperModuleTransitButtonGroup)]
-	[SettingsUIDisplayName(overrideValue: "Include Selected Transit Announcement")]
-	[SettingsUIDescription(overrideValue: "Add the selected local transit announcement file to the module include list.")]
+	[SettingsUIDisplayName(overrideValue: "Add Selected Line Announcement")]
+	[SettingsUIDescription(overrideValue: "Add the selected line announcement file to this package.")]
 	public bool IncludeSelectedModuleTransitAnnouncement
 	{
 		set => SirenChangerMod.IncludeSelectedLocalAudioInModule(DeveloperAudioDomain.TransitAnnouncement);
@@ -283,8 +289,8 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kDeveloperModuleTransitButtonGroup)]
-	[SettingsUIDisplayName(overrideValue: "Exclude Selected Transit Announcement")]
-	[SettingsUIDescription(overrideValue: "Remove the selected local transit announcement file from the module include list.")]
+	[SettingsUIDisplayName(overrideValue: "Remove Selected Line Announcement")]
+	[SettingsUIDescription(overrideValue: "Remove the selected line announcement file from this package.")]
 	public bool ExcludeSelectedModuleTransitAnnouncement
 	{
 		set => SirenChangerMod.ExcludeSelectedLocalAudioFromModule(DeveloperAudioDomain.TransitAnnouncement);
@@ -293,8 +299,8 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kDeveloperModuleBulkButtonGroup)]
-	[SettingsUIDisplayName(overrideValue: "Include All Local Audio")]
-	[SettingsUIDescription(overrideValue: "Include every eligible local custom audio file in the module.")]
+	[SettingsUIDisplayName(overrideValue: "Select All Local Audio")]
+	[SettingsUIDescription(overrideValue: "Add every eligible local audio file to this package.")]
 	public bool IncludeAllLocalAudioInModule
 	{
 		set => SirenChangerMod.IncludeAllLocalAudioInModule();
@@ -303,8 +309,8 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kDeveloperModuleBulkButtonGroup)]
-	[SettingsUIDisplayName(overrideValue: "Clear Included Audio")]
-	[SettingsUIDescription(overrideValue: "Remove all local audio files from the module include list.")]
+	[SettingsUIDisplayName(overrideValue: "Clear Audio Selection")]
+	[SettingsUIDescription(overrideValue: "Remove all currently selected local audio files from this package.")]
 	public bool ClearLocalAudioModuleInclusions
 	{
 		set => SirenChangerMod.ClearLocalAudioModuleInclusions();
@@ -312,24 +318,167 @@ public sealed partial class SirenChangerSettings
 
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIMultilineText]
-	[SettingsUIDisplayName(overrideValue: "Included Local Audio")]
-	[SettingsUIDescription(overrideValue: "Shows which local files are currently selected for module export.")]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Audio Selection Summary")]
+	[SettingsUIDescription(overrideValue: "Shows the local files currently selected for package generation.")]
 	public string DeveloperModuleIncludedAudioSummary => SirenChangerMod.GetDeveloperModuleInclusionSummaryText();
 
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
-	[SettingsUIDisplayName(overrideValue: "Create Module From Local Audio")]
-	[SettingsUIDescription(overrideValue: "Create a standalone module using selected local custom siren, engine, ambient, and transit announcement files plus current SFX profiles.")]
+	[SettingsUIButtonGroup(kDeveloperModuleBuildButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Build Local")]
+	[SettingsUIDescription(overrideValue: "Build a local code-mod style module with AudioSwitcherModule.json at the root.")]
 	public bool CreateModuleFromLocalAudio
 	{
 		set => SirenChangerMod.CreateDeveloperModuleFromLocalAudio();
 	}
 
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIButton]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeveloperModuleUploadControlsDisabled))]
+	[SettingsUIButtonGroup(kDeveloperModuleBuildButtonGroup)]
+	[SettingsUIConfirmation(overrideConfirmMessageValue: "Build a fresh upload package and upload it to PDX Mods now?")]
+	[SettingsUIDisplayName(overrideValue: "Build + Upload")]
+	[SettingsUIDescription(overrideValue: "Build a fresh asset package and immediately upload it to PDX Mods using the settings below.")]
+	public bool BuildAndUploadAssetModule
+	{
+		set => SirenChangerMod.BuildAndUploadDeveloperAssetModuleToPdxMods();
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeveloperModuleUploadControlsDisabled))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetDeveloperModuleUploadAccessLevelOptions))]
+	[SettingsUIDisplayName(overrideValue: "Visibility")]
+	[SettingsUIDescription(overrideValue: "Visibility level for the uploaded module on PDX Mods.")]
+	public int DeveloperModuleUploadAccessLevel
+	{
+		get => SirenChangerMod.GetDeveloperModuleUploadAccessLevel();
+		set => SirenChangerMod.SetDeveloperModuleUploadAccessLevel(value);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeveloperModuleUploadControlsDisabled))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetDeveloperModuleUploadPublishModeOptions))]
+	[SettingsUIDisplayName(overrideValue: "Publish Mode")]
+	[SettingsUIDescription(overrideValue: "Create a new listing or update an existing listing.")]
+	public int DeveloperModuleUploadPublishMode
+	{
+		get => SirenChangerMod.GetDeveloperModuleUploadPublishMode();
+		set => SirenChangerMod.SetDeveloperModuleUploadPublishMode(value);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUITextInput]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeveloperModuleExistingPublishedIdDisabled))]
+	[SettingsUIDisplayName(overrideValue: "Existing Mod ID")]
+	[SettingsUIDescription(overrideValue: "Required only for Update Existing. Enter the published numeric ID.")]
+	public string DeveloperModuleUploadExistingPublishedId
+	{
+		get => SirenChangerMod.GetDeveloperModuleUploadExistingPublishedIdText();
+		set => SirenChangerMod.SetDeveloperModuleUploadExistingPublishedIdText(value);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUITextInput]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeveloperModuleUploadControlsDisabled))]
+	[SettingsUIDisplayName(overrideValue: "PDX Page Description")]
+	[SettingsUIDescription(overrideValue: "Optional description shown on the PDX Mods page. Leave blank to use an auto-generated description.")]
+	public string DeveloperModuleUploadDescription
+	{
+		get => SirenChangerMod.GetDeveloperModuleUploadDescription();
+		set => SirenChangerMod.SetDeveloperModuleUploadDescription(value);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeveloperModuleUploadControlsDisabled))]
+	[SettingsUIDirectoryPicker]
+	[SettingsUIDisplayName(overrideValue: "Thumbnail Directory")]
+	[SettingsUIDescription(overrideValue: "Optional folder scanned for .png/.jpg/.jpeg files to use as upload thumbnails.")]
+	public string DeveloperModuleUploadThumbnailDirectory
+	{
+		get => SirenChangerMod.GetDeveloperModuleUploadThumbnailDirectory();
+		set => SirenChangerMod.SetDeveloperModuleUploadThumbnailDirectory(value);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeveloperModuleUploadControlsDisabled))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetDeveloperModuleUploadThumbnailOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Thumbnail")]
+	[SettingsUIDescription(overrideValue: "Optional preview image for upload. Auto uses thumbnail.png or a generated default.")]
+	public string DeveloperModuleUploadThumbnailPath
+	{
+		get => SirenChangerMod.GetDeveloperModuleUploadThumbnailPath();
+		set => SirenChangerMod.SetDeveloperModuleUploadThumbnailPath(value);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIButton]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeveloperModuleUploadControlsDisabled))]
+	[SettingsUIButtonGroup(kDeveloperModuleUploadButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Refresh Thumbnails")]
+	[SettingsUIDescription(overrideValue: "Rescan the latest upload package and Thumbnail Directory for thumbnail choices.")]
+	public bool ScanDeveloperModuleUploadThumbnails
+	{
+		set => SirenChangerMod.RefreshDeveloperModuleUploadThumbnailOptions();
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIMultilineText("Media/Misc/Warning.svg")]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Pipeline Status")]
+	[SettingsUIDescription(overrideValue: "Shows the active upload backend and mode.")]
+	public string DeveloperModuleUploadModeStatus => SirenChangerMod.GetDeveloperModuleUploadModeStatusText();
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIMultilineText]
-	[SettingsUIDisplayName(overrideValue: "Module Build Status")]
-	[SettingsUIDescription(overrideValue: "Shows the result of the last local-audio module build action.")]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Build Status")]
+	[SettingsUIDescription(overrideValue: "Result of the last module build action.")]
 	public string DeveloperModuleBuildStatus => SirenChangerMod.GetDeveloperModuleStatusText();
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Upload Status")]
+	[SettingsUIDescription(overrideValue: "Result of the last upload action.")]
+	public string DeveloperModuleUploadStatus => SirenChangerMod.GetDeveloperModuleUploadStatusText();
+
+	// Expand the editable PDX description input to a multiline textbox.
+	public override AutomaticSettings.SettingPageData GetPageData(string id, bool addPrefix)
+	{
+		AutomaticSettings.SettingPageData pageData = base.GetPageData(id, addPrefix);
+		for (int tabIndex = 0; tabIndex < pageData.tabs.Count; tabIndex++)
+		{
+			AutomaticSettings.SettingTabData tab = pageData.tabs[tabIndex];
+			if (!string.Equals(tab.id, kDeveloperTab, StringComparison.Ordinal))
+			{
+				continue;
+			}
+
+			foreach (AutomaticSettings.SettingItemData item in tab.items)
+			{
+				if (!string.Equals(item.property.name, nameof(DeveloperModuleUploadDescription), StringComparison.Ordinal))
+				{
+					continue;
+				}
+
+				if (item.widget is StringInputField inputField)
+				{
+					// Make the page description editor visibly larger than a standard single-line input.
+					inputField.multiline = Math.Max(StringInputField.kDefaultMultilines, 8);
+					// Keep UI and backend truncation limits aligned.
+					inputField.maxLength = 4000;
+				}
+
+				return pageData;
+			}
+
+			break;
+		}
+
+		return pageData;
+	}
 
 	// Warn when the siren domain has no detected runtime SFX entries yet.
 	public bool ShowDeveloperSirenWarning()
@@ -347,6 +496,17 @@ public sealed partial class SirenChangerSettings
 	public bool ShowDeveloperAmbientWarning()
 	{
 		return !SirenChangerMod.HasDetectedDeveloperAudio(DeveloperAudioDomain.Ambient);
+	}
+
+	public bool IsDeveloperModuleExistingPublishedIdDisabled()
+	{
+		return !SirenChangerMod.IsDeveloperModuleUploadUpdateExistingEnabled() ||
+			SirenChangerMod.IsDeveloperModuleUploadInProgress();
+	}
+
+	public bool IsDeveloperModuleUploadControlsDisabled()
+	{
+		return SirenChangerMod.IsDeveloperModuleUploadInProgress();
 	}
 
 	[Preserve]
@@ -389,5 +549,32 @@ public sealed partial class SirenChangerSettings
 	public static DropdownItem<string>[] GetModuleBuilderLocalTransitAnnouncementOptions()
 	{
 		return SirenChangerMod.BuildDeveloperModuleLocalAudioDropdown(DeveloperAudioDomain.TransitAnnouncement);
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetDeveloperModuleUploadThumbnailOptions()
+	{
+		return SirenChangerMod.BuildDeveloperModuleUploadThumbnailDropdown();
+	}
+
+	[Preserve]
+	public static DropdownItem<int>[] GetDeveloperModuleUploadPublishModeOptions()
+	{
+		return new[]
+		{
+			new DropdownItem<int> { value = 0, displayName = "Create New" },
+			new DropdownItem<int> { value = 1, displayName = "Update Existing" }
+		};
+	}
+
+	[Preserve]
+	public static DropdownItem<int>[] GetDeveloperModuleUploadAccessLevelOptions()
+	{
+		return new[]
+		{
+			new DropdownItem<int> { value = 0, displayName = "Public" },
+			new DropdownItem<int> { value = 1, displayName = "Private" },
+			new DropdownItem<int> { value = 2, displayName = "Unlisted" }
+		};
 	}
 }

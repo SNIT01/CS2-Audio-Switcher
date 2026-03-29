@@ -157,17 +157,20 @@ internal static class SirenConfigValidator
 		{
 			ValidateDomainSelection($"{domainLabel} default", domain, domainConfig, domainConfig.DefaultSelection);
 
-			List<string> targetKeys = domainConfig.TargetSelections.Keys
-				.OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
-				.ToList();
-			for (int i = 0; i < targetKeys.Count; i++)
+			if (domain != DeveloperAudioDomain.TransitAnnouncement)
 			{
-				string target = targetKeys[i];
-				ValidateDomainSelection(
-					$"{domainLabel} target '{target}'",
-					domain,
-					domainConfig,
-					domainConfig.GetTargetSelection(target));
+				List<string> targetKeys = domainConfig.TargetSelections.Keys
+					.OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+					.ToList();
+				for (int i = 0; i < targetKeys.Count; i++)
+				{
+					string target = targetKeys[i];
+					ValidateDomainSelection(
+						$"{domainLabel} target '{target}'",
+						domain,
+						domainConfig,
+						domainConfig.GetTargetSelection(target));
+				}
 			}
 
 			if (domain == DeveloperAudioDomain.TransitAnnouncement)

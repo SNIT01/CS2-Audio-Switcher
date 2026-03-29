@@ -8,7 +8,7 @@ namespace SirenChanger;
 // Public-transport-tab controls for per-mode transit arrival/departure announcements.
 public sealed partial class SirenChangerSettings
 {
-	private const string kTransitAnnouncementButtonGroup = "Transit Announcement Actions";
+	private const string kTransitAnnouncementButtonGroup = "Transit Setup Actions";
 
 	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementGroup)]
 	[SettingsUIDisplayName(overrideValue: "Enable Transit Station Announcements")]
@@ -99,7 +99,7 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Line Arrival Override")]
-	[SettingsUIDescription(overrideValue: "Clip used for arrivals of the selected line. Default falls back to the service arrival clip.")]
+	[SettingsUIDescription(overrideValue: "Clip used for arrivals of the selected line. Default means no arrival announcement for this line.")]
 	public string TransitAnnouncementLineArrivalOverride
 	{
 		get => SirenChangerMod.GetTransitAnnouncementLineArrivalSelectionForOptions();
@@ -111,7 +111,7 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Line Departure Override")]
-	[SettingsUIDescription(overrideValue: "Clip used for departures of the selected line. Default falls back to the service departure clip.")]
+	[SettingsUIDescription(overrideValue: "Clip used for departures of the selected line. Default means no departure announcement for this line.")]
 	public string TransitAnnouncementLineDepartureOverride
 	{
 		get => SirenChangerMod.GetTransitAnnouncementLineDepartureSelectionForOptions();
@@ -128,187 +128,28 @@ public sealed partial class SirenChangerSettings
 
 	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementLineGroup)]
 	[SettingsUIButton]
+	[SettingsUIButtonGroup(kTransitAnnouncementButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Scan Transit Lines")]
+	[SettingsUIDescription(overrideValue: "Scan active transit vehicles and add newly observed lines to the per-line override list.")]
+	public bool ScanTransitLines
+	{
+		set => SirenChangerMod.RefreshTransitLinesFromOptions();
+	}
+
+	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementLineGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Transit Line Scan Status")]
+	[SettingsUIDescription(overrideValue: "Shows the latest transit line scan summary and detected line counts.")]
+	public string TransitAnnouncementLineScanStatus => SirenChangerMod.GetTransitLineScanStatusText();
+
+	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementLineGroup)]
+	[SettingsUIButton]
 	[SettingsUIDisplayName(overrideValue: "Prune Stale Lines")]
 	[SettingsUIDescription(overrideValue: "Remove discovered lines that are not observed in this session and have no line-specific overrides.")]
 	public bool PruneStaleTransitAnnouncementLines
 	{
 		set => SirenChangerMod.PruneStaleTransitAnnouncementLinesFromOptions();
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementTrainGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Train Arrival Primary Audio")]
-	[SettingsUIDescription(overrideValue: "Default clip used when a train arrives.")]
-	public string TrainArrivalAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.TrainArrival);
-		set => SirenChangerMod.SetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.TrainArrival, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementTrainGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Train Arrival Tail Audio")]
-	[SettingsUIDescription(overrideValue: "Optional tail clip played after the primary train arrival clip.")]
-	public string TrainArrivalTailAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementTailSelection(TransitAnnouncementSlot.TrainArrival);
-		set => SirenChangerMod.SetTransitAnnouncementTailSelection(TransitAnnouncementSlot.TrainArrival, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementTrainGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Train Departure Primary Audio")]
-	[SettingsUIDescription(overrideValue: "Default clip used when a train departs.")]
-	public string TrainDepartureAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.TrainDeparture);
-		set => SirenChangerMod.SetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.TrainDeparture, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementTrainGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Train Departure Tail Audio")]
-	[SettingsUIDescription(overrideValue: "Optional tail clip played after the primary train departure clip.")]
-	public string TrainDepartureTailAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementTailSelection(TransitAnnouncementSlot.TrainDeparture);
-		set => SirenChangerMod.SetTransitAnnouncementTailSelection(TransitAnnouncementSlot.TrainDeparture, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementBusGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Bus Arrival Primary Audio")]
-	[SettingsUIDescription(overrideValue: "Default clip used when a bus arrives.")]
-	public string BusArrivalAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.BusArrival);
-		set => SirenChangerMod.SetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.BusArrival, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementBusGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Bus Arrival Tail Audio")]
-	[SettingsUIDescription(overrideValue: "Optional tail clip played after the primary bus arrival clip.")]
-	public string BusArrivalTailAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementTailSelection(TransitAnnouncementSlot.BusArrival);
-		set => SirenChangerMod.SetTransitAnnouncementTailSelection(TransitAnnouncementSlot.BusArrival, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementBusGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Bus Departure Primary Audio")]
-	[SettingsUIDescription(overrideValue: "Default clip used when a bus departs.")]
-	public string BusDepartureAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.BusDeparture);
-		set => SirenChangerMod.SetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.BusDeparture, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementBusGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Bus Departure Tail Audio")]
-	[SettingsUIDescription(overrideValue: "Optional tail clip played after the primary bus departure clip.")]
-	public string BusDepartureTailAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementTailSelection(TransitAnnouncementSlot.BusDeparture);
-		set => SirenChangerMod.SetTransitAnnouncementTailSelection(TransitAnnouncementSlot.BusDeparture, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementMetroGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Metro Arrival Primary Audio")]
-	[SettingsUIDescription(overrideValue: "Default clip used when a metro train arrives.")]
-	public string MetroArrivalAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.MetroArrival);
-		set => SirenChangerMod.SetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.MetroArrival, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementMetroGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Metro Arrival Tail Audio")]
-	[SettingsUIDescription(overrideValue: "Optional tail clip played after the primary metro arrival clip.")]
-	public string MetroArrivalTailAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementTailSelection(TransitAnnouncementSlot.MetroArrival);
-		set => SirenChangerMod.SetTransitAnnouncementTailSelection(TransitAnnouncementSlot.MetroArrival, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementMetroGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Metro Departure Primary Audio")]
-	[SettingsUIDescription(overrideValue: "Default clip used when a metro train departs.")]
-	public string MetroDepartureAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.MetroDeparture);
-		set => SirenChangerMod.SetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.MetroDeparture, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementMetroGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Metro Departure Tail Audio")]
-	[SettingsUIDescription(overrideValue: "Optional tail clip played after the primary metro departure clip.")]
-	public string MetroDepartureTailAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementTailSelection(TransitAnnouncementSlot.MetroDeparture);
-		set => SirenChangerMod.SetTransitAnnouncementTailSelection(TransitAnnouncementSlot.MetroDeparture, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementTramGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Tram Arrival Primary Audio")]
-	[SettingsUIDescription(overrideValue: "Default clip used when a tram arrives.")]
-	public string TramArrivalAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.TramArrival);
-		set => SirenChangerMod.SetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.TramArrival, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementTramGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Tram Arrival Tail Audio")]
-	[SettingsUIDescription(overrideValue: "Optional tail clip played after the primary tram arrival clip.")]
-	public string TramArrivalTailAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementTailSelection(TransitAnnouncementSlot.TramArrival);
-		set => SirenChangerMod.SetTransitAnnouncementTailSelection(TransitAnnouncementSlot.TramArrival, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementTramGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Tram Departure Primary Audio")]
-	[SettingsUIDescription(overrideValue: "Default clip used when a tram departs.")]
-	public string TramDepartureAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.TramDeparture);
-		set => SirenChangerMod.SetTransitAnnouncementLeadSelection(TransitAnnouncementSlot.TramDeparture, value);
-	}
-
-	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementTramGroup)]
-	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
-	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Tram Departure Tail Audio")]
-	[SettingsUIDescription(overrideValue: "Optional tail clip played after the primary tram departure clip.")]
-	public string TramDepartureTailAnnouncement
-	{
-		get => SirenChangerMod.GetTransitAnnouncementTailSelection(TransitAnnouncementSlot.TramDeparture);
-		set => SirenChangerMod.SetTransitAnnouncementTailSelection(TransitAnnouncementSlot.TramDeparture, value);
 	}
 
 	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementGroup)]

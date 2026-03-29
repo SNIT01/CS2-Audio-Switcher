@@ -1,0 +1,12 @@
+<Publish>
+  <DisplayName Value="Probe AssetPack Tag" />
+  <ShortDescription Value="Probe" />
+  <LongDescription>Probe</LongDescription>
+  <Thumbnail Value="../Images/Audio Switcher Logo.png" />
+  <ChangeLog Value="Probe" />
+  <ModVersion Value="0.0.1" />
+  <GameVersion Value="1.*" />
+  <Tag Value="AssetPack" />
+  <AccessLevel Value="Private" />
+</Publish>
+

@@ -1,10 +1,18 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Text;
+using System.Linq;
+using System.Reflection;
 using System.Runtime.Serialization;
+using System.Text;
+using System.Threading.Tasks;
+using Colossal.IO.AssetDatabase;
+using Colossal.PSI.Common;
+using Game.PSI;
 using Game.Prefabs.Effects;
+using Game.UI.Menu;
 using Game.UI.Widgets;
 using UnityEngine;
 
@@ -19,6 +27,21 @@ internal enum DeveloperAudioDomain
 	TransitAnnouncement
 }
 
+// PDX Mods access levels exposed in the developer options UI.
+internal enum DeveloperModuleUploadAccessLevel
+{
+	Public = 0,
+	Private = 1,
+	Unlisted = 2
+}
+
+// PDX Mods publish strategy: new listing or update an existing listing.
+internal enum DeveloperModuleUploadPublishMode
+{
+	CreateNew = 0,
+	UpdateExisting = 1
+}
+
 // Developer-tab catalog/state for detected runtime sounds and utility actions.
 public sealed partial class SirenChangerMod
 {
@@ -31,6 +54,27 @@ public sealed partial class SirenChangerMod
 	private const string kDeveloperModuleDefaultId = "audio.switcher.local.pack";
 
 	private const string kDeveloperModuleDefaultFolderName = "AudioSwitcherLocalModule";
+
+	private const string kDeveloperModuleAssetContentFolderName = "content";
+
+	private const string kDeveloperModuleUploadManifestRelativePath = "content/AudioSwitcherModule.json";
+
+	private const string kDeveloperModuleUploadDefaultThumbnailFileName = "thumbnail.png";
+
+	private const string kDeveloperModuleUploadDefaultChangeLog = "Uploaded via Audio Switcher module uploader.";
+
+	private const string kDeveloperModuleUploadDefaultShortDescription = "Audio Switcher asset module package.";
+
+	private const string kDeveloperModuleUploadDefaultRecommendedGameVersion = "1.*";
+
+	private const int kDeveloperModuleUploadDescriptionMaxLength = 4000;
+
+	private const string kDeveloperModuleUploadLegacyAssetTag = "Asset";
+
+	private const string kDeveloperModuleUploadAssetPackTag = "AssetPack";
+
+	// 1x1 transparent PNG used when no custom thumbnail exists in generated module folders.
+	private const string kDeveloperModuleUploadDefaultThumbnailBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+tmL0AAAAASUVORK5CYII=";
 
 	private static readonly Dictionary<string, DetectedAudioEntry> s_DetectedSirenAudio = new Dictionary<string, DetectedAudioEntry>(StringComparer.OrdinalIgnoreCase);
 
@@ -58,7 +102,29 @@ public sealed partial class SirenChangerMod
 
 	private static string s_DeveloperModuleStatus = "Ready to create a module from local custom audio files.";
 
+	private static string s_DeveloperModuleUploadStatus = "No asset-module upload has been run yet.";
+
 	private static string s_DeveloperModuleExportDirectory = string.Empty;
+
+	private static string s_DeveloperLastUploadReadyModulePath = string.Empty;
+
+	private static string s_DeveloperModuleUploadThumbnailPath = string.Empty;
+
+	private static string s_DeveloperModuleUploadThumbnailDirectory = string.Empty;
+
+	private static DeveloperModuleUploadAccessLevel s_DeveloperModuleUploadAccessLevel = DeveloperModuleUploadAccessLevel.Private;
+
+	private static DeveloperModuleUploadPublishMode s_DeveloperModuleUploadPublishMode = DeveloperModuleUploadPublishMode.CreateNew;
+
+	private static int s_DeveloperModuleUploadExistingPublishedId;
+
+	private static string s_DeveloperModuleUploadDescription = string.Empty;
+
+	private static int s_DeveloperAudioSwitcherDependencyPublishedIdCache;
+
+	private static readonly object s_DeveloperModuleUploadSync = new object();
+
+	private static bool s_DeveloperModuleUploadInProgress;
 
 	private static string s_DeveloperModuleSelectedLocalSirenKey = string.Empty;
 
@@ -305,7 +371,7 @@ public sealed partial class SirenChangerMod
 	// Read/write module id field used by the Developer Module Builder section.
 	internal static void SetDeveloperModuleDisplayName(string value)
 	{
-		s_DeveloperModuleDisplayName = NormalizeDeveloperModuleDisplayName(value);
+		s_DeveloperModuleDisplayName = value ?? string.Empty;
 	}
 
 	// Read/write module id field used by the Developer Module Builder section.
@@ -314,10 +380,11 @@ public sealed partial class SirenChangerMod
 		return s_DeveloperModuleId;
 	}
 
-	// Update module id while enforcing safe manifest-compatible characters.
+	// Update module id while enforcing safe manifest-compatible characters (including periods).
+	// Keep edge separators during live editing so users can type segmented IDs like "com.example".
 	internal static void SetDeveloperModuleId(string value)
 	{
-		s_DeveloperModuleId = NormalizeDeveloperModuleId(value);
+		s_DeveloperModuleId = NormalizeDeveloperModuleId(value, trimEdgeSeparators: false);
 	}
 
 	// Read/write output folder name used when generating a module under the Mods folder.
@@ -359,6 +426,261 @@ public sealed partial class SirenChangerMod
 
 		s_DeveloperModuleExportDirectory = normalized;
 		OptionsVersion++;
+	}
+
+	// Read/write PDX Mods access level used when uploading generated asset modules.
+	internal static int GetDeveloperModuleUploadAccessLevel()
+	{
+		return (int)s_DeveloperModuleUploadAccessLevel;
+	}
+
+	// Update selected upload visibility level.
+	internal static void SetDeveloperModuleUploadAccessLevel(int value)
+	{
+		DeveloperModuleUploadAccessLevel next = NormalizeDeveloperModuleUploadAccessLevel(value);
+		if (s_DeveloperModuleUploadAccessLevel == next)
+		{
+			return;
+		}
+
+		s_DeveloperModuleUploadAccessLevel = next;
+		OptionsVersion++;
+	}
+
+	// Read/write upload publish mode (new listing vs existing listing update).
+	internal static int GetDeveloperModuleUploadPublishMode()
+	{
+		return (int)s_DeveloperModuleUploadPublishMode;
+	}
+
+	// Update selected upload publish mode.
+	internal static void SetDeveloperModuleUploadPublishMode(int value)
+	{
+		DeveloperModuleUploadPublishMode next = NormalizeDeveloperModuleUploadPublishMode(value);
+		if (s_DeveloperModuleUploadPublishMode == next)
+		{
+			return;
+		}
+
+		s_DeveloperModuleUploadPublishMode = next;
+		OptionsVersion++;
+	}
+
+	// True when upload is configured to update an existing published listing.
+	internal static bool IsDeveloperModuleUploadUpdateExistingEnabled()
+	{
+		return s_DeveloperModuleUploadPublishMode == DeveloperModuleUploadPublishMode.UpdateExisting;
+	}
+
+	// Read/write existing published ID text used when update-existing mode is active.
+	internal static string GetDeveloperModuleUploadExistingPublishedIdText()
+	{
+		if (s_DeveloperModuleUploadExistingPublishedId <= 0)
+		{
+			return string.Empty;
+		}
+
+		return s_DeveloperModuleUploadExistingPublishedId.ToString(CultureInfo.InvariantCulture);
+	}
+
+	// Update existing published ID from options text input.
+	internal static void SetDeveloperModuleUploadExistingPublishedIdText(string value)
+	{
+		int next = NormalizeDeveloperModuleUploadExistingPublishedId(value);
+		if (s_DeveloperModuleUploadExistingPublishedId == next)
+		{
+			return;
+		}
+
+		s_DeveloperModuleUploadExistingPublishedId = next;
+		OptionsVersion++;
+	}
+
+	// Read/write optional PDX page description used for module uploads.
+	internal static string GetDeveloperModuleUploadDescription()
+	{
+		return s_DeveloperModuleUploadDescription;
+	}
+
+	// Update optional PDX page description used for module uploads.
+	internal static void SetDeveloperModuleUploadDescription(string value)
+	{
+		s_DeveloperModuleUploadDescription = NormalizeDeveloperModuleUploadDescription(value);
+	}
+
+	// Read currently selected upload thumbnail candidate path.
+	internal static string GetDeveloperModuleUploadThumbnailPath()
+	{
+		string normalized = NormalizeDeveloperModuleUploadThumbnailPath(s_DeveloperModuleUploadThumbnailPath);
+		if (string.IsNullOrWhiteSpace(normalized))
+		{
+			return string.Empty;
+		}
+
+		List<string> candidates = GetDeveloperModuleUploadThumbnailCandidates(out _, out _);
+		if (!ContainsDeveloperModuleUploadThumbnailCandidate(candidates, normalized))
+		{
+			s_DeveloperModuleUploadThumbnailPath = string.Empty;
+			return string.Empty;
+		}
+
+		return normalized;
+	}
+
+	// Update selected upload thumbnail candidate path.
+	internal static void SetDeveloperModuleUploadThumbnailPath(string value)
+	{
+		string normalized = NormalizeDeveloperModuleUploadThumbnailPath(value);
+		if (!string.IsNullOrWhiteSpace(normalized))
+		{
+			List<string> candidates = GetDeveloperModuleUploadThumbnailCandidates(out _, out _);
+			if (!ContainsDeveloperModuleUploadThumbnailCandidate(candidates, normalized))
+			{
+				normalized = string.Empty;
+			}
+		}
+
+		if (string.Equals(s_DeveloperModuleUploadThumbnailPath, normalized, StringComparison.OrdinalIgnoreCase))
+		{
+			return;
+		}
+
+		s_DeveloperModuleUploadThumbnailPath = normalized;
+		OptionsVersion++;
+	}
+
+	// Read/write optional directory used to discover upload thumbnail candidates.
+	internal static string GetDeveloperModuleUploadThumbnailDirectory()
+	{
+		return s_DeveloperModuleUploadThumbnailDirectory;
+	}
+
+	// Update optional directory used to discover upload thumbnail candidates.
+	internal static void SetDeveloperModuleUploadThumbnailDirectory(string value)
+	{
+		string normalized = NormalizeDeveloperModuleUploadThumbnailDirectory(value);
+		if (string.Equals(s_DeveloperModuleUploadThumbnailDirectory, normalized, StringComparison.OrdinalIgnoreCase))
+		{
+			return;
+		}
+
+		s_DeveloperModuleUploadThumbnailDirectory = normalized;
+		List<string> candidates = GetDeveloperModuleUploadThumbnailCandidates(out _, out _);
+		if (!ContainsDeveloperModuleUploadThumbnailCandidate(candidates, s_DeveloperModuleUploadThumbnailPath))
+		{
+			s_DeveloperModuleUploadThumbnailPath = string.Empty;
+		}
+
+		OptionsVersion++;
+	}
+
+	// Dropdown source for selectable upload thumbnail files.
+	internal static DropdownItem<string>[] BuildDeveloperModuleUploadThumbnailDropdown()
+	{
+		List<string> candidates = GetDeveloperModuleUploadThumbnailCandidates(out string moduleRootPath, out string thumbnailDirectoryPath);
+		List<DropdownItem<string>> items = new List<DropdownItem<string>>(candidates.Count + 1)
+		{
+			new DropdownItem<string>
+			{
+				value = string.Empty,
+				displayName = "Auto (thumbnail.png or generated default)"
+			}
+		};
+
+		for (int i = 0; i < candidates.Count; i++)
+		{
+			string candidate = candidates[i];
+			string fileName = Path.GetFileName(candidate);
+			string displayName = string.IsNullOrWhiteSpace(fileName) ? candidate : fileName;
+			if (IsPathWithinDirectory(candidate, moduleRootPath))
+			{
+				displayName = $"{displayName} (Latest Module)";
+			}
+			else if (IsPathWithinDirectory(candidate, thumbnailDirectoryPath))
+			{
+				displayName = $"{displayName} (Thumbnail Directory)";
+			}
+
+			items.Add(new DropdownItem<string>
+			{
+				value = candidate,
+				displayName = displayName
+			});
+		}
+
+		return items.ToArray();
+	}
+
+	// Re-scan available upload thumbnail candidates and refresh options.
+	internal static void RefreshDeveloperModuleUploadThumbnailOptions()
+	{
+		List<string> candidates = GetDeveloperModuleUploadThumbnailCandidates(out string moduleRootPath, out string thumbnailDirectoryPath);
+		if (!ContainsDeveloperModuleUploadThumbnailCandidate(candidates, s_DeveloperModuleUploadThumbnailPath))
+		{
+			s_DeveloperModuleUploadThumbnailPath = string.Empty;
+		}
+
+		bool hasModuleSource = !string.IsNullOrWhiteSpace(moduleRootPath) && Directory.Exists(moduleRootPath);
+		bool hasDirectoryConfigured = !string.IsNullOrWhiteSpace(thumbnailDirectoryPath);
+		bool hasDirectorySource = !string.IsNullOrWhiteSpace(thumbnailDirectoryPath) && Directory.Exists(thumbnailDirectoryPath);
+		if (!hasModuleSource && !hasDirectorySource)
+		{
+			if (hasDirectoryConfigured)
+			{
+				SetDeveloperModuleUploadStatus(
+					$"Thumbnail Directory '{thumbnailDirectoryPath}' does not exist. Update the directory and try scanning again.",
+					isWarning: true);
+				return;
+			}
+
+			SetDeveloperModuleUploadStatus(
+				"Thumbnail scan could not run because no upload package exists and no Thumbnail Directory is configured.",
+				isWarning: true);
+			return;
+		}
+
+		if (candidates.Count == 0)
+		{
+			string sourceSummary = hasModuleSource && hasDirectorySource
+				? $"'{moduleRootPath}' and '{thumbnailDirectoryPath}'"
+				: hasModuleSource
+					? $"'{moduleRootPath}'"
+					: $"'{thumbnailDirectoryPath}'";
+			SetDeveloperModuleUploadStatus(
+				$"Thumbnail scan found no .png/.jpg/.jpeg files in {sourceSummary}. Auto thumbnail mode will be used.",
+				isWarning: true);
+			return;
+		}
+
+		string selectedSourceSummary = hasModuleSource && hasDirectorySource
+			? $"latest module and Thumbnail Directory ({thumbnailDirectoryPath})"
+			: hasModuleSource
+				? "latest module"
+				: $"Thumbnail Directory ({thumbnailDirectoryPath})";
+		SetDeveloperModuleUploadStatus(
+			$"Thumbnail scan found {candidates.Count} selectable file(s) from {selectedSourceSummary}.",
+			isWarning: false);
+	}
+
+	// Status text for last asset-module upload action.
+	internal static string GetDeveloperModuleUploadStatusText()
+	{
+		return s_DeveloperModuleUploadStatus;
+	}
+
+	// Read-only status text that makes the active upload pipeline explicit in options.
+	internal static string GetDeveloperModuleUploadModeStatusText()
+	{
+		return "Asset Upload Mode Active\nUploads are published through the PDX asset pipeline (not code-mod publishing).";
+	}
+
+	// True when a module asset upload is currently in progress.
+	internal static bool IsDeveloperModuleUploadInProgress()
+	{
+		lock (s_DeveloperModuleUploadSync)
+		{
+			return s_DeveloperModuleUploadInProgress;
+		}
 	}
 
 	// Dropdown source for local-audio module-builder selectors (siren/engine/ambient).
@@ -743,11 +1065,105 @@ public sealed partial class SirenChangerMod
 	// Build a standalone module from local custom audio files and profiles.
 	internal static void CreateDeveloperModuleFromLocalAudio()
 	{
+		_ = CreateDeveloperModuleFromLocalAudioInternal(uploadReadyAssetPackage: false, out _);
+	}
+
+	// Build an upload-ready asset module package with manifest/audio rooted under content/.
+	internal static void CreateDeveloperModuleAssetPackageFromLocalAudio()
+	{
+		_ = CreateDeveloperModuleFromLocalAudioInternal(uploadReadyAssetPackage: true, out _);
+	}
+
+	// Build a fresh upload-ready package and immediately upload that exact package to PDX Mods.
+	internal static void BuildAndUploadDeveloperAssetModuleToPdxMods()
+	{
+		if (!CreateDeveloperModuleFromLocalAudioInternal(uploadReadyAssetPackage: true, out string moduleRootPath))
+		{
+			SetDeveloperModuleUploadStatus("Build + Upload aborted because the upload package could not be generated.", isWarning: true);
+			return;
+		}
+
+		// Fire-and-forget: upload happens asynchronously and reports status via callback
+#pragma warning disable CS4014
+		UploadDeveloperAssetModuleToPdxMods(moduleRootPath);
+#pragma warning restore CS4014
+	}
+
+	// Upload the latest generated upload-ready asset module via the PDX asset pipeline.
+	internal static void UploadLatestDeveloperAssetModuleToPdxMods()
+	{
+		if (!TryResolveLatestUploadReadyModulePath(out string moduleRootPath, out string resolveError))
+		{
+			SetDeveloperModuleUploadStatus(resolveError, isWarning: true);
+			return;
+		}
+
+		// Fire-and-forget: upload happens asynchronously and reports status via callback
+#pragma warning disable CS4014
+		UploadDeveloperAssetModuleToPdxMods(moduleRootPath);
+#pragma warning restore CS4014
+	}
+
+	// Upload one upload-ready asset module path through the PDX asset pipeline.
+	private static async Task UploadDeveloperAssetModuleToPdxMods(string moduleRootPath)
+	{
+		DeveloperModuleUploadAccessLevel accessLevel;
+		DeveloperModuleUploadPublishMode publishMode;
+		int existingPublishedId;
+		lock (s_DeveloperModuleUploadSync)
+		{
+			if (s_DeveloperModuleUploadInProgress)
+			{
+				SetDeveloperModuleUploadStatus("An asset-module upload is already in progress.", isWarning: true);
+				return;
+			}
+
+			s_DeveloperModuleUploadInProgress = true;
+			accessLevel = s_DeveloperModuleUploadAccessLevel;
+			publishMode = s_DeveloperModuleUploadPublishMode;
+			existingPublishedId = s_DeveloperModuleUploadExistingPublishedId;
+		}
+
+		string accessLevelLabel = GetDeveloperModuleUploadAccessLevelLabel(accessLevel);
+		string publishModeLabel = GetDeveloperModuleUploadPublishModeLabel(publishMode);
+		string existingIdSuffix = publishMode == DeveloperModuleUploadPublishMode.UpdateExisting
+			? $", existing ID '{existingPublishedId.ToString(CultureInfo.InvariantCulture)}'"
+			: string.Empty;
+		SetDeveloperModuleUploadStatus(
+			$"Starting upload for '{moduleRootPath}' with mode '{publishModeLabel}'{existingIdSuffix} and access level '{accessLevelLabel}'.",
+			isWarning: false);
+
+		try
+		{
+			await UploadLatestDeveloperAssetModuleToPdxModsInternalAsync(moduleRootPath, accessLevel, publishMode, existingPublishedId);
+		}
+		catch (OperationCanceledException)
+		{
+			SetDeveloperModuleUploadStatus("Asset-module upload was cancelled.", isWarning: true);
+		}
+		catch (Exception ex)
+		{
+			Log.Error($"Asset-module upload exception: {ex}");
+			SetDeveloperModuleUploadStatus($"Asset-module upload failed: {ex.Message}", isWarning: true);
+		}
+		finally
+		{
+			lock (s_DeveloperModuleUploadSync)
+			{
+				s_DeveloperModuleUploadInProgress = false;
+			}
+		}
+	}
+
+	// Shared builder for both local folder modules and upload-ready asset module packages.
+	private static bool CreateDeveloperModuleFromLocalAudioInternal(bool uploadReadyAssetPackage, out string moduleRootPath)
+	{
+		moduleRootPath = string.Empty;
 		EnsureDeveloperModuleIncludeStateCurrent();
 		if (GetTotalDeveloperModuleIncludedCount() == 0)
 		{
 			SetDeveloperModuleStatus("No local audio files are selected. Include one or more files before creating a module.", isWarning: true);
-			return;
+			return false;
 		}
 
 		s_DeveloperModuleDisplayName = NormalizeDeveloperModuleDisplayName(s_DeveloperModuleDisplayName);
@@ -764,11 +1180,15 @@ public sealed partial class SirenChangerMod
 			if (string.IsNullOrWhiteSpace(exportRoot))
 			{
 				SetDeveloperModuleStatus("Unable to resolve the module export directory.", isWarning: true);
-				return;
+				return false;
 			}
 
-			string moduleRootPath = BuildUniqueModuleDirectoryPath(exportRoot, moduleFolderName);
+			moduleRootPath = BuildUniqueModuleDirectoryPath(exportRoot, moduleFolderName);
 			Directory.CreateDirectory(moduleRootPath);
+			string moduleContentRootPath = uploadReadyAssetPackage
+				? Path.Combine(moduleRootPath, kDeveloperModuleAssetContentFolderName)
+				: moduleRootPath;
+			Directory.CreateDirectory(moduleContentRootPath);
 
 			int skippedMissing = 0;
 			int skippedUnsupported = 0;
@@ -778,7 +1198,7 @@ public sealed partial class SirenChangerMod
 				Config.CustomSirenProfiles,
 				Config.CustomSirensFolderName,
 				"Audio/Sirens",
-				moduleRootPath,
+				moduleContentRootPath,
 				s_DeveloperModuleIncludedSirens,
 				ref skippedMissing,
 				ref skippedUnsupported,
@@ -788,7 +1208,7 @@ public sealed partial class SirenChangerMod
 				VehicleEngineConfig.CustomProfiles,
 				VehicleEngineConfig.CustomFolderName,
 				"Audio/Engines",
-				moduleRootPath,
+				moduleContentRootPath,
 				s_DeveloperModuleIncludedEngines,
 				ref skippedMissing,
 				ref skippedUnsupported,
@@ -798,7 +1218,7 @@ public sealed partial class SirenChangerMod
 				AmbientConfig.CustomProfiles,
 				AmbientConfig.CustomFolderName,
 				"Audio/Ambient",
-				moduleRootPath,
+				moduleContentRootPath,
 				s_DeveloperModuleIncludedAmbient,
 				ref skippedMissing,
 				ref skippedUnsupported,
@@ -808,7 +1228,7 @@ public sealed partial class SirenChangerMod
 				TransitAnnouncementConfig.CustomProfiles,
 				TransitAnnouncementConfig.CustomFolderName,
 				"Audio/TransitAnnouncements",
-				moduleRootPath,
+				moduleContentRootPath,
 				s_DeveloperModuleIncludedTransitAnnouncements,
 				ref skippedMissing,
 				ref skippedUnsupported,
@@ -818,10 +1238,11 @@ public sealed partial class SirenChangerMod
 			if (totalExported == 0)
 			{
 				TryDeleteDirectory(moduleRootPath);
+				moduleRootPath = string.Empty;
 				SetDeveloperModuleStatus(
 					$"No selected local audio files were eligible for module generation. Skipped missing: {skippedMissing}, unsupported format: {skippedUnsupported}, module-based selections: {skippedModuleSelections}.",
 					isWarning: true);
-				return;
+				return false;
 			}
 
 			DeveloperModuleManifest manifest = new DeveloperModuleManifest
@@ -835,7 +1256,7 @@ public sealed partial class SirenChangerMod
 				TransitAnnouncements = transitAnnouncementEntries
 			};
 
-			string manifestPath = Path.Combine(moduleRootPath, kDeveloperModuleManifestFileName);
+			string manifestPath = Path.Combine(moduleContentRootPath, kDeveloperModuleManifestFileName);
 			string manifestJson = JsonDataSerializer.Serialize(manifest);
 			File.WriteAllText(manifestPath, manifestJson, new UTF8Encoding(false));
 			WriteDeveloperModuleReadme(
@@ -845,21 +1266,1775 @@ public sealed partial class SirenChangerMod
 				sirenEntries.Count,
 				engineEntries.Count,
 				ambientEntries.Count,
-				transitAnnouncementEntries.Count);
+				transitAnnouncementEntries.Count,
+				uploadReadyAssetPackage);
+			string manifestRelativePath = Path.GetRelativePath(moduleRootPath, manifestPath).Replace('\\', '/');
 
-			SetDeveloperModuleStatus(
-				$"Created module '{displayName}' at '{moduleRootPath}'. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Transit: {transitAnnouncementEntries.Count}. Skipped missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}.",
-				isWarning: false);
+			string statusMessage = uploadReadyAssetPackage
+				? $"Created upload-ready asset module '{displayName}' at '{moduleRootPath}'. Manifest: {manifestRelativePath}. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Transit: {transitAnnouncementEntries.Count}. Skipped missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}."
+				: $"Created local module (legacy layout) '{displayName}' at '{moduleRootPath}'. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Transit: {transitAnnouncementEntries.Count}. Skipped missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}.";
+			SetDeveloperModuleStatus(statusMessage, isWarning: false);
+			if (uploadReadyAssetPackage)
+			{
+				s_DeveloperLastUploadReadyModulePath = moduleRootPath;
+				SetDeveloperModuleUploadStatus($"Ready to upload: '{moduleRootPath}'.", isWarning: false);
+			}
 
 			SyncCustomSirenCatalog(saveIfChanged: true, forceStatusRefresh: true);
 			SyncCustomVehicleEngineCatalog(saveIfChanged: true, forceStatusRefresh: true);
 			SyncCustomAmbientCatalog(saveIfChanged: true, forceStatusRefresh: true);
 			SyncCustomTransitAnnouncementCatalog(saveIfChanged: true, forceStatusRefresh: true);
+			return true;
 		}
 		catch (Exception ex)
 		{
+			moduleRootPath = string.Empty;
 			SetDeveloperModuleStatus($"Module generation failed: {ex.Message}", isWarning: true);
+			return false;
 		}
+	}
+
+	// Upload one generated asset-module package through the in-game PDX asset-upload flow.
+	private static async Task UploadLatestDeveloperAssetModuleToPdxModsInternalAsync(
+		string moduleRootPath,
+		DeveloperModuleUploadAccessLevel accessLevel,
+		DeveloperModuleUploadPublishMode publishMode,
+		int existingPublishedId)
+	{
+		string resolvedModuleRoot = string.IsNullOrWhiteSpace(moduleRootPath) 
+			? string.Empty 
+			: Path.GetFullPath(moduleRootPath);
+		if (string.IsNullOrWhiteSpace(resolvedModuleRoot) || !Directory.Exists(resolvedModuleRoot))
+		{
+			SetDeveloperModuleUploadStatus("Upload failed because the selected module folder no longer exists.", isWarning: true);
+			return;
+		}
+
+		if (publishMode == DeveloperModuleUploadPublishMode.UpdateExisting && existingPublishedId <= 0)
+		{
+			SetDeveloperModuleUploadStatus(
+				"Upload failed because Update Existing mode requires a valid existing published Mod ID.",
+				isWarning: true);
+			return;
+		}
+
+		string manifestPath = Path.Combine(
+			resolvedModuleRoot,
+			kDeveloperModuleUploadManifestRelativePath.Replace('/', Path.DirectorySeparatorChar));
+		if (!File.Exists(manifestPath))
+		{
+			SetDeveloperModuleUploadStatus(
+				$"Upload failed because '{kDeveloperModuleUploadManifestRelativePath}' was not found in '{resolvedModuleRoot}'.",
+				isWarning: true);
+			return;
+		}
+
+		if (!TryBuildDeveloperModuleUploadMetadata(
+				resolvedModuleRoot,
+				manifestPath,
+				out DeveloperModuleUploadMetadata metadata,
+				out string metadataError))
+		{
+			SetDeveloperModuleUploadStatus(metadataError, isWarning: true);
+			return;
+		}
+
+		string sourceContentPath = Path.Combine(resolvedModuleRoot, kDeveloperModuleAssetContentFolderName);
+		if (!Directory.Exists(sourceContentPath))
+		{
+			SetDeveloperModuleUploadStatus(
+				$"Upload failed because '{kDeveloperModuleAssetContentFolderName}' was not found in '{resolvedModuleRoot}'.",
+				isWarning: true);
+			return;
+		}
+
+		// Validate content size before upload to catch limits early
+		long totalContentSizeBytes = 0;
+		try
+		{
+			var dirInfo = new DirectoryInfo(sourceContentPath);
+			totalContentSizeBytes = dirInfo.EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
+			const long MaxContentSizeBytes = 500 * 1024 * 1024; // 500 MB
+			if (totalContentSizeBytes > MaxContentSizeBytes)
+			{
+				SetDeveloperModuleUploadStatus(
+					$"Upload failed: content size ({(totalContentSizeBytes / (1024.0 * 1024.0)):F1} MB) exceeds maximum limit (500 MB).",
+					isWarning: true);
+				return;
+			}
+		}
+		catch (Exception sizeCheckEx)
+		{
+			Log.Warn($"Could not validate content size: {sizeCheckEx.Message}");
+		}
+
+		PdxAssetUploadHandle uploadHandle = new PdxAssetUploadHandle();
+		try
+		{
+			ConfigureDeveloperModuleAssetUploadHandle(uploadHandle, metadata, accessLevel, publishMode, existingPublishedId);
+
+			(bool preflightSuccess, string preflightError) = await TryRunDeveloperModuleUploadPreflightChecksAsync(uploadHandle);
+			if (!preflightSuccess)
+			{
+				SetDeveloperModuleUploadStatus(preflightError, isWarning: true);
+				return;
+			}
+
+			SetDeveloperModuleUploadStatus("Creating upload staging folder on PDX Mods...", isWarning: false);
+			IModsUploadSupport.ModOperationResult beginResult = await BeginDeveloperModuleUploadRegistrationAsync(uploadHandle);
+			if (!beginResult.m_Success)
+			{
+				LogDeveloperModuleUploadFailureDiagnostics("registration", beginResult, uploadHandle);
+				await TryCleanupDeveloperModuleUploadHandleAsync(uploadHandle, "Failed to cleanup upload after registration error");
+				SetDeveloperModuleUploadStatus(
+					BuildDeveloperModuleUploadFailureMessage("Asset upload registration failed.", beginResult),
+					isWarning: true);
+				return;
+			}
+
+			NormalizeDeveloperModuleUploadTags(uploadHandle);
+			NormalizeDeveloperModuleUploadExternalLinks(uploadHandle);
+			await TryPrimeAudioSwitcherDependencyPublishedIdCacheFromPlatformListingsAsync(uploadHandle);
+			if (!TryAttachAudioSwitcherUploadDependency(uploadHandle, out string dependencyError))
+			{
+				SetDeveloperModuleUploadStatus($"Asset upload failed while applying dependency metadata: {dependencyError}", isWarning: true);
+				await TryCleanupDeveloperModuleUploadHandleAsync(uploadHandle, "Failed to cleanup staged upload after dependency error");
+				return;
+			}
+
+			if (!TryCopyDirectoryContents(sourceContentPath, uploadHandle.GetAbsoluteContentPath(), out string copyError))
+			{
+				SetDeveloperModuleUploadStatus($"Asset upload failed while staging content: {copyError}", isWarning: true);
+				await TryCleanupDeveloperModuleUploadHandleAsync(uploadHandle, "Failed to cleanup staged asset upload content");
+				return;
+			}
+
+			if (!TryStageDeveloperModuleUploadThumbnail(uploadHandle, metadata.ThumbnailPath, out string thumbnailError))
+			{
+				SetDeveloperModuleUploadStatus($"Asset upload failed while staging thumbnail: {thumbnailError}", isWarning: true);
+				await TryCleanupDeveloperModuleUploadHandleAsync(uploadHandle, "Failed to cleanup staged upload after thumbnail error");
+				return;
+			}
+
+			if (!TryRunDeveloperModuleUploadPublishPreflightChecks(uploadHandle, out string publishPreflightError))
+			{
+				SetDeveloperModuleUploadStatus($"Asset upload preflight failed before publish: {publishPreflightError}", isWarning: true);
+				await TryCleanupDeveloperModuleUploadHandleAsync(uploadHandle, "Failed to cleanup staged upload after publish preflight error");
+				return;
+			}
+
+			SetDeveloperModuleUploadStatus("Publishing asset upload to PDX Mods...", isWarning: false);
+			IModsUploadSupport.ModOperationResult finalizeResult = await uploadHandle.FinalizeSubmit();
+			if (!finalizeResult.m_Success)
+			{
+				LogDeveloperModuleUploadFailureDiagnostics("publish", finalizeResult, uploadHandle);
+				await TryCleanupDeveloperModuleUploadHandleAsync(uploadHandle, "Failed to cleanup upload after publish error");
+				SetDeveloperModuleUploadStatus(
+					BuildDeveloperModuleUploadFailureMessage("Asset upload publish failed.", finalizeResult),
+					isWarning: true);
+				return;
+			}
+
+			int publishedId = finalizeResult.m_ModInfo.m_PublishedID;
+			if (publishedId > 0)
+			{
+				lock (s_DeveloperModuleUploadSync)
+				{
+					s_DeveloperModuleUploadExistingPublishedId = publishedId;
+				}
+			}
+
+			string modIdText = publishedId > 0
+				? publishedId.ToString(CultureInfo.InvariantCulture)
+				: "unknown";
+			string publishModeLabel = GetDeveloperModuleUploadPublishModeLabel(publishMode);
+			SetDeveloperModuleUploadStatus(
+				$"Asset upload completed for '{metadata.DisplayName}'. Mode: {publishModeLabel}. Mod ID: {modIdText}. Access: {GetDeveloperModuleUploadAccessLevelLabel(accessLevel)}.",
+				isWarning: false);
+		}
+		catch (Exception ex)
+		{
+			await TryCleanupDeveloperModuleUploadHandleAsync(uploadHandle, "Failed to cleanup asset upload after exception");
+			SetDeveloperModuleUploadStatus($"Asset upload failed: {ex.Message}", isWarning: true);
+		}
+	}
+
+	// Register upload staging folder directly through PDX SDK to avoid built-in asset packaging.
+	private static async Task<IModsUploadSupport.ModOperationResult> BeginDeveloperModuleUploadRegistrationAsync(PdxAssetUploadHandle uploadHandle)
+	{
+		if (uploadHandle == null)
+		{
+			return BuildDeveloperModuleUploadRegistrationErrorResult("Upload registration failed: upload handle is unavailable.");
+		}
+
+		try
+		{
+			FieldInfo? managerField = uploadHandle
+				.GetType()
+				.GetField("m_Manager", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+			object? manager = managerField?.GetValue(uploadHandle);
+			if (manager == null)
+			{
+				string managerTypeName = uploadHandle.GetType().FullName ?? "<unknown>";
+				return BuildDeveloperModuleUploadRegistrationErrorResult(
+					$"Upload registration failed: PDX manager is unavailable. Handle type: {managerTypeName}",
+					uploadHandle.modInfo);
+			}
+
+			MethodInfo? getNewFolderMethod = manager
+				.GetType()
+				.GetMethod(
+					"GetNewModUploadFolder",
+					BindingFlags.Instance | BindingFlags.Public,
+					null,
+					new[] { typeof(IModsUploadSupport.ModInfo) },
+					null);
+			if (getNewFolderMethod == null)
+			{
+				string managerType = manager.GetType().FullName ?? "<unknown>";
+				return BuildDeveloperModuleUploadRegistrationErrorResult(
+					$"Upload registration failed: PDX Mods API incompatible. Could not resolve GetNewModUploadFolder on manager type {managerType}. This may indicate a game/SDK version mismatch.",
+					uploadHandle.modInfo);
+			}
+
+			object? invocationResult = getNewFolderMethod.Invoke(manager, new object?[] { uploadHandle.modInfo });
+			if (!(invocationResult is Task registrationTask))
+			{
+				return BuildDeveloperModuleUploadRegistrationErrorResult("Upload registration failed: GetNewModUploadFolder returned an unexpected result.", uploadHandle.modInfo);
+			}
+
+			await registrationTask;
+			PropertyInfo? resultProperty = registrationTask
+				.GetType()
+				.GetProperty("Result", BindingFlags.Instance | BindingFlags.Public);
+			object? resultObject = resultProperty?.GetValue(registrationTask, null);
+			if (!(resultObject is IModsUploadSupport.ModOperationResult operationResult))
+			{
+				return BuildDeveloperModuleUploadRegistrationErrorResult("Upload registration failed: GetNewModUploadFolder did not provide a valid operation result.", uploadHandle.modInfo);
+			}
+
+			uploadHandle.modInfo = operationResult.m_ModInfo;
+			return operationResult;
+		}
+		catch (TargetInvocationException tie) when (tie.InnerException != null)
+		{
+			return BuildDeveloperModuleUploadRegistrationErrorResult(
+				$"Upload registration failed: {tie.InnerException.Message}",
+				uploadHandle.modInfo);
+		}
+		catch (Exception ex)
+		{
+			return BuildDeveloperModuleUploadRegistrationErrorResult(
+				$"Upload registration failed: {ex.Message}",
+				uploadHandle.modInfo);
+		}
+	}
+
+	// Build a failed registration result with one concise error message.
+	private static IModsUploadSupport.ModOperationResult BuildDeveloperModuleUploadRegistrationErrorResult(
+		string message,
+		IModsUploadSupport.ModInfo? modInfo = null)
+	{
+		IModsUploadSupport.ModOperationResult result = new IModsUploadSupport.ModOperationResult
+		{
+			m_Success = false,
+			m_ModInfo = modInfo ?? default
+		};
+		result.m_Error = new IModsUploadSupport.ModError
+		{
+			m_Details = (message ?? string.Empty).Trim()
+		};
+		return result;
+	}
+
+	// Validate upload prerequisites before registering a PDX Mods asset upload.
+	private static async Task<(bool Success, string Error)> TryRunDeveloperModuleUploadPreflightChecksAsync(PdxAssetUploadHandle uploadHandle)
+	{
+		PlatformManager? platformManager = PlatformManager.instance;
+		if (platformManager == null)
+		{
+			return (false, "Upload preflight failed: platform services are not initialized.");
+		}
+
+		if (!platformManager.hasConnectivity)
+		{
+			return (false, "Upload preflight failed: no internet connection is available.");
+		}
+
+		if (platformManager.isOfflineOnly)
+		{
+			return (false, "Upload preflight failed: platform sharing is in offline-only mode.");
+		}
+
+		if (!uploadHandle.LoggedIn())
+		{
+			return (false, "Upload preflight failed: sign in to your Paradox account before uploading.");
+		}
+
+		bool platformDataSynced = false;
+		try
+		{
+			SetDeveloperModuleUploadStatus("Running upload preflight checks...", isWarning: false);
+			await uploadHandle.SyncPlatformData();
+			platformDataSynced = true;
+		}
+		catch (Exception ex)
+		{
+			string syncErrorDetail = ex.Message;
+			if (ex.InnerException != null && !string.IsNullOrWhiteSpace(ex.InnerException.Message))
+			{
+				syncErrorDetail = $"{syncErrorDetail} | Inner: {ex.InnerException.Message}";
+			}
+
+			Log.Warn($"Upload preflight: SyncPlatformData failed; continuing with reduced checks. {syncErrorDetail}");
+			SetDeveloperModuleUploadStatus(
+				$"Upload preflight warning: platform metadata sync failed ({ex.Message}). Continuing with reduced checks.",
+				isWarning: true);
+		}
+
+		if (platformDataSynced)
+		{
+			string socialProfileName = (uploadHandle.socialProfile.m_Name ?? string.Empty).Trim();
+			if (string.IsNullOrWhiteSpace(socialProfileName))
+			{
+				return (false, "Upload preflight failed: no PDX Mods social profile found. Complete your profile and retry.");
+			}
+		}
+
+		return (true, string.Empty);
+	}
+
+	// Best-effort cleanup helper for failed upload sessions.
+	private static async Task TryCleanupDeveloperModuleUploadHandleAsync(PdxAssetUploadHandle uploadHandle, string contextMessage)
+	{
+		try
+		{
+			MethodInfo? cleanupMethod = uploadHandle
+				.GetType()
+				.GetMethod("Cleanup", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+			if (cleanupMethod == null)
+			{
+				return;
+			}
+
+			object? result = cleanupMethod.Invoke(uploadHandle, null);
+			if (result is Task cleanupTask)
+			{
+				await cleanupTask;
+			}
+		}
+		catch (Exception cleanupEx)
+		{
+			Log.Warn($"{contextMessage}: {cleanupEx.Message}");
+		}
+	}
+
+	// Validate staged upload payload before calling FinalizeSubmit.
+	private static bool TryRunDeveloperModuleUploadPublishPreflightChecks(PdxAssetUploadHandle uploadHandle, out string error)
+	{
+		error = string.Empty;
+		if (uploadHandle == null)
+		{
+			error = "Upload handle is unavailable.";
+			return false;
+		}
+
+		IModsUploadSupport.ModInfo modInfo = uploadHandle.modInfo;
+		if (string.IsNullOrWhiteSpace(modInfo.m_DisplayName))
+		{
+			error = "Display Name is missing.";
+			return false;
+		}
+
+		if (string.IsNullOrWhiteSpace(modInfo.m_ShortDescription))
+		{
+			error = "Short Description is missing.";
+			return false;
+		}
+
+		if (string.IsNullOrWhiteSpace(modInfo.m_LongDescription))
+		{
+			error = "Long Description is missing.";
+			return false;
+		}
+
+		if (string.IsNullOrWhiteSpace(modInfo.m_UserModVersion))
+		{
+			error = "Mod Version is missing.";
+			return false;
+		}
+
+		if (string.IsNullOrWhiteSpace(modInfo.m_RecommendedGameVersion))
+		{
+			error = "Recommended Game Version is missing.";
+			return false;
+		}
+
+		string[] tags = modInfo.m_Tags ?? Array.Empty<string>();
+		if (tags.Length == 0)
+		{
+			error = "At least one publish tag is required (expected AssetPack).";
+			return false;
+		}
+
+		for (int i = 0; i < tags.Length; i++)
+		{
+			string tag = (tags[i] ?? string.Empty).Trim();
+			if (string.Equals(tag, kDeveloperModuleUploadLegacyAssetTag, StringComparison.OrdinalIgnoreCase))
+			{
+				error = $"Invalid legacy tag '{kDeveloperModuleUploadLegacyAssetTag}' detected. Use '{kDeveloperModuleUploadAssetPackTag}' instead.";
+				return false;
+			}
+		}
+
+		IModsUploadSupport.ModInfo.ModDependency[] dependencies = modInfo.m_ModDependencies ??
+			Array.Empty<IModsUploadSupport.ModInfo.ModDependency>();
+		if (dependencies.Length == 0)
+		{
+			error = "Audio Switcher dependency metadata is missing.";
+			return false;
+		}
+
+		for (int i = 0; i < dependencies.Length; i++)
+		{
+			if (dependencies[i].m_Id <= 0)
+			{
+				error = $"Dependency at index {i} has an invalid published ID.";
+				return false;
+			}
+		}
+
+		List<IModsUploadSupport.ExternalLinkData>? externalLinks = modInfo.m_ExternalLinks;
+		if (externalLinks != null)
+		{
+			for (int i = 0; i < externalLinks.Count; i++)
+			{
+				IModsUploadSupport.ExternalLinkData link = externalLinks[i];
+				if (string.IsNullOrWhiteSpace(link.m_URL))
+				{
+					error = $"External link at index {i} has an empty URL.";
+					return false;
+				}
+			}
+		}
+
+		string contentPath = uploadHandle.GetAbsoluteContentPath();
+		if (string.IsNullOrWhiteSpace(contentPath) || !Directory.Exists(contentPath))
+		{
+			error = "Staged content directory could not be resolved.";
+			return false;
+		}
+
+		try
+		{
+			string[] stagedFiles = Directory.GetFiles(contentPath, "*", SearchOption.AllDirectories);
+			if (stagedFiles.Length == 0)
+			{
+				error = "Staged content directory is empty.";
+				return false;
+			}
+		}
+		catch (Exception ex)
+		{
+			error = $"Unable to read staged content files: {ex.Message}";
+			return false;
+		}
+
+		if (string.IsNullOrWhiteSpace(modInfo.m_ThumbnailFilename))
+		{
+			error = "Thumbnail filename was not set in upload metadata.";
+			return false;
+		}
+
+		if (!TryResolveDeveloperModuleUploadMetadataDirectory(uploadHandle, out string metadataDirectoryPath, out string metadataError))
+		{
+			error = metadataError;
+			return false;
+		}
+
+		string thumbnailPath = Path.Combine(metadataDirectoryPath, modInfo.m_ThumbnailFilename);
+		if (!File.Exists(thumbnailPath))
+		{
+			error = $"Thumbnail file not found at expected location: {thumbnailPath}. DisplayName: {modInfo.m_DisplayName}";
+			error = $"Staged thumbnail was not found at '{thumbnailPath}'.";
+			return false;
+		}
+
+		Log.Info($"Asset upload publish preflight passed. {BuildDeveloperModuleUploadModInfoSummary(modInfo)}");
+		return true;
+	}
+
+	// Stage selected thumbnail into the upload metadata directory and bind it in mod info.
+	private static bool TryStageDeveloperModuleUploadThumbnail(PdxAssetUploadHandle uploadHandle, string thumbnailSourcePath, out string error)
+	{
+		error = string.Empty;
+		string resolvedThumbnailPath = NormalizeDeveloperModuleUploadThumbnailPath(thumbnailSourcePath);
+		if (string.IsNullOrWhiteSpace(resolvedThumbnailPath) || !File.Exists(resolvedThumbnailPath))
+		{
+			error = "Thumbnail file was not found while staging upload metadata.";
+			return false;
+		}
+
+		string extension = Path.GetExtension(resolvedThumbnailPath);
+		if (!IsSupportedDeveloperModuleUploadThumbnailExtension(extension))
+		{
+			error = "Thumbnail format is not supported. Use .png, .jpg, or .jpeg.";
+			return false;
+		}
+
+		if (!TryResolveDeveloperModuleUploadMetadataDirectory(uploadHandle, out string metadataDirectoryPath, out string metadataError))
+		{
+			error = metadataError;
+			return false;
+		}
+
+		try
+		{
+			Directory.CreateDirectory(metadataDirectoryPath);
+			string fileName = $"thumbnail{extension.ToLowerInvariant()}";
+			string destinationPath = Path.Combine(metadataDirectoryPath, fileName);
+			File.Copy(resolvedThumbnailPath, destinationPath, overwrite: true);
+
+			IModsUploadSupport.ModInfo modInfo = uploadHandle.modInfo;
+			// PDX publish expects an absolute thumbnail path in m_ThumbnailFilename.
+			modInfo.m_ThumbnailFilename = Path.GetFullPath(destinationPath).Replace("\\", "/");
+			uploadHandle.modInfo = modInfo;
+			return true;
+		}
+		catch (Exception ex)
+		{
+			error = ex.Message;
+			return false;
+		}
+	}
+
+	// Resolve metadata path from upload handle across game versions.
+	private static bool TryResolveDeveloperModuleUploadMetadataDirectory(
+		PdxAssetUploadHandle uploadHandle,
+		out string metadataDirectoryPath,
+		out string error)
+	{
+		metadataDirectoryPath = string.Empty;
+		error = string.Empty;
+
+		try
+		{
+			MethodInfo? method = uploadHandle
+				.GetType()
+				.GetMethod("GetAbsoluteMetadataPath", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+			if (method != null)
+			{
+				object? result = method.Invoke(uploadHandle, null);
+				string? path = result as string;
+				if (!string.IsNullOrWhiteSpace(path))
+				{
+					metadataDirectoryPath = path!;
+					return true;
+				}
+			}
+
+			if (TryResolveDeveloperModuleUploadMetadataDirectoryFromContentPath(uploadHandle, out string fallbackPath))
+			{
+				metadataDirectoryPath = fallbackPath;
+				return true;
+			}
+
+			error = "Upload failed because the metadata staging path could not be resolved.";
+			return false;
+		}
+		catch (Exception ex)
+		{
+			error = $"Upload failed while resolving metadata path: {ex.Message}";
+			return false;
+		}
+	}
+
+	// Fallback metadata-path resolver using the content path parent folder.
+	private static bool TryResolveDeveloperModuleUploadMetadataDirectoryFromContentPath(
+		PdxAssetUploadHandle uploadHandle,
+		out string metadataDirectoryPath)
+	{
+		metadataDirectoryPath = string.Empty;
+		if (uploadHandle == null)
+		{
+			return false;
+		}
+
+		try
+		{
+			string contentPath = uploadHandle.GetAbsoluteContentPath();
+			if (string.IsNullOrWhiteSpace(contentPath))
+			{
+				return false;
+			}
+
+			string? rootPath = Path.GetDirectoryName(contentPath);
+			if (string.IsNullOrWhiteSpace(rootPath))
+			{
+				return false;
+			}
+
+			string metadataFolderName = ResolveDeveloperModuleUploadMetadataFolderName();
+			if (string.IsNullOrWhiteSpace(metadataFolderName))
+			{
+				return false;
+			}
+
+			metadataDirectoryPath = Path.Combine(rootPath, metadataFolderName);
+			return !string.IsNullOrWhiteSpace(metadataDirectoryPath);
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	// Resolve metadata directory folder name from platform constants with a stable fallback.
+	private static string ResolveDeveloperModuleUploadMetadataFolderName()
+	{
+		try
+		{
+			FieldInfo? field = typeof(IModsUploadSupport.ModInfo).GetField(
+				"kMetadataDirectory",
+				BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+			if (field != null)
+			{
+				string? value = field.GetValue(null) as string;
+				if (!string.IsNullOrWhiteSpace(value))
+				{
+					return value!.Trim();
+				}
+			}
+		}
+		catch
+		{
+			// Fall through to default.
+		}
+
+		return "metadata";
+	}
+
+	// Resolve latest upload-ready module by cached path first, then by scanning export directory.
+	private static bool TryResolveLatestUploadReadyModulePath(out string moduleRootPath, out string error)
+	{
+		moduleRootPath = string.Empty;
+		error = string.Empty;
+
+		string cached = NormalizeDeveloperModuleExportDirectory(s_DeveloperLastUploadReadyModulePath);
+		if (!string.IsNullOrWhiteSpace(cached) && HasUploadReadyModuleManifest(cached))
+		{
+			moduleRootPath = cached;
+			return true;
+		}
+
+		string exportRoot = GetResolvedDeveloperModuleExportDirectory(ensureExists: false);
+		if (string.IsNullOrWhiteSpace(exportRoot) || !Directory.Exists(exportRoot))
+		{
+			error = "No upload-ready module found. Build one first using 'Build + Upload'.";
+			return false;
+		}
+
+		string[] directories = EnumerateDirectoriesSafe(exportRoot);
+		DateTime latestWriteUtc = DateTime.MinValue;
+		string latestPath = string.Empty;
+		for (int i = 0; i < directories.Length; i++)
+		{
+			string candidate = NormalizeDeveloperModuleExportDirectory(directories[i]);
+			if (string.IsNullOrWhiteSpace(candidate) || !HasUploadReadyModuleManifest(candidate))
+			{
+				continue;
+			}
+
+			DateTime writeUtc;
+			try
+			{
+				writeUtc = Directory.GetLastWriteTimeUtc(candidate);
+			}
+			catch
+			{
+				writeUtc = DateTime.MinValue;
+			}
+
+			if (writeUtc >= latestWriteUtc)
+			{
+				latestWriteUtc = writeUtc;
+				latestPath = candidate;
+			}
+		}
+
+		if (string.IsNullOrWhiteSpace(latestPath))
+		{
+			error = "No upload-ready module found. Build one first using 'Build + Upload'.";
+			return false;
+		}
+
+		s_DeveloperLastUploadReadyModulePath = latestPath;
+		moduleRootPath = latestPath;
+		return true;
+	}
+
+	// Build upload metadata from manifest + defaults used by PDX asset upload.
+	private static bool TryBuildDeveloperModuleUploadMetadata(
+		string moduleRootPath,
+		string manifestPath,
+		out DeveloperModuleUploadMetadata metadata,
+		out string error)
+	{
+		metadata = new DeveloperModuleUploadMetadata(
+			displayName: NormalizeDeveloperModuleDisplayName(s_DeveloperModuleDisplayName),
+			moduleId: NormalizeDeveloperModuleId(s_DeveloperModuleId),
+			shortDescription: kDeveloperModuleUploadDefaultShortDescription,
+			longDescription: kDeveloperModuleUploadDefaultShortDescription,
+			modVersion: BuildDeveloperModuleUploadVersion(),
+			gameVersion: string.IsNullOrWhiteSpace(Application.version)
+				? kDeveloperModuleUploadDefaultRecommendedGameVersion
+				: Application.version,
+			thumbnailPath: string.Empty);
+		error = string.Empty;
+
+		string displayName = metadata.DisplayName;
+		string moduleId = metadata.ModuleId;
+		try
+		{
+			string manifestJson = File.ReadAllText(manifestPath);
+			if (JsonDataSerializer.TryDeserialize(manifestJson, out DeveloperModuleManifest? manifest, out _) &&
+				manifest != null)
+			{
+				if (!string.IsNullOrWhiteSpace(manifest.DisplayName))
+				{
+					displayName = manifest.DisplayName.Trim();
+				}
+
+				if (!string.IsNullOrWhiteSpace(manifest.ModuleId))
+				{
+					moduleId = NormalizeDeveloperModuleId(manifest.ModuleId);
+				}
+			}
+		}
+		catch (Exception ex)
+		{
+			Log.Warn($"Failed to read upload-ready manifest metadata from '{manifestPath}'. {ex.Message}");
+		}
+
+		if (!TryResolveDeveloperModuleUploadThumbnailSourcePath(moduleRootPath, out string thumbnailPath, out string thumbnailError))
+		{
+			error = thumbnailError;
+			return false;
+		}
+
+		string shortDescription = BuildDeveloperModuleUploadShortDescription(displayName);
+		string configuredDescription = NormalizeDeveloperModuleUploadDescription(s_DeveloperModuleUploadDescription);
+		string longDescription = string.IsNullOrWhiteSpace(configuredDescription)
+			? BuildDeveloperModuleUploadLongDescription(displayName, moduleId)
+			: configuredDescription;
+		string modVersion = BuildDeveloperModuleUploadVersion();
+		metadata = new DeveloperModuleUploadMetadata(
+			displayName: displayName,
+			moduleId: moduleId,
+			shortDescription: shortDescription,
+			longDescription: longDescription,
+			modVersion: modVersion,
+			gameVersion: metadata.GameVersion,
+			thumbnailPath: thumbnailPath);
+		return true;
+	}
+
+	// Resolve explicit thumbnail path (if set) or ensure module-local default thumbnail exists.
+	private static bool TryResolveDeveloperModuleUploadThumbnailSourcePath(string moduleRootPath, out string thumbnailPath, out string error)
+	{
+		thumbnailPath = string.Empty;
+		error = string.Empty;
+
+		string configuredPath = NormalizeDeveloperModuleUploadThumbnailPath(s_DeveloperModuleUploadThumbnailPath);
+		if (!string.IsNullOrWhiteSpace(configuredPath))
+		{
+			string resolved = configuredPath;
+			if (!Path.IsPathRooted(resolved))
+			{
+				try
+				{
+					resolved = Path.GetFullPath(Path.Combine(moduleRootPath, resolved));
+				}
+				catch (Exception ex)
+				{
+					error = $"Upload thumbnail path is invalid: {ex.Message}";
+					return false;
+				}
+			}
+
+			if (!File.Exists(resolved))
+			{
+				error = $"Upload thumbnail was not found at '{resolved}'.";
+				return false;
+			}
+
+			if (!IsSupportedDeveloperModuleUploadThumbnailExtension(Path.GetExtension(resolved)))
+			{
+				error = "Upload thumbnail must be .png, .jpg, or .jpeg.";
+				return false;
+			}
+
+			thumbnailPath = resolved;
+			return true;
+		}
+
+		return TryEnsureDeveloperModuleUploadThumbnail(moduleRootPath, out thumbnailPath, out error);
+	}
+
+	// Build selectable thumbnail candidates from latest module root, optional thumbnail directory, and persisted selection.
+	private static List<string> GetDeveloperModuleUploadThumbnailCandidates(out string moduleRootPath, out string thumbnailDirectoryPath)
+	{
+		moduleRootPath = string.Empty;
+		thumbnailDirectoryPath = NormalizeDeveloperModuleUploadThumbnailDirectory(s_DeveloperModuleUploadThumbnailDirectory);
+		HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		List<string> candidates = new List<string>();
+
+		string persisted = NormalizeDeveloperModuleUploadThumbnailPath(s_DeveloperModuleUploadThumbnailPath);
+		if (!string.IsNullOrWhiteSpace(persisted) &&
+			File.Exists(persisted) &&
+			IsSupportedDeveloperModuleUploadThumbnailExtension(Path.GetExtension(persisted)) &&
+			seen.Add(persisted))
+		{
+			candidates.Add(persisted);
+		}
+
+		if (TryResolveLatestUploadReadyModulePath(out string latestModuleRoot, out _))
+		{
+			moduleRootPath = latestModuleRoot;
+			AddDeveloperModuleUploadThumbnailCandidatesFromDirectory(latestModuleRoot, seen, candidates);
+		}
+
+		if (!string.IsNullOrWhiteSpace(thumbnailDirectoryPath) && Directory.Exists(thumbnailDirectoryPath))
+		{
+			AddDeveloperModuleUploadThumbnailCandidatesFromDirectory(thumbnailDirectoryPath, seen, candidates);
+		}
+
+		candidates.Sort(StringComparer.OrdinalIgnoreCase);
+		return candidates;
+	}
+
+	// Add supported thumbnail files from one directory into a de-duplicated candidate list.
+	private static void AddDeveloperModuleUploadThumbnailCandidatesFromDirectory(
+		string directoryPath,
+		ISet<string> seen,
+		ICollection<string> candidates)
+	{
+		if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath))
+		{
+			return;
+		}
+
+		string[] files = EnumerateFilesSafe(directoryPath);
+		for (int i = 0; i < files.Length; i++)
+		{
+			string normalized = NormalizeDeveloperModuleUploadThumbnailPath(files[i]);
+			if (string.IsNullOrWhiteSpace(normalized))
+			{
+				continue;
+			}
+
+			if (!IsSupportedDeveloperModuleUploadThumbnailExtension(Path.GetExtension(normalized)))
+			{
+				continue;
+			}
+
+			if (seen.Add(normalized))
+			{
+				candidates.Add(normalized);
+			}
+		}
+	}
+
+	// True when file path is contained within the given directory root.
+	private static bool IsPathWithinDirectory(string filePath, string directoryPath)
+	{
+		string normalizedFilePath = NormalizeDeveloperModuleUploadThumbnailPath(filePath);
+		string normalizedDirectoryPath = NormalizeDeveloperModuleUploadThumbnailDirectory(directoryPath);
+		if (string.IsNullOrWhiteSpace(normalizedFilePath) || string.IsNullOrWhiteSpace(normalizedDirectoryPath))
+		{
+			return false;
+		}
+
+		if (string.Equals(normalizedFilePath, normalizedDirectoryPath, StringComparison.OrdinalIgnoreCase))
+		{
+			return false;
+		}
+
+		string rootedDirectory = normalizedDirectoryPath.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+			? normalizedDirectoryPath
+			: normalizedDirectoryPath + Path.DirectorySeparatorChar;
+		return normalizedFilePath.StartsWith(rootedDirectory, StringComparison.OrdinalIgnoreCase);
+	}
+
+	// Return true when selected path exists in currently discovered thumbnail candidates.
+	private static bool ContainsDeveloperModuleUploadThumbnailCandidate(IReadOnlyList<string> candidates, string path)
+	{
+		string normalized = NormalizeDeveloperModuleUploadThumbnailPath(path);
+		if (string.IsNullOrWhiteSpace(normalized))
+		{
+			return false;
+		}
+
+		for (int i = 0; i < candidates.Count; i++)
+		{
+			if (string.Equals(candidates[i], normalized, StringComparison.OrdinalIgnoreCase))
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	// Apply upload metadata and access level to one PDX upload handle.
+	private static void ConfigureDeveloperModuleAssetUploadHandle(
+		PdxAssetUploadHandle uploadHandle,
+		DeveloperModuleUploadMetadata metadata,
+		DeveloperModuleUploadAccessLevel accessLevel,
+		DeveloperModuleUploadPublishMode publishMode,
+		int existingPublishedId)
+	{
+		IModsUploadSupport.ModInfo modInfo = uploadHandle.modInfo;
+		modInfo.m_DisplayName = metadata.DisplayName;
+		modInfo.m_ShortDescription = metadata.ShortDescription;
+		modInfo.m_LongDescription = metadata.LongDescription;
+		modInfo.m_UserModVersion = metadata.ModVersion;
+		modInfo.m_RecommendedGameVersion = metadata.GameVersion;
+		modInfo.m_Changelog = kDeveloperModuleUploadDefaultChangeLog;
+		modInfo.m_Visibility = ConvertDeveloperModuleUploadAccessLevel(accessLevel);
+		modInfo.m_Tags = new[] { kDeveloperModuleUploadAssetPackTag };
+		modInfo.m_ExternalLinks = new List<IModsUploadSupport.ExternalLinkData>();
+		if (publishMode == DeveloperModuleUploadPublishMode.UpdateExisting)
+		{
+			modInfo.m_PublishedID = existingPublishedId;
+		}
+		else
+		{
+			modInfo.m_PublishedID = 0;
+		}
+
+		uploadHandle.modInfo = modInfo;
+		uploadHandle.updateExisting = publishMode == DeveloperModuleUploadPublishMode.UpdateExisting;
+	}
+
+	// Normalize tags for current PDX taxonomy (legacy "Asset" -> "AssetPack").
+	private static void NormalizeDeveloperModuleUploadTags(PdxAssetUploadHandle uploadHandle)
+	{
+		if (uploadHandle == null)
+		{
+			return;
+		}
+
+		bool replacedLegacyAssetTag = false;
+		HashSet<string> normalizedTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		void AddTag(string rawTag)
+		{
+			string tag = (rawTag ?? string.Empty).Trim();
+			if (string.IsNullOrWhiteSpace(tag))
+			{
+				return;
+			}
+
+			if (string.Equals(tag, kDeveloperModuleUploadLegacyAssetTag, StringComparison.OrdinalIgnoreCase))
+			{
+				tag = kDeveloperModuleUploadAssetPackTag;
+				replacedLegacyAssetTag = true;
+			}
+
+			normalizedTags.Add(tag);
+		}
+
+		IModsUploadSupport.ModInfo modInfo = uploadHandle.modInfo;
+		string[] currentTags = modInfo.m_Tags ?? Array.Empty<string>();
+		for (int i = 0; i < currentTags.Length; i++)
+		{
+			AddTag(currentTags[i]);
+		}
+
+		foreach (string tag in uploadHandle.tags)
+		{
+			AddTag(tag);
+		}
+
+		for (int i = 0; i < uploadHandle.additionalTags.Count; i++)
+		{
+			AddTag(uploadHandle.additionalTags[i]);
+		}
+
+		if (normalizedTags.Count == 0)
+		{
+			normalizedTags.Add(kDeveloperModuleUploadAssetPackTag);
+		}
+
+		modInfo.m_Tags = new string[normalizedTags.Count];
+		normalizedTags.CopyTo(modInfo.m_Tags);
+		uploadHandle.modInfo = modInfo;
+
+		if (replacedLegacyAssetTag)
+		{
+			Log.Info($"Normalized legacy upload tag '{kDeveloperModuleUploadLegacyAssetTag}' to '{kDeveloperModuleUploadAssetPackTag}'.");
+		}
+	}
+
+	// Remove placeholder/invalid external links added by SDK defaults.
+	private static void NormalizeDeveloperModuleUploadExternalLinks(PdxAssetUploadHandle uploadHandle)
+	{
+		if (uploadHandle == null)
+		{
+			return;
+		}
+
+		IModsUploadSupport.ModInfo modInfo = uploadHandle.modInfo;
+		List<IModsUploadSupport.ExternalLinkData>? externalLinks = modInfo.m_ExternalLinks;
+		if (externalLinks == null || externalLinks.Count == 0)
+		{
+			return;
+		}
+
+		List<IModsUploadSupport.ExternalLinkData> normalized = new List<IModsUploadSupport.ExternalLinkData>(externalLinks.Count);
+		int removedCount = 0;
+		for (int i = 0; i < externalLinks.Count; i++)
+		{
+			IModsUploadSupport.ExternalLinkData link = externalLinks[i];
+			string type = (link.m_Type ?? string.Empty).Trim();
+			string url = (link.m_URL ?? string.Empty).Trim();
+			if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(url))
+			{
+				removedCount++;
+				continue;
+			}
+
+			link.m_Type = type;
+			link.m_URL = url;
+			normalized.Add(link);
+		}
+
+		if (removedCount <= 0)
+		{
+			return;
+		}
+
+		modInfo.m_ExternalLinks = normalized;
+		uploadHandle.modInfo = modInfo;
+		Log.Info($"Removed {removedCount.ToString(CultureInfo.InvariantCulture)} empty/invalid external link placeholder(s) from asset upload metadata.");
+	}
+
+	// Prime dependency ID cache from account listings without requiring full SyncPlatformData().
+	private static async Task TryPrimeAudioSwitcherDependencyPublishedIdCacheFromPlatformListingsAsync(PdxAssetUploadHandle uploadHandle)
+	{
+		if (uploadHandle == null || s_DeveloperAudioSwitcherDependencyPublishedIdCache > 0)
+		{
+			return;
+		}
+
+		try
+		{
+			FieldInfo? managerField = uploadHandle
+				.GetType()
+				.GetField("m_Manager", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+			object? manager = managerField?.GetValue(uploadHandle);
+			if (manager == null)
+			{
+				return;
+			}
+
+			MethodInfo? listMethod = manager
+				.GetType()
+				.GetMethod("ListAllModsByMe", BindingFlags.Instance | BindingFlags.Public);
+			if (listMethod == null)
+			{
+				return;
+			}
+
+			object? invocationResult = InvokeListAllModsByMeForDependencyCache(manager, listMethod);
+			if (!(invocationResult is Task listTask))
+			{
+				return;
+			}
+
+			await listTask;
+			PropertyInfo? resultProperty = listTask.GetType().GetProperty("Result", BindingFlags.Instance | BindingFlags.Public);
+			object? resultObject = resultProperty?.GetValue(listTask, null);
+			if (!(resultObject is IEnumerable resultEnumerable))
+			{
+				return;
+			}
+
+			List<IModsUploadSupport.ModInfo> authorMods = new List<IModsUploadSupport.ModInfo>();
+			foreach (object? item in resultEnumerable)
+			{
+				if (item is IModsUploadSupport.ModInfo modInfo)
+				{
+					authorMods.Add(modInfo);
+				}
+			}
+
+			int resolvedId = ResolveAudioSwitcherDependencyPublishedIdFromAuthorMods(authorMods);
+			if (resolvedId > 0)
+			{
+				s_DeveloperAudioSwitcherDependencyPublishedIdCache = resolvedId;
+			}
+		}
+		catch (Exception ex)
+		{
+			Log.Warn($"Dependency cache priming from account listings failed: {ex.Message}");
+		}
+	}
+
+	// Invoke ListAllModsByMe with resilient argument binding across platform SDK signatures.
+	private static object? InvokeListAllModsByMeForDependencyCache(object manager, MethodInfo listMethod)
+	{
+		ParameterInfo[] parameters = listMethod.GetParameters();
+		object?[] args = new object?[parameters.Length];
+		for (int i = 0; i < parameters.Length; i++)
+		{
+			ParameterInfo parameter = parameters[i];
+			Type parameterType = parameter.ParameterType;
+			if (parameterType == typeof(string[]))
+			{
+				args[i] = Array.Empty<string>();
+				continue;
+			}
+
+			if (parameterType == typeof(int))
+			{
+				args[i] = 200;
+				continue;
+			}
+
+			if (parameter.HasDefaultValue)
+			{
+				args[i] = parameter.DefaultValue;
+				continue;
+			}
+
+			args[i] = parameterType.IsValueType
+				? Activator.CreateInstance(parameterType)
+				: null;
+		}
+
+		return listMethod.Invoke(manager, args);
+	}
+
+	// Add Audio Switcher as a required dependency on every auto-uploaded module asset.
+	private static bool TryAttachAudioSwitcherUploadDependency(PdxAssetUploadHandle uploadHandle, out string error)
+	{
+		error = string.Empty;
+		if (uploadHandle == null)
+		{
+			error = "Upload handle is unavailable.";
+			return false;
+		}
+
+		int dependencyPublishedId = ResolveAudioSwitcherDependencyPublishedId(uploadHandle.authorMods);
+		if (dependencyPublishedId <= 0)
+		{
+			error = "Could not resolve the published PDX mod ID for 'Audio Switcher'. Ensure Audio Switcher is installed/enabled and visible to your PDX account, then retry.";
+			return false;
+		}
+
+		IModsUploadSupport.ModInfo modInfo = uploadHandle.modInfo;
+		IModsUploadSupport.ModInfo.ModDependency[] existingDependencies = modInfo.m_ModDependencies ??
+			Array.Empty<IModsUploadSupport.ModInfo.ModDependency>();
+		List<IModsUploadSupport.ModInfo.ModDependency> mergedDependencies =
+			new List<IModsUploadSupport.ModInfo.ModDependency>(existingDependencies.Length + 1);
+
+		bool hasAudioSwitcherDependency = false;
+		for (int i = 0; i < existingDependencies.Length; i++)
+		{
+			IModsUploadSupport.ModInfo.ModDependency dependency = existingDependencies[i];
+			if (dependency.m_Id <= 0)
+			{
+				continue;
+			}
+
+			if (dependency.m_Id == dependencyPublishedId)
+			{
+				hasAudioSwitcherDependency = true;
+				if (dependency.m_Version == null)
+				{
+					dependency.m_Version = string.Empty;
+				}
+			}
+
+			mergedDependencies.Add(dependency);
+		}
+
+		if (!hasAudioSwitcherDependency)
+		{
+			mergedDependencies.Add(new IModsUploadSupport.ModInfo.ModDependency
+			{
+				m_Id = dependencyPublishedId,
+				m_Version = string.Empty
+			});
+		}
+
+		modInfo.m_ModDependencies = mergedDependencies.ToArray();
+		uploadHandle.modInfo = modInfo;
+		return true;
+	}
+
+	// Resolve Audio Switcher published ID from the current author's PDX mod listings.
+	private static int ResolveAudioSwitcherDependencyPublishedId(IReadOnlyList<IModsUploadSupport.ModInfo> authorMods)
+	{
+		int authorPublishedId = ResolveAudioSwitcherDependencyPublishedIdFromAuthorMods(authorMods);
+		if (authorPublishedId > 0)
+		{
+			Log.Info($"Audio Switcher dependency resolved from author mods: ID={authorPublishedId}");
+			s_DeveloperAudioSwitcherDependencyPublishedIdCache = authorPublishedId;
+			return authorPublishedId;
+		}
+
+		if (TryResolveAudioSwitcherDependencyPublishedIdFromActiveParadoxMods(out int activePublishedId))
+		{
+			Log.Info($"Audio Switcher dependency resolved from active mods: ID={activePublishedId}");
+			s_DeveloperAudioSwitcherDependencyPublishedIdCache = activePublishedId;
+			return activePublishedId;
+		}
+
+		if (s_DeveloperAudioSwitcherDependencyPublishedIdCache > 0)
+		{
+			Log.Info($"Audio Switcher dependency resolved from cache: ID={s_DeveloperAudioSwitcherDependencyPublishedIdCache}");
+			return s_DeveloperAudioSwitcherDependencyPublishedIdCache;
+		}
+
+		Log.Warn("Audio Switcher dependency could not be resolved from any source");
+		return 0;
+	}
+
+	// Resolve dependency ID from author-owned mods returned by platform sync.
+	private static int ResolveAudioSwitcherDependencyPublishedIdFromAuthorMods(IReadOnlyList<IModsUploadSupport.ModInfo> authorMods)
+	{
+		if (authorMods == null || authorMods.Count == 0)
+		{
+			return 0;
+		}
+
+		int bestFallbackId = 0;
+		for (int i = 0; i < authorMods.Count; i++)
+		{
+			IModsUploadSupport.ModInfo modInfo = authorMods[i];
+			int publishedId = modInfo.m_PublishedID;
+			if (publishedId <= 0)
+			{
+				continue;
+			}
+
+			string displayName = (modInfo.m_DisplayName ?? string.Empty).Trim();
+			if (string.IsNullOrWhiteSpace(displayName))
+			{
+				continue;
+			}
+
+			if (string.Equals(displayName, kOptionsPanelDisplayName, StringComparison.OrdinalIgnoreCase))
+			{
+				return publishedId;
+			}
+
+			if (bestFallbackId <= 0 && MatchesAudioSwitcherDependencyName(displayName))
+			{
+				bestFallbackId = publishedId;
+			}
+		}
+
+		return bestFallbackId;
+	}
+
+	// Resolve dependency ID from active Paradox mods as a fallback when author list is empty/unavailable.
+	private static bool TryResolveAudioSwitcherDependencyPublishedIdFromActiveParadoxMods(out int publishedId)
+	{
+		publishedId = 0;
+		try
+		{
+			if (!(AssetDatabase<ParadoxMods>.instance?.dataSource is ParadoxModsDataSource dataSource))
+			{
+				return false;
+			}
+
+			MethodInfo? getActiveModsMethod = dataSource.GetType().GetMethod("GetActiveMods", BindingFlags.Public | BindingFlags.Instance);
+			if (getActiveModsMethod == null)
+			{
+				return false;
+			}
+
+			object? activeModsObject = getActiveModsMethod.Invoke(dataSource, null);
+			if (!(activeModsObject is IEnumerable activeMods))
+			{
+				return false;
+			}
+
+			int bestFallbackId = 0;
+			foreach (object? activeMod in activeMods)
+			{
+				if (activeMod == null)
+				{
+					continue;
+				}
+
+				string displayName = ReadActiveParadoxModDisplayName(activeMod);
+				int candidateId = ReadActiveParadoxModPublishedId(activeMod);
+				if (candidateId <= 0 || string.IsNullOrWhiteSpace(displayName))
+				{
+					continue;
+				}
+
+				if (string.Equals(displayName, kOptionsPanelDisplayName, StringComparison.OrdinalIgnoreCase))
+				{
+					publishedId = candidateId;
+					return true;
+				}
+
+				if (bestFallbackId <= 0 && MatchesAudioSwitcherDependencyName(displayName))
+				{
+					bestFallbackId = candidateId;
+				}
+			}
+
+			if (bestFallbackId > 0)
+			{
+				publishedId = bestFallbackId;
+				return true;
+			}
+		}
+		catch (Exception ex)
+		{
+			Log.Warn($"Failed to resolve Audio Switcher dependency ID from active Paradox mods: {ex.Message}");
+		}
+
+		return false;
+	}
+
+	// Match Audio Switcher listing names across historical naming variants.
+	private static bool MatchesAudioSwitcherDependencyName(string displayName)
+	{
+		string normalized = (displayName ?? string.Empty).Trim();
+		if (string.IsNullOrWhiteSpace(normalized))
+		{
+			return false;
+		}
+
+		return normalized.IndexOf("audio switcher", StringComparison.OrdinalIgnoreCase) >= 0 ||
+			normalized.IndexOf("siren changer", StringComparison.OrdinalIgnoreCase) >= 0 ||
+			normalized.IndexOf("sirenchanger", StringComparison.OrdinalIgnoreCase) >= 0;
+	}
+
+	// Read one active Paradox mod display name via tolerant reflection.
+	private static string ReadActiveParadoxModDisplayName(object activeMod)
+	{
+		if (TryReadActiveParadoxModString(activeMod, "displayName", out string displayName) ||
+			TryReadActiveParadoxModString(activeMod, "DisplayName", out displayName) ||
+			TryReadActiveParadoxModString(activeMod, "name", out displayName) ||
+			TryReadActiveParadoxModString(activeMod, "Name", out displayName) ||
+			TryReadActiveParadoxModString(activeMod, "m_DisplayName", out displayName))
+		{
+			return displayName;
+		}
+
+		return string.Empty;
+	}
+
+	// Read one active Paradox mod published ID via tolerant reflection.
+	private static int ReadActiveParadoxModPublishedId(object activeMod)
+	{
+		if (TryReadActiveParadoxModInt(activeMod, "m_PublishedID", out int publishedId) ||
+			TryReadActiveParadoxModInt(activeMod, "publishedID", out publishedId) ||
+			TryReadActiveParadoxModInt(activeMod, "publishedId", out publishedId) ||
+			TryReadActiveParadoxModInt(activeMod, "id", out publishedId) ||
+			TryReadActiveParadoxModInt(activeMod, "ID", out publishedId))
+		{
+			return publishedId;
+		}
+
+		return 0;
+	}
+
+	// Try reading a string member from one active-mod record.
+	private static bool TryReadActiveParadoxModString(object activeMod, string memberName, out string value)
+	{
+		value = string.Empty;
+		if (activeMod == null || string.IsNullOrWhiteSpace(memberName))
+		{
+			return false;
+		}
+
+		Type type = activeMod.GetType();
+		FieldInfo? field = type.GetField(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+		if (field != null && field.FieldType == typeof(string))
+		{
+			value = ((string?)field.GetValue(activeMod) ?? string.Empty).Trim();
+			return !string.IsNullOrWhiteSpace(value);
+		}
+
+		PropertyInfo? property = type.GetProperty(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+		if (property != null && property.PropertyType == typeof(string) && property.GetIndexParameters().Length == 0)
+		{
+			value = ((string?)property.GetValue(activeMod, null) ?? string.Empty).Trim();
+			return !string.IsNullOrWhiteSpace(value);
+		}
+
+		return false;
+	}
+
+	// Try reading a positive integer ID member from one active-mod record.
+	private static bool TryReadActiveParadoxModInt(object activeMod, string memberName, out int value)
+	{
+		value = 0;
+		if (activeMod == null || string.IsNullOrWhiteSpace(memberName))
+		{
+			return false;
+		}
+
+		Type type = activeMod.GetType();
+		FieldInfo? field = type.GetField(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+		if (field != null && TryConvertToPositiveInt(field.GetValue(activeMod), out value))
+		{
+			return true;
+		}
+
+		PropertyInfo? property = type.GetProperty(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+		if (property != null && property.GetIndexParameters().Length == 0 && TryConvertToPositiveInt(property.GetValue(activeMod, null), out value))
+		{
+			return true;
+		}
+
+		return false;
+	}
+
+	// Convert common scalar/string ID representations to one positive int value.
+	private static bool TryConvertToPositiveInt(object? rawValue, out int value)
+	{
+		value = 0;
+		switch (rawValue)
+		{
+			case int typedInt when typedInt > 0:
+				value = typedInt;
+				return true;
+			case long typedLong when typedLong > 0 && typedLong <= int.MaxValue:
+				value = (int)typedLong;
+				return true;
+			case uint typedUInt when typedUInt > 0 && typedUInt <= int.MaxValue:
+				value = (int)typedUInt;
+				return true;
+			case ulong typedULong when typedULong > 0 && typedULong <= int.MaxValue:
+				value = (int)typedULong;
+				return true;
+			case short typedShort when typedShort > 0:
+				value = typedShort;
+				return true;
+			case ushort typedUShort when typedUShort > 0:
+				value = typedUShort;
+				return true;
+		}
+
+		string text = (rawValue?.ToString() ?? string.Empty).Trim();
+		if (string.IsNullOrWhiteSpace(text))
+		{
+			return false;
+		}
+
+		if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedInt) && parsedInt > 0)
+		{
+			value = parsedInt;
+			return true;
+		}
+
+		if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsedLong) &&
+			parsedLong > 0 &&
+			parsedLong <= int.MaxValue)
+		{
+			value = (int)parsedLong;
+			return true;
+		}
+
+		return false;
+	}
+
+	// Build a compact upload failure message from platform operation data.
+	private static string BuildDeveloperModuleUploadFailureMessage(string prefix, IModsUploadSupport.ModOperationResult result)
+	{
+		string detail = GetDeveloperModuleUploadErrorDetail(result.m_Error);
+		if (string.IsNullOrWhiteSpace(detail))
+		{
+			return prefix;
+		}
+
+		return $"{prefix} {detail}";
+	}
+
+	// Log verbose failure diagnostics for registration/publish API responses.
+	private static void LogDeveloperModuleUploadFailureDiagnostics(
+		string phase,
+		IModsUploadSupport.ModOperationResult result,
+		PdxAssetUploadHandle? uploadHandle)
+	{
+		try
+		{
+			StringBuilder builder = new StringBuilder(512);
+			builder.Append("Asset upload ")
+				.Append(string.IsNullOrWhiteSpace(phase) ? "operation" : phase.Trim())
+				.Append(" failed. ");
+			string errorDetail = GetDeveloperModuleUploadErrorDetail(result.m_Error);
+			if (!string.IsNullOrWhiteSpace(errorDetail))
+			{
+				builder.Append("Error: ").Append(errorDetail).Append(". ");
+			}
+			else
+			{
+				builder.Append("Error: <no details>. ");
+			}
+
+			IModsUploadSupport.ModInfo selectedInfo = result.m_ModInfo;
+			if (string.IsNullOrWhiteSpace(selectedInfo.m_DisplayName) && uploadHandle != null)
+			{
+				selectedInfo = uploadHandle.modInfo;
+			}
+
+			builder.Append(BuildDeveloperModuleUploadModInfoSummary(selectedInfo));
+			Log.Warn(builder.ToString());
+		}
+		catch (Exception ex)
+		{
+			Log.Warn($"Asset upload diagnostics logging failed: {ex.Message}");
+		}
+	}
+
+	// Build compact upload metadata summary for diagnostics.
+	private static string BuildDeveloperModuleUploadModInfoSummary(IModsUploadSupport.ModInfo modInfo)
+	{
+		string displayName = (modInfo.m_DisplayName ?? string.Empty).Trim();
+		string shortDescription = (modInfo.m_ShortDescription ?? string.Empty).Trim();
+		string longDescription = (modInfo.m_LongDescription ?? string.Empty).Trim();
+		string userVersion = (modInfo.m_UserModVersion ?? string.Empty).Trim();
+		string gameVersion = (modInfo.m_RecommendedGameVersion ?? string.Empty).Trim();
+		string changelog = (modInfo.m_Changelog ?? string.Empty).Trim();
+		string thumbnail = (modInfo.m_ThumbnailFilename ?? string.Empty).Trim();
+		string[] tags = modInfo.m_Tags ?? Array.Empty<string>();
+		IModsUploadSupport.ModInfo.ModDependency[] dependencies = modInfo.m_ModDependencies ??
+			Array.Empty<IModsUploadSupport.ModInfo.ModDependency>();
+		List<IModsUploadSupport.ExternalLinkData>? externalLinks = modInfo.m_ExternalLinks;
+
+		StringBuilder dependencyBuilder = new StringBuilder();
+		for (int i = 0; i < dependencies.Length; i++)
+		{
+			if (i > 0)
+			{
+				dependencyBuilder.Append(", ");
+			}
+
+			IModsUploadSupport.ModInfo.ModDependency dependency = dependencies[i];
+			string version = (dependency.m_Version ?? string.Empty).Trim();
+			if (string.IsNullOrWhiteSpace(version))
+			{
+				dependencyBuilder.Append(dependency.m_Id.ToString(CultureInfo.InvariantCulture));
+			}
+			else
+			{
+				dependencyBuilder.Append(dependency.m_Id.ToString(CultureInfo.InvariantCulture))
+					.Append('@')
+					.Append(version);
+			}
+		}
+
+		StringBuilder builder = new StringBuilder(512);
+		builder.Append("ModInfo: ")
+			.Append("Display='").Append(displayName).Append("', ")
+			.Append("ShortLen=").Append(shortDescription.Length.ToString(CultureInfo.InvariantCulture)).Append(", ")
+			.Append("LongLen=").Append(longDescription.Length.ToString(CultureInfo.InvariantCulture)).Append(", ")
+			.Append("Version='").Append(userVersion).Append("', ")
+			.Append("Game='").Append(gameVersion).Append("', ")
+			.Append("PublishedID=").Append(modInfo.m_PublishedID.ToString(CultureInfo.InvariantCulture)).Append(", ")
+			.Append("Visibility=").Append(modInfo.m_Visibility.ToString()).Append(", ")
+			.Append("Thumb='").Append(thumbnail).Append("', ")
+			.Append("Tags=[").Append(string.Join(", ", tags)).Append("], ")
+			.Append("Dependencies=[").Append(dependencyBuilder).Append("], ")
+			.Append("ExternalLinks=").Append((externalLinks?.Count ?? 0).ToString(CultureInfo.InvariantCulture)).Append(", ")
+			.Append("ChangeLogLen=").Append(changelog.Length.ToString(CultureInfo.InvariantCulture));
+		return builder.ToString();
+	}
+
+	// Extract one compact error line from platform error payload.
+	private static string GetDeveloperModuleUploadErrorDetail(IModsUploadSupport.ModError error)
+	{
+		List<string> parts = new List<string>(4);
+		try
+		{
+			foreach (string line in error.GetLines())
+			{
+				string trimmed = (line ?? string.Empty).Trim();
+				if (!string.IsNullOrWhiteSpace(trimmed))
+				{
+					parts.Add(trimmed);
+				}
+			}
+		}
+		catch
+		{
+			// Fall back to details/raw text.
+		}
+
+		string details = (error.m_Details ?? string.Empty).Trim();
+		if (!string.IsNullOrWhiteSpace(details))
+		{
+			parts.Add(details);
+		}
+
+		string raw = (error.m_Raw ?? string.Empty).Trim();
+		if (!string.IsNullOrWhiteSpace(raw))
+		{
+			parts.Add(raw);
+		}
+
+		for (int i = parts.Count - 1; i >= 1; i--)
+		{
+			for (int j = 0; j < i; j++)
+			{
+				if (string.Equals(parts[i], parts[j], StringComparison.OrdinalIgnoreCase))
+				{
+					parts.RemoveAt(i);
+					break;
+				}
+			}
+		}
+
+		if (parts.Count == 0)
+		{
+			return string.Empty;
+		}
+
+		const int kMaxLength = 420;
+		string merged = string.Join(" | ", parts);
+		if (merged.Length > kMaxLength)
+		{
+			return merged.Substring(0, kMaxLength) + "...";
+		}
+
+		return merged;
+	}
+
+	// Recursively copy source directory contents into destination.
+	private static bool TryCopyDirectoryContents(string sourceDirectory, string destinationDirectory, out string error)
+	{
+		error = string.Empty;
+		if (string.IsNullOrWhiteSpace(sourceDirectory) || !Directory.Exists(sourceDirectory))
+		{
+			error = $"Source directory '{sourceDirectory}' was not found.";
+			return false;
+		}
+
+		try
+		{
+			Directory.CreateDirectory(destinationDirectory);
+			string[] files = Directory.GetFiles(sourceDirectory, "*", SearchOption.AllDirectories);
+			for (int i = 0; i < files.Length; i++)
+			{
+				string sourceFile = files[i];
+				string relative = Path.GetRelativePath(sourceDirectory, sourceFile);
+				string destinationFile = Path.Combine(destinationDirectory, relative);
+				string? parent = Path.GetDirectoryName(destinationFile);
+				if (!string.IsNullOrWhiteSpace(parent))
+				{
+					Directory.CreateDirectory(parent);
+				}
+
+				File.Copy(sourceFile, destinationFile, overwrite: true);
+			}
+
+			return true;
+		}
+		catch (Exception ex)
+		{
+			error = ex.Message;
+			return false;
+		}
+	}
+
+	// Ensure generated module has a thumbnail image that can act as upload preview fallback.
+	private static bool TryEnsureDeveloperModuleUploadThumbnail(string moduleRootPath, out string thumbnailPath, out string error)
+	{
+		thumbnailPath = Path.Combine(moduleRootPath, kDeveloperModuleUploadDefaultThumbnailFileName);
+		error = string.Empty;
+		if (File.Exists(thumbnailPath))
+		{
+			return true;
+		}
+
+		try
+		{
+			byte[] bytes = Convert.FromBase64String(kDeveloperModuleUploadDefaultThumbnailBase64);
+			File.WriteAllBytes(thumbnailPath, bytes);
+			return true;
+		}
+		catch (Exception ex)
+		{
+			error = $"Unable to create default thumbnail for upload: {ex.Message}";
+			return false;
+		}
+	}
+
+	// Supported static image formats for upload preview thumbnails.
+	private static bool IsSupportedDeveloperModuleUploadThumbnailExtension(string extension)
+	{
+		string normalized = (extension ?? string.Empty).Trim();
+		if (string.IsNullOrWhiteSpace(normalized))
+		{
+			return false;
+		}
+
+		return string.Equals(normalized, ".png", StringComparison.OrdinalIgnoreCase) ||
+			string.Equals(normalized, ".jpg", StringComparison.OrdinalIgnoreCase) ||
+			string.Equals(normalized, ".jpeg", StringComparison.OrdinalIgnoreCase);
+	}
+
+	// Human-readable short description for generated asset-module uploads.
+	private static string BuildDeveloperModuleUploadShortDescription(string displayName)
+	{
+		string trimmed = string.IsNullOrWhiteSpace(displayName) ? string.Empty : displayName.Trim();
+		if (string.IsNullOrWhiteSpace(trimmed))
+		{
+			return kDeveloperModuleUploadDefaultShortDescription;
+		}
+
+		return $"{trimmed} - Audio Switcher asset module";
+	}
+
+	// Long description attached to generated asset-module uploads.
+	private static string BuildDeveloperModuleUploadLongDescription(string displayName, string moduleId)
+	{
+		StringBuilder builder = new StringBuilder(256);
+		builder.Append("Generated by Audio Switcher Developer Module Creation & Upload tools.");
+		if (!string.IsNullOrWhiteSpace(displayName))
+		{
+			builder.Append(' ').Append("Display Name: ").Append(displayName.Trim()).Append('.');
+		}
+
+		if (!string.IsNullOrWhiteSpace(moduleId))
+		{
+			builder.Append(' ').Append("Module ID: ").Append(moduleId).Append('.');
+		}
+
+		builder.Append(' ').Append("Contains AudioSwitcherModule.json and audio assets under content/.");
+		return builder.ToString();
+	}
+
+	// Build a stable, semver-like module version string accepted by PDX publish APIs.
+	private static string BuildDeveloperModuleUploadVersion()
+	{
+		return "1." + DateTime.UtcNow.ToString("yyyyMMdd.HHmm", CultureInfo.InvariantCulture);
+	}
+
+	// Return true when module folder has upload-ready manifest in content/.
+	private static bool HasUploadReadyModuleManifest(string moduleRootPath)
+	{
+		if (string.IsNullOrWhiteSpace(moduleRootPath) || !Directory.Exists(moduleRootPath))
+		{
+			return false;
+		}
+
+		string manifestPath = Path.Combine(
+			moduleRootPath,
+			kDeveloperModuleUploadManifestRelativePath.Replace('/', Path.DirectorySeparatorChar));
+		return File.Exists(manifestPath);
 	}
 
 	// Copy one domain's local custom profiles into the generated module output folder.
@@ -1001,7 +3176,8 @@ public sealed partial class SirenChangerMod
 	}
 
 	// Normalize module identifier input.
-	private static string NormalizeDeveloperModuleId(string value)
+	// When trimEdgeSeparators is false, preserve leading/trailing separators for in-progress UI typing.
+	private static string NormalizeDeveloperModuleId(string value, bool trimEdgeSeparators = true)
 	{
 		string source = string.IsNullOrWhiteSpace(value)
 			? kDeveloperModuleDefaultId
@@ -1027,7 +3203,11 @@ public sealed partial class SirenChangerMod
 			normalized = normalized.Replace("--", "-", StringComparison.Ordinal);
 		}
 
-		normalized = normalized.Trim('-', '.', '_');
+		if (trimEdgeSeparators)
+		{
+			normalized = normalized.Trim('-', '.', '_');
+		}
+
 		return string.IsNullOrWhiteSpace(normalized) ? kDeveloperModuleDefaultId : normalized;
 	}
 
@@ -1063,6 +3243,25 @@ public sealed partial class SirenChangerMod
 		return string.IsNullOrWhiteSpace(normalized) ? kDeveloperModuleDefaultFolderName : normalized;
 	}
 
+	// Normalize optional upload description text for PDX page metadata.
+	private static string NormalizeDeveloperModuleUploadDescription(string value)
+	{
+		string normalized = (value ?? string.Empty)
+			.Replace("\r\n", "\n")
+			.Replace('\r', '\n');
+		if (string.IsNullOrWhiteSpace(normalized))
+		{
+			return string.Empty;
+		}
+
+		if (normalized.Length <= kDeveloperModuleUploadDescriptionMaxLength)
+		{
+			return normalized;
+		}
+
+		return normalized.Substring(0, kDeveloperModuleUploadDescriptionMaxLength);
+	}
+
 	// Normalize module export directory input into a full path when possible.
 	private static string NormalizeDeveloperModuleExportDirectory(string value)
 	{
@@ -1079,6 +3278,139 @@ public sealed partial class SirenChangerMod
 		catch
 		{
 			return string.Empty;
+		}
+	}
+
+	// Normalize optional upload thumbnail path, preserving relative values.
+	private static string NormalizeDeveloperModuleUploadThumbnailPath(string value)
+	{
+		string raw = (value ?? string.Empty).Trim().Trim('"');
+		if (string.IsNullOrWhiteSpace(raw))
+		{
+			return string.Empty;
+		}
+
+		if (!Path.IsPathRooted(raw))
+		{
+			return raw;
+		}
+
+		try
+		{
+			return Path.GetFullPath(raw);
+		}
+		catch
+		{
+			return raw;
+		}
+	}
+
+	// Normalize optional thumbnail-directory input into a full path when possible.
+	private static string NormalizeDeveloperModuleUploadThumbnailDirectory(string value)
+	{
+		string raw = (value ?? string.Empty).Trim().Trim('"');
+		if (string.IsNullOrWhiteSpace(raw))
+		{
+			return string.Empty;
+		}
+
+		try
+		{
+			return Path.GetFullPath(raw);
+		}
+		catch
+		{
+			return string.Empty;
+		}
+	}
+
+	// Clamp stored upload access-level value to supported enum values.
+	private static DeveloperModuleUploadAccessLevel NormalizeDeveloperModuleUploadAccessLevel(int value)
+	{
+		switch ((DeveloperModuleUploadAccessLevel)value)
+		{
+			case DeveloperModuleUploadAccessLevel.Public:
+			case DeveloperModuleUploadAccessLevel.Private:
+			case DeveloperModuleUploadAccessLevel.Unlisted:
+				return (DeveloperModuleUploadAccessLevel)value;
+			default:
+				return DeveloperModuleUploadAccessLevel.Private;
+		}
+	}
+
+	// Clamp stored upload publish-mode value to supported enum values.
+	private static DeveloperModuleUploadPublishMode NormalizeDeveloperModuleUploadPublishMode(int value)
+	{
+		switch ((DeveloperModuleUploadPublishMode)value)
+		{
+			case DeveloperModuleUploadPublishMode.CreateNew:
+			case DeveloperModuleUploadPublishMode.UpdateExisting:
+				return (DeveloperModuleUploadPublishMode)value;
+			default:
+				return DeveloperModuleUploadPublishMode.CreateNew;
+		}
+	}
+
+	// Normalize existing published ID input used in update-existing mode.
+	private static int NormalizeDeveloperModuleUploadExistingPublishedId(string value)
+	{
+		string raw = (value ?? string.Empty).Trim();
+		if (string.IsNullOrWhiteSpace(raw))
+		{
+			return 0;
+		}
+
+		if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) && parsed > 0)
+		{
+			return parsed;
+		}
+
+		return 0;
+	}
+
+	// Map UI upload access level to platform visibility enum.
+	private static IModsUploadSupport.Visibility ConvertDeveloperModuleUploadAccessLevel(DeveloperModuleUploadAccessLevel value)
+	{
+		switch (value)
+		{
+			case DeveloperModuleUploadAccessLevel.Public:
+				return IModsUploadSupport.Visibility.Public;
+			case DeveloperModuleUploadAccessLevel.Private:
+				return IModsUploadSupport.Visibility.Private;
+			case DeveloperModuleUploadAccessLevel.Unlisted:
+				return IModsUploadSupport.Visibility.Unlisted;
+			default:
+				return IModsUploadSupport.Visibility.Private;
+		}
+	}
+
+	// Convert upload publish mode into a human-readable label.
+	private static string GetDeveloperModuleUploadPublishModeLabel(DeveloperModuleUploadPublishMode value)
+	{
+		switch (value)
+		{
+			case DeveloperModuleUploadPublishMode.CreateNew:
+				return "Create New";
+			case DeveloperModuleUploadPublishMode.UpdateExisting:
+				return "Update Existing";
+			default:
+				return "Create New";
+		}
+	}
+
+	// Convert upload access level into a human-readable label.
+	private static string GetDeveloperModuleUploadAccessLevelLabel(DeveloperModuleUploadAccessLevel value)
+	{
+		switch (value)
+		{
+			case DeveloperModuleUploadAccessLevel.Public:
+				return "Public";
+			case DeveloperModuleUploadAccessLevel.Private:
+				return "Private";
+			case DeveloperModuleUploadAccessLevel.Unlisted:
+				return "Unlisted";
+			default:
+				return "Private";
 		}
 	}
 
@@ -1405,6 +3737,22 @@ public sealed partial class SirenChangerMod
 		return baseName;
 	}
 
+	// Status setter used by asset-module upload actions.
+	private static void SetDeveloperModuleUploadStatus(string message, bool isWarning)
+	{
+		s_DeveloperModuleUploadStatus = string.IsNullOrWhiteSpace(message) ? "Action completed." : message.Trim();
+		if (isWarning)
+		{
+			Log.Warn(s_DeveloperModuleUploadStatus);
+		}
+		else
+		{
+			Log.Info(s_DeveloperModuleUploadStatus);
+		}
+
+		OptionsVersion++;
+	}
+
 	// Status setter used by local module generation actions.
 	private static void SetDeveloperModuleStatus(string message, bool isWarning)
 	{
@@ -1429,7 +3777,8 @@ public sealed partial class SirenChangerMod
 		int sirenCount,
 		int engineCount,
 		int ambientCount,
-		int transitAnnouncementCount)
+		int transitAnnouncementCount,
+		bool uploadReadyAssetPackage)
 	{
 		StringBuilder builder = new StringBuilder(512);
 		builder.AppendLine("Audio Switcher Generated Module");
@@ -1442,7 +3791,17 @@ public sealed partial class SirenChangerMod
 		builder.Append("Ambient Sounds: ").AppendLine(ambientCount.ToString(CultureInfo.InvariantCulture));
 		builder.Append("Transit Announcements: ").AppendLine(transitAnnouncementCount.ToString(CultureInfo.InvariantCulture));
 		builder.AppendLine();
-		builder.AppendLine("Generated by Audio Switcher Developer > Module Builder.");
+		builder.AppendLine(uploadReadyAssetPackage
+			? "Generated by Audio Switcher Developer > Module Creation & Upload (Build + Upload)."
+			: "Generated by Audio Switcher Developer > Module Creation & Upload (Build Local).");
+		if (uploadReadyAssetPackage)
+		{
+			builder.AppendLine();
+			builder.AppendLine("Upload-ready layout:");
+			builder.Append(" - ").Append(kDeveloperModuleAssetContentFolderName).AppendLine("/AudioSwitcherModule.json");
+			builder.Append(" - ").Append(kDeveloperModuleAssetContentFolderName).AppendLine("/Audio/");
+			builder.AppendLine("Upload this folder to PDX Mods as an asset package.");
+		}
 
 		string readmePath = Path.Combine(moduleRootPath, "README.txt");
 		File.WriteAllText(readmePath, builder.ToString(), new UTF8Encoding(false));
@@ -1465,6 +3824,43 @@ public sealed partial class SirenChangerMod
 			// Ignore cleanup failures and keep reporting original error state.
 		}
 	}
+
+	// Directory enumeration helper used by upload-ready module discovery.
+	private static string[] EnumerateDirectoriesSafe(string directoryPath)
+	{
+		if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath))
+		{
+			return Array.Empty<string>();
+		}
+
+		try
+		{
+			return Directory.GetDirectories(directoryPath);
+		}
+		catch
+		{
+			return Array.Empty<string>();
+		}
+	}
+
+	// File enumeration helper used by upload-thumbnail candidate discovery.
+	private static string[] EnumerateFilesSafe(string directoryPath)
+	{
+		if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath))
+		{
+			return Array.Empty<string>();
+		}
+
+		try
+		{
+			return Directory.GetFiles(directoryPath, "*", SearchOption.TopDirectoryOnly);
+		}
+		catch
+		{
+			return Array.Empty<string>();
+		}
+	}
+
 	private static bool ResetDetectedAudioDomainInternal(DeveloperAudioDomain domain)
 	{
 		// Clear one detected domain and reset UI-facing selection/status state.
@@ -1692,7 +4088,45 @@ public sealed partial class SirenChangerMod
 		return value.ToString("0.###", CultureInfo.InvariantCulture);
 	}
 
-	
+	// Aggregated metadata used when uploading generated asset modules to PDX Mods.
+	private sealed class DeveloperModuleUploadMetadata
+	{
+		public DeveloperModuleUploadMetadata(
+			string displayName,
+			string moduleId,
+			string shortDescription,
+			string longDescription,
+			string modVersion,
+			string gameVersion,
+			string thumbnailPath)
+		{
+			DisplayName = string.IsNullOrWhiteSpace(displayName) ? kDeveloperModuleDefaultDisplayName : displayName.Trim();
+			ModuleId = string.IsNullOrWhiteSpace(moduleId) ? kDeveloperModuleDefaultId : moduleId.Trim();
+			ShortDescription = string.IsNullOrWhiteSpace(shortDescription) ? kDeveloperModuleUploadDefaultShortDescription : shortDescription.Trim();
+			LongDescription = string.IsNullOrWhiteSpace(longDescription) ? ShortDescription : longDescription.Trim();
+			ModVersion = string.IsNullOrWhiteSpace(modVersion)
+				? BuildDeveloperModuleUploadVersion()
+				: modVersion.Trim();
+			GameVersion = string.IsNullOrWhiteSpace(gameVersion) ? kDeveloperModuleUploadDefaultRecommendedGameVersion : gameVersion.Trim();
+			ThumbnailPath = (thumbnailPath ?? string.Empty).Trim();
+		}
+
+		public string DisplayName { get; }
+
+		public string ModuleId { get; }
+
+		public string ShortDescription { get; }
+
+		public string LongDescription { get; }
+
+		public string ModVersion { get; }
+
+		public string GameVersion { get; }
+
+		public string ThumbnailPath { get; }
+	}
+
+
 	[DataContract]
 	// On-disk schema used for generated developer module manifests.
 	private sealed class DeveloperModuleManifest
@@ -1762,11 +4196,6 @@ public sealed partial class SirenChangerMod
 		public SirenSfxProfile Profile { get; }
 	}
 }
-
-
-
-
-
 
 
 

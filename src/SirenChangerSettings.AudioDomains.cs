@@ -57,6 +57,7 @@ public sealed partial class SirenChangerSettings
 
 	[SettingsUISection(kVehiclesTab, kVehicleSetupGroup)]
 	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Vehicle Engine Prefab Scan Status")]
 	[SettingsUIDescription(overrideValue: "Shows the last vehicle-engine prefab scan result.")]
 	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowVehicleEngineScanWarning))]
@@ -88,6 +89,7 @@ public sealed partial class SirenChangerSettings
 
 	[SettingsUISection(kVehiclesTab, kVehicleOverrideTargetGroup)]
 	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Engine Override Status")]
 	[SettingsUIDescription(overrideValue: "Shows whether the selected vehicle has an override.")]
 	public string VehicleEngineOverrideStatus => SirenChangerMod.GetSelectedVehicleEngineOverrideStatusText();
@@ -139,6 +141,7 @@ public sealed partial class SirenChangerSettings
 
 	[SettingsUISection(kVehiclesTab, kVehicleProfileGroup)]
 	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Preview Status")]
 	[SettingsUIDescription(overrideValue: "Shows the last engine-profile preview result.")]
 	public string VehicleEnginePreviewStatus => SirenChangerMod.GetVehicleEnginePreviewStatusText();
@@ -360,6 +363,7 @@ public sealed partial class SirenChangerSettings
 
 	[SettingsUISection(kAmbientTab, kAmbientSetupGroup)]
 	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Ambient Target Prefab Scan Status")]
 	[SettingsUIDescription(overrideValue: "Shows the last ambient target scan result.")]
 	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowAmbientTargetScanWarning))]
@@ -391,6 +395,7 @@ public sealed partial class SirenChangerSettings
 
 	[SettingsUISection(kAmbientTab, kAmbientTargetGroup)]
 	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Ambient Override Status")]
 	[SettingsUIDescription(overrideValue: "Shows whether the selected ambient target has an override.")]
 	public string AmbientOverrideStatus => SirenChangerMod.GetSelectedAmbientOverrideStatusText();
@@ -442,6 +447,7 @@ public sealed partial class SirenChangerSettings
 
 	[SettingsUISection(kAmbientTab, kAmbientProfileGroup)]
 	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Preview Status")]
 	[SettingsUIDescription(overrideValue: "Shows the last ambient-profile preview result.")]
 	public string AmbientPreviewStatus => SirenChangerMod.GetAmbientPreviewStatusText();

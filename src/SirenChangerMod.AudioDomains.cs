@@ -185,7 +185,12 @@ public sealed partial class SirenChangerMod
 	// Set selected vehicle-engine target key in options UI.
 	internal static void SetVehicleEngineTargetSelectionTargetFromOptions(string vehiclePrefabName)
 	{
+		string previous = VehicleEngineConfig.TargetSelectionTarget;
 		VehicleEngineConfig.SetTargetSelectionTarget(vehiclePrefabName);
+		if (!string.Equals(previous, VehicleEngineConfig.TargetSelectionTarget, StringComparison.Ordinal))
+		{
+			OptionsVersion++;
+		}
 	}
 
 	// Get selected vehicle-engine override for the currently selected target.
@@ -209,7 +214,10 @@ public sealed partial class SirenChangerMod
 			return;
 		}
 
-		VehicleEngineConfig.SetTargetSelection(key, selection);
+		if (VehicleEngineConfig.SetTargetSelection(key, selection))
+		{
+			OptionsVersion++;
+		}
 	}
 
 	// Read-only status text for vehicle-engine override controls.
@@ -238,7 +246,12 @@ public sealed partial class SirenChangerMod
 	// Set selected ambient target key in options UI.
 	internal static void SetAmbientTargetSelectionTargetFromOptions(string targetName)
 	{
+		string previous = AmbientConfig.TargetSelectionTarget;
 		AmbientConfig.SetTargetSelectionTarget(targetName);
+		if (!string.Equals(previous, AmbientConfig.TargetSelectionTarget, StringComparison.Ordinal))
+		{
+			OptionsVersion++;
+		}
 	}
 
 	// Get selected ambient override for the currently selected target.
@@ -262,7 +275,10 @@ public sealed partial class SirenChangerMod
 			return;
 		}
 
-		AmbientConfig.SetTargetSelection(key, selection);
+		if (AmbientConfig.SetTargetSelection(key, selection))
+		{
+			OptionsVersion++;
+		}
 	}
 
 	// Read-only status text for ambient override controls.

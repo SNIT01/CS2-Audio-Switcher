@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "probe.module",
+  "displayName": "Probe Module",
+  "sirens": [],
+  "vehicleEngines": [],
+  "ambient": [],
+  "transitAnnouncements": []
+}

@@ -30,6 +30,8 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 
 	private EntityQuery m_PublicTransportQuery = default;
 
+	private EntityQuery m_TransportLineQuery = default;
+
 	private ComponentLookup<Target> m_TargetData = default;
 
 	private ComponentLookup<Connected> m_ConnectedData = default;
@@ -45,6 +47,8 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 	private ComponentLookup<CurrentRoute> m_CurrentRouteData = default;
 
 	private ComponentLookup<RouteNumber> m_RouteNumberData = default;
+
+	private ComponentLookup<TransportLineData> m_TransportLineData = default;
 
 	private NameSystem? m_NameSystem;
 
@@ -100,6 +104,9 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		m_PublicTransportQuery = GetEntityQuery(
 			ComponentType.ReadOnly<Game.Vehicles.PublicTransport>(),
 			ComponentType.ReadOnly<PrefabRef>());
+		m_TransportLineQuery = GetEntityQuery(
+			ComponentType.ReadOnly<Route>(),
+			ComponentType.ReadOnly<PrefabRef>());
 		m_TargetData = GetComponentLookup<Target>(isReadOnly: true);
 		m_ConnectedData = GetComponentLookup<Connected>(isReadOnly: true);
 		m_TransformData = GetComponentLookup<Game.Objects.Transform>(isReadOnly: true);
@@ -108,6 +115,7 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		m_ControllerData = GetComponentLookup<Controller>(isReadOnly: true);
 		m_CurrentRouteData = GetComponentLookup<CurrentRoute>(isReadOnly: true);
 		m_RouteNumberData = GetComponentLookup<RouteNumber>(isReadOnly: true);
+		m_TransportLineData = GetComponentLookup<TransportLineData>(isReadOnly: true);
 		m_NameSystem = World.GetExistingSystemManaged<NameSystem>();
 	}
 
@@ -254,6 +262,110 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		}
 
 		RemoveStaleVehicleStates();
+	}
+
+	// Explicit options action: scan current public transport vehicles and register route identities as known lines.
+	internal bool TryScanTransitLinesForOptions(
+		out int scannedVehicleCount,
+		out int observedLineCount,
+		out string status)
+	{
+		scannedVehicleCount = 0;
+		observedLineCount = 0;
+		status = string.Empty;
+		int scannedRouteCount = 0;
+
+		if (GameManager.instance.isGameLoading)
+		{
+			status = "Game is still loading. Wait for the city to finish loading and retry.";
+			return false;
+		}
+
+		if (GameManager.instance.gameMode != GameMode.Game)
+		{
+			status = "Transit line scan requires a loaded city simulation.";
+			return false;
+		}
+
+		m_NameSystem ??= World.GetExistingSystemManaged<NameSystem>();
+		m_PublicTransportVehicleData.Update(this);
+		m_ControllerData.Update(this);
+		m_CurrentRouteData.Update(this);
+		m_RouteNumberData.Update(this);
+		m_OwnerData.Update(this);
+		m_TransportLineData.Update(this);
+
+		HashSet<string> seenLines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		using (NativeArray<Entity> routeEntities = m_TransportLineQuery.ToEntityArray(Allocator.Temp))
+		using (NativeArray<PrefabRef> routePrefabs = m_TransportLineQuery.ToComponentDataArray<PrefabRef>(Allocator.Temp))
+		{
+			scannedRouteCount = routeEntities.Length;
+			for (int i = 0; i < routeEntities.Length; i++)
+			{
+				Entity routeEntity = routeEntities[i];
+				if (routeEntity == Entity.Null ||
+					!m_TransportLineData.TryGetComponent(routePrefabs[i].m_Prefab, out TransportLineData lineData) ||
+					!lineData.m_PassengerTransport ||
+					!TryMapTransportType(
+						lineData.m_TransportType,
+						out TransitAnnouncementServiceType serviceType,
+						out _,
+						out _) ||
+					!TryResolveRouteIdentityFromRouteEntity(
+						serviceType,
+						routeEntity,
+						out string observedLineKey,
+						out string observedLineDisplayName))
+				{
+					continue;
+				}
+
+				seenLines.Add(observedLineKey);
+				SirenChangerMod.RegisterTransitLineObservation(observedLineKey, observedLineDisplayName);
+			}
+		}
+
+		using (NativeArray<Entity> entities = m_PublicTransportQuery.ToEntityArray(Allocator.Temp))
+		using (NativeArray<PrefabRef> prefabs = m_PublicTransportQuery.ToComponentDataArray<PrefabRef>(Allocator.Temp))
+		{
+			scannedVehicleCount = entities.Length;
+			for (int i = 0; i < entities.Length; i++)
+			{
+				Entity vehicle = entities[i];
+				if (m_ControllerData.TryGetComponent(vehicle, out Controller controller) &&
+					controller.m_Controller != Entity.Null &&
+					controller.m_Controller != vehicle)
+				{
+					continue;
+				}
+
+				if (!m_PublicTransportVehicleData.TryGetComponent(prefabs[i].m_Prefab, out PublicTransportVehicleData vehicleData))
+				{
+					continue;
+				}
+
+				if (!TryMapTransportType(
+						vehicleData.m_TransportType,
+						out TransitAnnouncementServiceType serviceType,
+						out _,
+						out _))
+				{
+					continue;
+				}
+
+				if (!TryResolveRouteIdentity(serviceType, vehicle, out string observedLineKey, out string observedLineDisplayName))
+				{
+					continue;
+				}
+
+				seenLines.Add(observedLineKey);
+				SirenChangerMod.RegisterTransitLineObservation(observedLineKey, observedLineDisplayName);
+			}
+		}
+
+		observedLineCount = seenLines.Count;
+		status = $"Scanned routes: {scannedRouteCount}\nScanned vehicles: {scannedVehicleCount}\nObserved lines: {observedLineCount}";
+		return true;
 	}
 
 	// Reset transition memory when loading/game-mode transitions happen.
@@ -541,7 +653,31 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		return true;
 	}
 
-	// Resolve a stable route ID (number/entity) and a display label for options UI.
+	private bool TryResolveRouteIdentityFromRouteEntity(
+		TransitAnnouncementServiceType serviceType,
+		Entity routeEntity,
+		out string lineKey,
+		out string displayName)
+	{
+		lineKey = string.Empty;
+		displayName = string.Empty;
+		if (!TryResolveRouteDescriptorFromRouteEntity(routeEntity, out string stableLineId, out string routeDisplayName))
+		{
+			return false;
+		}
+
+		string key = SirenChangerMod.BuildTransitLineIdentity(serviceType, stableLineId);
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return false;
+		}
+
+		lineKey = key;
+		displayName = routeDisplayName;
+		return true;
+	}
+
+	// Resolve a stable route ID and a display label for options UI from one vehicle.
 	private bool TryResolveRouteDescriptor(
 		Entity vehicle,
 		out string stableLineId,
@@ -555,21 +691,31 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 			return false;
 		}
 
-		Entity routeEntity = currentRoute.m_Route;
-		bool hasRouteNumber = TryGetRouteNumberWithOwnerFallback(routeEntity, out int routeNumber);
-		if (hasRouteNumber && routeNumber > 0)
+		return TryResolveRouteDescriptorFromRouteEntity(currentRoute.m_Route, out stableLineId, out displayName);
+	}
+
+	// Resolve a stable route ID from one route entity and a display label for options UI.
+	private bool TryResolveRouteDescriptorFromRouteEntity(
+		Entity routeEntity,
+		out string stableLineId,
+		out string displayName)
+	{
+		stableLineId = string.Empty;
+		displayName = string.Empty;
+		if (routeEntity == Entity.Null)
 		{
-			stableLineId = $"number:{routeNumber}";
-		}
-		else
-		{
-			stableLineId = $"entity:{routeEntity.Index}:{routeEntity.Version}";
+			return false;
 		}
 
-		string routeLabel = GetOwnerDisplayName(routeEntity);
+		bool hasRouteNumber = TryGetRouteNumberWithOwnerFallback(routeEntity, out int routeNumber);
+		int normalizedRouteNumber = hasRouteNumber && routeNumber > 0 ? routeNumber : 0;
+		stableLineId = $"route:{routeEntity.Index}:{routeEntity.Version}:{normalizedRouteNumber}";
+
+		// Prefer the route entity name; owner labels are often generic and collapse distinct lines.
+		string routeLabel = GetEntityDisplayName(routeEntity);
 		if (string.IsNullOrWhiteSpace(routeLabel))
 		{
-			routeLabel = GetEntityDisplayName(routeEntity);
+			routeLabel = GetOwnerDisplayName(routeEntity);
 		}
 
 		if (string.IsNullOrWhiteSpace(routeLabel))

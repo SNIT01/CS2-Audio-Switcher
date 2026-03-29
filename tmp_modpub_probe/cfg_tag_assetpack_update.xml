@@ -1,0 +1,12 @@
+<Publish>
+  <ModId Value="139195" />
+  <DisplayName Value="Probe AssetPack Tag" />
+  <ShortDescription Value="Probe" />
+  <LongDescription>Probe</LongDescription>
+  <Thumbnail Value="../Images/Audio Switcher Logo.png" />
+  <ChangeLog Value="Probe update 0.0.2" />
+  <ModVersion Value="0.0.2" />
+  <GameVersion Value="1.*" />
+  <Tag Value="AssetPack" />
+  <AccessLevel Value="Private" />
+</Publish>

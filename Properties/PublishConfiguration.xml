@@ -3,31 +3,36 @@
 	<DisplayName Value="Audio Switcher" />
 	<ShortDescription Value="Switch siren, vehicle engine, and ambient sounds with custom WAV/OGG files." />
 	<LongDescription>
-    Audio Switcher lets you replace siren, vehicle engine, and ambient sounds with custom WAV/OGG files.
-
-    **Now also supports public transport PA announcements and sound sets!**
+    Audio Switcher lets you replace siren, vehicle engine, and ambient sounds with custom WAV/OGG files and allows for custom public transport announcements for transport lines.
 
     Supports local audio and modules.
 
-    Custom audio is tunable via SFX behavior with settings such as volume, pitch, spatial blend, doppler, spread, min/max distance, looping, and fades.
-
-    Audio Switcher module packs are delivered as separate mods. Modules are auto-discovered and entries appear in the same dropdowns as local audio, labeled by module name, so you can mix and match local files and published audio packs in one setup.
-
-    Great for emergency vehicle sound packs, custom engine libraries, and ambient city themes.
-
-    Sirens can be blacket applied to replace an original siren or you can use specific vehicle prefab overrides.
-
-    Ambient sounds and engines sounds apply to specific prefabs.
+    * All-in-one audio overhaul: customize Sirens, Vehicle Engines, Ambient Sounds, and Public Transport announcements in one mod.
+    * Clean, centralized options UI: organized tabs and status panels make setup and troubleshooting straightforward.
+    * Per-category defaults + precision overrides: set broad defaults, then override specific vehicles, ambient targets, and transit lines.
+    * Per-line transit announcements: assign distinct arrival/departure audio per discovered line for more realistic network audio.
+    * Smart scanning tools: rescan custom audio folders and in-game prefabs/targets/lines to keep options synced to your city.
+    * Advanced audio profile editor: tune volume, pitch, spatial blend, doppler, spread, min/max distance, loop, rolloff, random start, and fade timings.
+    * Instant preview workflow: audition selected sounds before committing changes.
+    * Reliable fallback behavior: define what happens when a selected file is missing, including alternate sound choices.
+    * City Sound Sets system: create, activate, rename, duplicate, update, and delete full sound presets.
+    * City-based automation: bind sound sets to cities and auto-apply the right set when loading each city.
+    * Built-in diagnostics: live scan statuses, validation reports, and debug reporting help catch setup issues quickly.
+    * Developer runtime audio tools: inspect and preview detected in-game sound sources with read-only SFX parameter visibility.
+    * Module packaging workflow: build reusable audio modules from selected local assets.
+    * PDX asset publishing pipeline: build-and-upload modules with visibility control, create/update modes, description, thumbnail selection, preflight checks, and dependency handling.
+    * Safety-focused publishing UX: confirmation prompts, in-progress safeguards, and clear build/upload status feedback throughout.
 
     CHECK OUT:
-    * Improved Aircraft Sounds: https://mods.paradoxplaza.com/mods/135438/Windows
-    * How to create module: https://github.com/SNIT01/ImprovedAircraftSounds
+
+    * New Improved Aircraft Sounds: https://mods.paradoxplaza.com/mods/139345/Any
+    * LA/NY Siren Pack: https://mods.paradoxplaza.com/mods/139340/Any
 
     Known issues:
     * Sound set may not always apply correctly if a save is renamed.
     * Changing some vehicles assigned to transport line may lead to dead prefab.
   </LongDescription>
-	<Thumbnail Value="Images/Audio Switcher Logo.png" />
+	<Thumbnail Value="Images/Audio Switcher Logo.jpg" />
   <Screenshot Value="Images/Screen_Gen.jpg" />
   <Screenshot Value="Images/Screen_PT.jpg" />
 	<Screenshot Value="Images/Screen_Siren.jpg" />
@@ -37,15 +42,16 @@
   <Screenshot Value="Images/Screen_Prof.jpg" />
   <Screenshot Value="Images/Screen_Dev.jpg" />
   <Screenshot Value="Images/Screen_Dev2.jpg" />
+  <Screenshot Value="Images/Screen_Dev3.jpg" />
   <!--CHANGE LOG-->
-	<ChangeLog Value="Bug fixes, first iteration of sound sets, first iteration of public transport announcements" />
+	<ChangeLog Value="Bug fixes, Improved public transport announcements for transport lines, Modules 2.0" />
   <Tag Value="" />
   <!--Link to the forum post where the mod can be discussed-->
   <ForumLink Value="https://forum.paradoxplaza.com/forum/threads/audio-switcher.1903848/" />
   <!--Version of the mod-->
-  <ModVersion Value="1.7" />
+  <ModVersion Value="2.0.1" />
   <!--Recommended version of the base game to use the mod-->
-  <GameVersion Value="1.5.5f1" />
+  <GameVersion Value="1.5.6f1" />
   <!--Dependency for the mod, can be set multiple times-->
   <Dependency Id="" />
   <!--Required DLC, can be set multiple times. Supported values are "Landmark Buildings", "San Fransisco Set", "Beach Properties", "Urban Promenades", "Modern Architecture"-->
