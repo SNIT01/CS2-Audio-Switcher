@@ -11,7 +11,7 @@ namespace SirenChanger;
 // Loads custom siren audio files and caches decoded AudioClip instances.
 internal static class WaveClipLoader
 {
-	private const int kMaxCachedClips = 32;
+	private const int kMaxCachedClips = 128;
 
 	private static readonly TimeSpan kOggLoadTimeout = TimeSpan.FromSeconds(10);
 

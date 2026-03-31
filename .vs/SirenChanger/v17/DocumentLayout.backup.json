@@ -5,32 +5,6 @@
     {
       "AbsoluteMoniker": "D:0:0:{346EF8D2-7A2D-4403-9E1B-4C47D24606A1}|SirenChanger.csproj|c:\\users\\snitt\\documents\\citiesskylines2 mods\\cs2-audio-switcher\\properties\\publishconfiguration.xml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}",
       "RelativeMoniker": "D:0:0:{346EF8D2-7A2D-4403-9E1B-4C47D24606A1}|SirenChanger.csproj|solutionrelative:properties\\publishconfiguration.xml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{346EF8D2-7A2D-4403-9E1B-4C47D24606A1}|SirenChanger.csproj|c:\\users\\snitt\\documents\\citiesskylines2 mods\\cs2-audio-switcher\\properties\\publishprofiles\\publishnewmod.pubxml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}",
-      "RelativeMoniker": "D:0:0:{346EF8D2-7A2D-4403-9E1B-4C47D24606A1}|SirenChanger.csproj|solutionrelative:properties\\publishprofiles\\publishnewmod.pubxml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{346EF8D2-7A2D-4403-9E1B-4C47D24606A1}|SirenChanger.csproj|c:\\users\\snitt\\documents\\citiesskylines2 mods\\cs2-audio-switcher\\properties\\publishprofiles\\publishnewversion.pubxml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}",
-      "RelativeMoniker": "D:0:0:{346EF8D2-7A2D-4403-9E1B-4C47D24606A1}|SirenChanger.csproj|solutionrelative:properties\\publishprofiles\\publishnewversion.pubxml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{346EF8D2-7A2D-4403-9E1B-4C47D24606A1}|SirenChanger.csproj|c:\\users\\snitt\\documents\\citiesskylines2 mods\\cs2-audio-switcher\\properties\\publishprofiles\\updatepublishedconfiguration.pubxml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}",
-      "RelativeMoniker": "D:0:0:{346EF8D2-7A2D-4403-9E1B-4C47D24606A1}|SirenChanger.csproj|solutionrelative:properties\\publishprofiles\\updatepublishedconfiguration.pubxml||{FA3CD31E-987B-443A-9B81-186104E8DAC1}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{346EF8D2-7A2D-4403-9E1B-4C47D24606A1}|SirenChanger.csproj|c:\\users\\snitt\\documents\\citiesskylines2 mods\\cs2-audio-switcher\\src\\ambientreplacementsystem.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{346EF8D2-7A2D-4403-9E1B-4C47D24606A1}|SirenChanger.csproj|solutionrelative:src\\ambientreplacementsystem.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{346EF8D2-7A2D-4403-9E1B-4C47D24606A1}|SirenChanger.csproj|c:\\users\\snitt\\appdata\\locallow\\colossal order\\cities skylines ii\\.cache\\modding\\mod.props||{FA3CD31E-987B-443A-9B81-186104E8DAC1}"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{346EF8D2-7A2D-4403-9E1B-4C47D24606A1}|SirenChanger.csproj|c:\\users\\snitt\\appdata\\locallow\\colossal order\\cities skylines ii\\.cache\\modding\\mod.targets||{FA3CD31E-987B-443A-9B81-186104E8DAC1}|"
-    },
-    {
-      "AbsoluteMoniker": "D:0:0:{346EF8D2-7A2D-4403-9E1B-4C47D24606A1}|SirenChanger.csproj|c:\\users\\snitt\\documents\\citiesskylines2 mods\\cs2-audio-switcher\\src\\jsondataserializer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{346EF8D2-7A2D-4403-9E1B-4C47D24606A1}|SirenChanger.csproj|solutionrelative:src\\jsondataserializer.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     }
   ],
   "DocumentGroupContainers": [
@@ -40,96 +14,8 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": 7,
+          "SelectedChildIndex": 0,
           "Children": [
-            {
-              "$type": "Document",
-              "DocumentIndex": 1,
-              "Title": "PublishNewMod.pubxml",
-              "DocumentMoniker": "C:\\Users\\snitt\\Documents\\CitiesSkylines2 Mods\\CS2-Audio-Switcher\\Properties\\PublishProfiles\\PublishNewMod.pubxml",
-              "RelativeDocumentMoniker": "Properties\\PublishProfiles\\PublishNewMod.pubxml",
-              "ToolTip": "C:\\Users\\snitt\\Documents\\CitiesSkylines2 Mods\\CS2-Audio-Switcher\\Properties\\PublishProfiles\\PublishNewMod.pubxml",
-              "RelativeToolTip": "Properties\\PublishProfiles\\PublishNewMod.pubxml",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003576|",
-              "WhenOpened": "2026-02-22T01:05:19.51Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 2,
-              "Title": "PublishNewVersion.pubxml",
-              "DocumentMoniker": "C:\\Users\\snitt\\Documents\\CitiesSkylines2 Mods\\CS2-Audio-Switcher\\Properties\\PublishProfiles\\PublishNewVersion.pubxml",
-              "RelativeDocumentMoniker": "Properties\\PublishProfiles\\PublishNewVersion.pubxml",
-              "ToolTip": "C:\\Users\\snitt\\Documents\\CitiesSkylines2 Mods\\CS2-Audio-Switcher\\Properties\\PublishProfiles\\PublishNewVersion.pubxml",
-              "RelativeToolTip": "Properties\\PublishProfiles\\PublishNewVersion.pubxml",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003576|",
-              "WhenOpened": "2026-02-22T01:05:19.555Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 3,
-              "Title": "UpdatePublishedConfiguration.pubxml",
-              "DocumentMoniker": "C:\\Users\\snitt\\Documents\\CitiesSkylines2 Mods\\CS2-Audio-Switcher\\Properties\\PublishProfiles\\UpdatePublishedConfiguration.pubxml",
-              "RelativeDocumentMoniker": "Properties\\PublishProfiles\\UpdatePublishedConfiguration.pubxml",
-              "ToolTip": "C:\\Users\\snitt\\Documents\\CitiesSkylines2 Mods\\CS2-Audio-Switcher\\Properties\\PublishProfiles\\UpdatePublishedConfiguration.pubxml",
-              "RelativeToolTip": "Properties\\PublishProfiles\\UpdatePublishedConfiguration.pubxml",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003576|",
-              "WhenOpened": "2026-02-22T01:05:19.557Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 5,
-              "Title": "Mod.props",
-              "DocumentMoniker": "C:\\Users\\snitt\\AppData\\LocalLow\\Colossal Order\\Cities Skylines II\\.cache\\Modding\\Mod.props",
-              "RelativeDocumentMoniker": "..\\..\\..\\AppData\\LocalLow\\Colossal Order\\Cities Skylines II\\.cache\\Modding\\Mod.props",
-              "ToolTip": "C:\\Users\\snitt\\AppData\\LocalLow\\Colossal Order\\Cities Skylines II\\.cache\\Modding\\Mod.props",
-              "RelativeToolTip": "..\\..\\..\\AppData\\LocalLow\\Colossal Order\\Cities Skylines II\\.cache\\Modding\\Mod.props",
-              "ViewState": "AQIAAAAAAAAAAAAAAAAAABcAAAA5AAAA",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003801|",
-              "WhenOpened": "2026-02-20T13:46:07.509Z"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 6,
-              "Title": "Mod.targets",
-              "DocumentMoniker": "C:\\Users\\snitt\\AppData\\LocalLow\\Colossal Order\\Cities Skylines II\\.cache\\Modding\\Mod.targets",
-              "RelativeDocumentMoniker": "..\\..\\..\\AppData\\LocalLow\\Colossal Order\\Cities Skylines II\\.cache\\Modding\\Mod.targets",
-              "ToolTip": "C:\\Users\\snitt\\AppData\\LocalLow\\Colossal Order\\Cities Skylines II\\.cache\\Modding\\Mod.targets",
-              "RelativeToolTip": "..\\..\\..\\AppData\\LocalLow\\Colossal Order\\Cities Skylines II\\.cache\\Modding\\Mod.targets",
-              "ViewState": "AQIAACoAAAAAAAAAAAAAAG4AAAAEAAAA",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003801|",
-              "WhenOpened": "2026-02-20T12:58:40.222Z",
-              "EditorCaption": ""
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 7,
-              "Title": "JsonDataSerializer.cs",
-              "DocumentMoniker": "C:\\Users\\snitt\\Documents\\CitiesSkylines2 Mods\\CS2-Audio-Switcher\\src\\JsonDataSerializer.cs",
-              "RelativeDocumentMoniker": "src\\JsonDataSerializer.cs",
-              "ToolTip": "C:\\Users\\snitt\\Documents\\CitiesSkylines2 Mods\\CS2-Audio-Switcher\\src\\JsonDataSerializer.cs",
-              "RelativeToolTip": "src\\JsonDataSerializer.cs",
-              "ViewState": "AQIAAAAAAAAAAAAAAAAAAAcAAABZAAAA",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-02-22T01:05:19.563Z"
-            },
-            {
-              "$type": "Document",
-              "DocumentIndex": 4,
-              "Title": "AmbientReplacementSystem.cs",
-              "DocumentMoniker": "C:\\Users\\snitt\\Documents\\CitiesSkylines2 Mods\\CS2-Audio-Switcher\\src\\AmbientReplacementSystem.cs",
-              "RelativeDocumentMoniker": "src\\AmbientReplacementSystem.cs",
-              "ToolTip": "C:\\Users\\snitt\\Documents\\CitiesSkylines2 Mods\\CS2-Audio-Switcher\\src\\AmbientReplacementSystem.cs",
-              "RelativeToolTip": "src\\AmbientReplacementSystem.cs",
-              "ViewState": "AQIAAAAAAAAAAAAAAAAAABkAAAAdAAAA",
-              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
-              "WhenOpened": "2026-02-22T01:05:19.564Z"
-            },
             {
               "$type": "Document",
               "DocumentIndex": 0,

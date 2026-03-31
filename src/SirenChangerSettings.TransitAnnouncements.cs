@@ -12,7 +12,7 @@ public sealed partial class SirenChangerSettings
 
 	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementGroup)]
 	[SettingsUIDisplayName(overrideValue: "Enable Transit Station Announcements")]
-	[SettingsUIDescription(overrideValue: "Enable custom arrival/departure sounds for train, bus, metro, and tram lines.")]
+	[SettingsUIDescription(overrideValue: "Enable custom arrival/departure sounds for train, bus, metro, tram, and ferry lines.")]
 	public bool TransitAnnouncementsEnabled
 	{
 		get => SirenChangerMod.TransitAnnouncementConfig.Enabled;

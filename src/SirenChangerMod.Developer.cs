@@ -55,6 +55,8 @@ public sealed partial class SirenChangerMod
 
 	private const string kDeveloperModuleDefaultFolderName = "AudioSwitcherLocalModule";
 
+	private const string kDeveloperModuleDefaultVersion = "1.0.0";
+
 	private const string kDeveloperModuleAssetContentFolderName = "content";
 
 	private const string kDeveloperModuleUploadManifestRelativePath = "content/AudioSwitcherModule.json";
@@ -69,9 +71,20 @@ public sealed partial class SirenChangerMod
 
 	private const int kDeveloperModuleUploadDescriptionMaxLength = 4000;
 
+	private const int kDeveloperModuleUploadDisplayNameMaxLength = 128;
+
+	private const int kDeveloperModuleUploadShortDescriptionMaxLength = 300;
+
+	private const int kDeveloperModuleUploadVersionMaxLength = 64;
+
+	private const int kDeveloperModuleUploadGameVersionMaxLength = 64;
+
 	private const string kDeveloperModuleUploadLegacyAssetTag = "Asset";
 
 	private const string kDeveloperModuleUploadAssetPackTag = "AssetPack";
+
+	// Official published PDX Mods ID for Audio Switcher.
+	private const int kAudioSwitcherOfficialPublishedId = 135367;
 
 	// 1x1 transparent PNG used when no custom thumbnail exists in generated module folders.
 	private const string kDeveloperModuleUploadDefaultThumbnailBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+tmL0AAAAASUVORK5CYII=";
@@ -99,6 +112,8 @@ public sealed partial class SirenChangerMod
 	private static string s_DeveloperModuleId = kDeveloperModuleDefaultId;
 
 	private static string s_DeveloperModuleFolderName = kDeveloperModuleDefaultFolderName;
+
+	private static string s_DeveloperModuleVersion = kDeveloperModuleDefaultVersion;
 
 	private static string s_DeveloperModuleStatus = "Ready to create a module from local custom audio files.";
 
@@ -397,6 +412,18 @@ public sealed partial class SirenChangerMod
 	internal static void SetDeveloperModuleFolderName(string value)
 	{
 		s_DeveloperModuleFolderName = NormalizeDeveloperModuleFolderName(value);
+	}
+
+	// Read/write module version used in generated manifests and uploads.
+	internal static string GetDeveloperModuleVersion()
+	{
+		return s_DeveloperModuleVersion;
+	}
+
+	// Update module version while allowing only digits and periods during editing.
+	internal static void SetDeveloperModuleVersion(string value)
+	{
+		s_DeveloperModuleVersion = NormalizeDeveloperModuleVersion(value, trimEdgePeriods: false);
 	}
 
 	// Read/write module export directory used by the directory picker in the Developer Module Builder.
@@ -1169,10 +1196,12 @@ public sealed partial class SirenChangerMod
 		s_DeveloperModuleDisplayName = NormalizeDeveloperModuleDisplayName(s_DeveloperModuleDisplayName);
 		s_DeveloperModuleId = NormalizeDeveloperModuleId(s_DeveloperModuleId);
 		s_DeveloperModuleFolderName = NormalizeDeveloperModuleFolderName(s_DeveloperModuleFolderName);
+		s_DeveloperModuleVersion = NormalizeDeveloperModuleVersion(s_DeveloperModuleVersion);
 
 		string displayName = s_DeveloperModuleDisplayName;
 		string moduleId = s_DeveloperModuleId;
 		string moduleFolderName = s_DeveloperModuleFolderName;
+		string moduleVersion = s_DeveloperModuleVersion;
 
 		try
 		{
@@ -1250,6 +1279,7 @@ public sealed partial class SirenChangerMod
 				SchemaVersion = 1,
 				ModuleId = moduleId,
 				DisplayName = displayName,
+				Version = moduleVersion,
 				Sirens = sirenEntries,
 				VehicleEngines = engineEntries,
 				Ambient = ambientEntries,
@@ -1263,6 +1293,7 @@ public sealed partial class SirenChangerMod
 				moduleRootPath,
 				displayName,
 				moduleId,
+				moduleVersion,
 				sirenEntries.Count,
 				engineEntries.Count,
 				ambientEntries.Count,
@@ -1271,8 +1302,8 @@ public sealed partial class SirenChangerMod
 			string manifestRelativePath = Path.GetRelativePath(moduleRootPath, manifestPath).Replace('\\', '/');
 
 			string statusMessage = uploadReadyAssetPackage
-				? $"Created upload-ready asset module '{displayName}' at '{moduleRootPath}'. Manifest: {manifestRelativePath}. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Transit: {transitAnnouncementEntries.Count}. Skipped missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}."
-				: $"Created local module (legacy layout) '{displayName}' at '{moduleRootPath}'. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Transit: {transitAnnouncementEntries.Count}. Skipped missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}.";
+				? $"Created upload-ready asset module '{displayName}' at '{moduleRootPath}'. Version: {moduleVersion}. Manifest: {manifestRelativePath}. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Transit: {transitAnnouncementEntries.Count}. Skipped missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}."
+				: $"Created local module (legacy layout) '{displayName}' at '{moduleRootPath}'. Version: {moduleVersion}. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Transit: {transitAnnouncementEntries.Count}. Skipped missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}.";
 			SetDeveloperModuleStatus(statusMessage, isWarning: false);
 			if (uploadReadyAssetPackage)
 			{
@@ -1378,6 +1409,19 @@ public sealed partial class SirenChangerMod
 			{
 				SetDeveloperModuleUploadStatus(preflightError, isWarning: true);
 				return;
+			}
+
+			if (publishMode == DeveloperModuleUploadPublishMode.UpdateExisting)
+			{
+				SetDeveloperModuleUploadStatus(
+					$"Validating ownership and type for existing Mod ID '{existingPublishedId.ToString(CultureInfo.InvariantCulture)}'...",
+					isWarning: false);
+				(bool targetOk, string targetError) = await TryValidateDeveloperModuleUploadUpdateTargetAsync(uploadHandle, existingPublishedId);
+				if (!targetOk)
+				{
+					SetDeveloperModuleUploadStatus(targetError, isWarning: true);
+					return;
+				}
 			}
 
 			SetDeveloperModuleUploadStatus("Creating upload staging folder on PDX Mods...", isWarning: false);
@@ -1604,6 +1648,187 @@ public sealed partial class SirenChangerMod
 		return (true, string.Empty);
 	}
 
+	// Validate that Update Existing targets one author-owned asset listing and not the base Audio Switcher listing.
+	private static async Task<(bool Success, string Error)> TryValidateDeveloperModuleUploadUpdateTargetAsync(
+		PdxAssetUploadHandle uploadHandle,
+		int existingPublishedId)
+	{
+		if (uploadHandle == null)
+		{
+			return (false, "Upload preflight failed: upload handle is unavailable.");
+		}
+
+		if (existingPublishedId <= 0)
+		{
+			return (false, "Upload failed: Update Existing requires a valid existing published Mod ID.");
+		}
+
+		List<IModsUploadSupport.ModInfo> authorMods = await CollectDeveloperModuleAuthorModsAsync(uploadHandle);
+		if (authorMods.Count == 0)
+		{
+			return (
+				false,
+				$"Upload failed: unable to verify ownership for existing Mod ID '{existingPublishedId.ToString(CultureInfo.InvariantCulture)}'. " +
+				"Refresh platform data and retry.");
+		}
+
+		bool foundTarget = false;
+		IModsUploadSupport.ModInfo targetModInfo = default;
+		for (int i = 0; i < authorMods.Count; i++)
+		{
+			IModsUploadSupport.ModInfo candidate = authorMods[i];
+			if (candidate.m_PublishedID != existingPublishedId)
+			{
+				continue;
+			}
+
+			targetModInfo = candidate;
+			foundTarget = true;
+			break;
+		}
+
+		if (!foundTarget)
+		{
+			return (
+				false,
+				$"Upload failed: existing Mod ID '{existingPublishedId.ToString(CultureInfo.InvariantCulture)}' was not found in your PDX Mods account listings.");
+		}
+
+		string targetDisplayName = (targetModInfo.m_DisplayName ?? string.Empty).Trim();
+		if (existingPublishedId == kAudioSwitcherOfficialPublishedId ||
+			string.Equals(targetDisplayName, kOptionsPanelDisplayName, StringComparison.OrdinalIgnoreCase))
+		{
+			return (
+				false,
+				$"Upload failed: existing Mod ID '{existingPublishedId.ToString(CultureInfo.InvariantCulture)}' points to the base Audio Switcher listing. " +
+				"Select a separate module asset listing.");
+		}
+
+		string[] targetTags = targetModInfo.m_Tags ?? Array.Empty<string>();
+		if (targetTags.Length > 0)
+		{
+			bool hasAssetPackTag = false;
+			for (int i = 0; i < targetTags.Length; i++)
+			{
+				string tag = (targetTags[i] ?? string.Empty).Trim();
+				if (string.Equals(tag, kDeveloperModuleUploadAssetPackTag, StringComparison.OrdinalIgnoreCase) ||
+					string.Equals(tag, kDeveloperModuleUploadLegacyAssetTag, StringComparison.OrdinalIgnoreCase))
+				{
+					hasAssetPackTag = true;
+					break;
+				}
+			}
+
+			if (!hasAssetPackTag)
+			{
+				return (
+					false,
+					$"Upload failed: existing Mod ID '{existingPublishedId.ToString(CultureInfo.InvariantCulture)}' does not appear to be an asset module listing (missing AssetPack tag).");
+			}
+		}
+		else
+		{
+			Log.Warn(
+				$"Update Existing target validation for ID {existingPublishedId.ToString(CultureInfo.InvariantCulture)} returned no tags; proceeding with ownership-only verification.");
+		}
+
+		string displayLabel = string.IsNullOrWhiteSpace(targetDisplayName) ? "<unnamed>" : targetDisplayName;
+		Log.Info(
+			$"Validated Update Existing target. ID={existingPublishedId.ToString(CultureInfo.InvariantCulture)}, Display='{displayLabel}'.");
+		return (true, string.Empty);
+	}
+
+	// Collect author-owned mod listings from upload handle state, then fall back to ListAllModsByMe.
+	private static async Task<List<IModsUploadSupport.ModInfo>> CollectDeveloperModuleAuthorModsAsync(PdxAssetUploadHandle uploadHandle)
+	{
+		List<IModsUploadSupport.ModInfo> authorMods = new List<IModsUploadSupport.ModInfo>();
+		HashSet<int> seenPublishedIds = new HashSet<int>();
+
+		try
+		{
+			IReadOnlyList<IModsUploadSupport.ModInfo>? existingAuthorMods = uploadHandle.authorMods;
+			if (existingAuthorMods != null)
+			{
+				for (int i = 0; i < existingAuthorMods.Count; i++)
+				{
+					IModsUploadSupport.ModInfo modInfo = existingAuthorMods[i];
+					int publishedId = modInfo.m_PublishedID;
+					if (publishedId <= 0 || !seenPublishedIds.Add(publishedId))
+					{
+						continue;
+					}
+
+					authorMods.Add(modInfo);
+				}
+			}
+		}
+		catch (Exception ex)
+		{
+			Log.Warn($"Failed reading author mods from upload handle: {ex.Message}");
+		}
+
+		if (authorMods.Count > 0)
+		{
+			return authorMods;
+		}
+
+		try
+		{
+			FieldInfo? managerField = uploadHandle
+				.GetType()
+				.GetField("m_Manager", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+			object? manager = managerField?.GetValue(uploadHandle);
+			if (manager == null)
+			{
+				return authorMods;
+			}
+
+			MethodInfo? listMethod = manager
+				.GetType()
+				.GetMethod("ListAllModsByMe", BindingFlags.Instance | BindingFlags.Public);
+			if (listMethod == null)
+			{
+				return authorMods;
+			}
+
+			object? invocationResult = InvokeListAllModsByMeForDependencyCache(manager, listMethod);
+			if (!(invocationResult is Task listTask))
+			{
+				return authorMods;
+			}
+
+			await listTask;
+			PropertyInfo? resultProperty = listTask.GetType().GetProperty("Result", BindingFlags.Instance | BindingFlags.Public);
+			object? resultObject = resultProperty?.GetValue(listTask, null);
+			if (!(resultObject is IEnumerable resultEnumerable))
+			{
+				return authorMods;
+			}
+
+			foreach (object? item in resultEnumerable)
+			{
+				if (!(item is IModsUploadSupport.ModInfo modInfo))
+				{
+					continue;
+				}
+
+				int publishedId = modInfo.m_PublishedID;
+				if (publishedId <= 0 || !seenPublishedIds.Add(publishedId))
+				{
+					continue;
+				}
+
+				authorMods.Add(modInfo);
+			}
+		}
+		catch (Exception ex)
+		{
+			Log.Warn($"Failed to collect author mod listings for Update Existing validation: {ex.Message}");
+		}
+
+		return authorMods;
+	}
+
 	// Best-effort cleanup helper for failed upload sessions.
 	private static async Task TryCleanupDeveloperModuleUploadHandleAsync(PdxAssetUploadHandle uploadHandle, string contextMessage)
 	{
@@ -1645,10 +1870,22 @@ public sealed partial class SirenChangerMod
 			error = "Display Name is missing.";
 			return false;
 		}
+		modInfo.m_DisplayName = modInfo.m_DisplayName.Trim();
+		if (modInfo.m_DisplayName.Length > kDeveloperModuleUploadDisplayNameMaxLength)
+		{
+			error = $"Display Name exceeds {kDeveloperModuleUploadDisplayNameMaxLength.ToString(CultureInfo.InvariantCulture)} characters.";
+			return false;
+		}
 
 		if (string.IsNullOrWhiteSpace(modInfo.m_ShortDescription))
 		{
 			error = "Short Description is missing.";
+			return false;
+		}
+		modInfo.m_ShortDescription = modInfo.m_ShortDescription.Trim();
+		if (modInfo.m_ShortDescription.Length > kDeveloperModuleUploadShortDescriptionMaxLength)
+		{
+			error = $"Short Description exceeds {kDeveloperModuleUploadShortDescriptionMaxLength.ToString(CultureInfo.InvariantCulture)} characters.";
 			return false;
 		}
 
@@ -1657,16 +1894,34 @@ public sealed partial class SirenChangerMod
 			error = "Long Description is missing.";
 			return false;
 		}
+		modInfo.m_LongDescription = NormalizeDeveloperModuleUploadDescription(modInfo.m_LongDescription);
+		if (modInfo.m_LongDescription.Length > kDeveloperModuleUploadDescriptionMaxLength)
+		{
+			error = $"Long Description exceeds {kDeveloperModuleUploadDescriptionMaxLength.ToString(CultureInfo.InvariantCulture)} characters.";
+			return false;
+		}
 
 		if (string.IsNullOrWhiteSpace(modInfo.m_UserModVersion))
 		{
 			error = "Mod Version is missing.";
 			return false;
 		}
+		modInfo.m_UserModVersion = NormalizeDeveloperModuleVersion(modInfo.m_UserModVersion);
+		if (modInfo.m_UserModVersion.Length > kDeveloperModuleUploadVersionMaxLength)
+		{
+			error = $"Mod Version exceeds {kDeveloperModuleUploadVersionMaxLength.ToString(CultureInfo.InvariantCulture)} characters.";
+			return false;
+		}
 
 		if (string.IsNullOrWhiteSpace(modInfo.m_RecommendedGameVersion))
 		{
 			error = "Recommended Game Version is missing.";
+			return false;
+		}
+		modInfo.m_RecommendedGameVersion = modInfo.m_RecommendedGameVersion.Trim();
+		if (modInfo.m_RecommendedGameVersion.Length > kDeveloperModuleUploadGameVersionMaxLength)
+		{
+			error = $"Recommended Game Version exceeds {kDeveloperModuleUploadGameVersionMaxLength.ToString(CultureInfo.InvariantCulture)} characters.";
 			return false;
 		}
 
@@ -1677,15 +1932,35 @@ public sealed partial class SirenChangerMod
 			return false;
 		}
 
+		bool hasAssetPackTag = false;
 		for (int i = 0; i < tags.Length; i++)
 		{
 			string tag = (tags[i] ?? string.Empty).Trim();
+			if (string.IsNullOrWhiteSpace(tag))
+			{
+				error = $"Publish tag at index {i} is empty.";
+				return false;
+			}
+
 			if (string.Equals(tag, kDeveloperModuleUploadLegacyAssetTag, StringComparison.OrdinalIgnoreCase))
 			{
 				error = $"Invalid legacy tag '{kDeveloperModuleUploadLegacyAssetTag}' detected. Use '{kDeveloperModuleUploadAssetPackTag}' instead.";
 				return false;
 			}
+
+			if (string.Equals(tag, kDeveloperModuleUploadAssetPackTag, StringComparison.OrdinalIgnoreCase))
+			{
+				hasAssetPackTag = true;
+			}
 		}
+
+		if (!hasAssetPackTag)
+		{
+			error = $"Required upload tag '{kDeveloperModuleUploadAssetPackTag}' is missing.";
+			return false;
+		}
+
+		uploadHandle.modInfo = modInfo;
 
 		IModsUploadSupport.ModInfo.ModDependency[] dependencies = modInfo.m_ModDependencies ??
 			Array.Empty<IModsUploadSupport.ModInfo.ModDependency>();
@@ -1695,6 +1970,8 @@ public sealed partial class SirenChangerMod
 			return false;
 		}
 
+		int expectedAudioSwitcherDependencyId = ResolveAudioSwitcherDependencyPublishedId(uploadHandle.authorMods);
+		bool hasExpectedAudioSwitcherDependency = false;
 		for (int i = 0; i < dependencies.Length; i++)
 		{
 			if (dependencies[i].m_Id <= 0)
@@ -1702,6 +1979,17 @@ public sealed partial class SirenChangerMod
 				error = $"Dependency at index {i} has an invalid published ID.";
 				return false;
 			}
+
+			if (dependencies[i].m_Id == expectedAudioSwitcherDependencyId)
+			{
+				hasExpectedAudioSwitcherDependency = true;
+			}
+		}
+
+		if (!hasExpectedAudioSwitcherDependency)
+		{
+			error = $"Audio Switcher dependency metadata is invalid. Expected published ID {expectedAudioSwitcherDependencyId.ToString(CultureInfo.InvariantCulture)}.";
+			return false;
 		}
 
 		List<IModsUploadSupport.ExternalLinkData>? externalLinks = modInfo.m_ExternalLinks;
@@ -1755,7 +2043,6 @@ public sealed partial class SirenChangerMod
 		string thumbnailPath = Path.Combine(metadataDirectoryPath, modInfo.m_ThumbnailFilename);
 		if (!File.Exists(thumbnailPath))
 		{
-			error = $"Thumbnail file not found at expected location: {thumbnailPath}. DisplayName: {modInfo.m_DisplayName}";
 			error = $"Staged thumbnail was not found at '{thumbnailPath}'.";
 			return false;
 		}
@@ -1985,7 +2272,7 @@ public sealed partial class SirenChangerMod
 			moduleId: NormalizeDeveloperModuleId(s_DeveloperModuleId),
 			shortDescription: kDeveloperModuleUploadDefaultShortDescription,
 			longDescription: kDeveloperModuleUploadDefaultShortDescription,
-			modVersion: BuildDeveloperModuleUploadVersion(),
+			modVersion: NormalizeDeveloperModuleVersion(s_DeveloperModuleVersion),
 			gameVersion: string.IsNullOrWhiteSpace(Application.version)
 				? kDeveloperModuleUploadDefaultRecommendedGameVersion
 				: Application.version,
@@ -1994,6 +2281,7 @@ public sealed partial class SirenChangerMod
 
 		string displayName = metadata.DisplayName;
 		string moduleId = metadata.ModuleId;
+		string moduleVersion = metadata.ModVersion;
 		try
 		{
 			string manifestJson = File.ReadAllText(manifestPath);
@@ -2008,6 +2296,11 @@ public sealed partial class SirenChangerMod
 				if (!string.IsNullOrWhiteSpace(manifest.ModuleId))
 				{
 					moduleId = NormalizeDeveloperModuleId(manifest.ModuleId);
+				}
+
+				if (!string.IsNullOrWhiteSpace(manifest.Version))
+				{
+					moduleVersion = NormalizeDeveloperModuleVersion(manifest.Version);
 				}
 			}
 		}
@@ -2027,13 +2320,12 @@ public sealed partial class SirenChangerMod
 		string longDescription = string.IsNullOrWhiteSpace(configuredDescription)
 			? BuildDeveloperModuleUploadLongDescription(displayName, moduleId)
 			: configuredDescription;
-		string modVersion = BuildDeveloperModuleUploadVersion();
 		metadata = new DeveloperModuleUploadMetadata(
 			displayName: displayName,
 			moduleId: moduleId,
 			shortDescription: shortDescription,
 			longDescription: longDescription,
-			modVersion: modVersion,
+			modVersion: moduleVersion,
 			gameVersion: metadata.GameVersion,
 			thumbnailPath: thumbnailPath);
 		return true;
@@ -2371,9 +2663,13 @@ public sealed partial class SirenChangerMod
 			}
 
 			int resolvedId = ResolveAudioSwitcherDependencyPublishedIdFromAuthorMods(authorMods);
-			if (resolvedId > 0)
+			if (resolvedId == kAudioSwitcherOfficialPublishedId)
 			{
 				s_DeveloperAudioSwitcherDependencyPublishedIdCache = resolvedId;
+			}
+			else if (resolvedId > 0)
+			{
+				Log.Warn($"Dependency cache priming ignored non-official Audio Switcher candidate ID {resolvedId.ToString(CultureInfo.InvariantCulture)}.");
 			}
 		}
 		catch (Exception ex)
@@ -2439,7 +2735,6 @@ public sealed partial class SirenChangerMod
 			Array.Empty<IModsUploadSupport.ModInfo.ModDependency>();
 		List<IModsUploadSupport.ModInfo.ModDependency> mergedDependencies =
 			new List<IModsUploadSupport.ModInfo.ModDependency>(existingDependencies.Length + 1);
-
 		bool hasAudioSwitcherDependency = false;
 		for (int i = 0; i < existingDependencies.Length; i++)
 		{
@@ -2451,11 +2746,17 @@ public sealed partial class SirenChangerMod
 
 			if (dependency.m_Id == dependencyPublishedId)
 			{
-				hasAudioSwitcherDependency = true;
-				if (dependency.m_Version == null)
+				if (hasAudioSwitcherDependency)
 				{
-					dependency.m_Version = string.Empty;
+					continue;
 				}
+
+				dependency.m_Version = string.IsNullOrWhiteSpace(dependency.m_Version)
+					? string.Empty
+					: dependency.m_Version.Trim();
+				mergedDependencies.Add(dependency);
+				hasAudioSwitcherDependency = true;
+				continue;
 			}
 
 			mergedDependencies.Add(dependency);
@@ -2472,6 +2773,7 @@ public sealed partial class SirenChangerMod
 
 		modInfo.m_ModDependencies = mergedDependencies.ToArray();
 		uploadHandle.modInfo = modInfo;
+		Log.Info($"Applied Audio Switcher dependency metadata to upload. Published ID={dependencyPublishedId.ToString(CultureInfo.InvariantCulture)}");
 		return true;
 	}
 
@@ -2481,26 +2783,53 @@ public sealed partial class SirenChangerMod
 		int authorPublishedId = ResolveAudioSwitcherDependencyPublishedIdFromAuthorMods(authorMods);
 		if (authorPublishedId > 0)
 		{
-			Log.Info($"Audio Switcher dependency resolved from author mods: ID={authorPublishedId}");
-			s_DeveloperAudioSwitcherDependencyPublishedIdCache = authorPublishedId;
-			return authorPublishedId;
+			if (authorPublishedId == kAudioSwitcherOfficialPublishedId)
+			{
+				Log.Info($"Audio Switcher dependency resolved from author mods: ID={authorPublishedId}");
+				s_DeveloperAudioSwitcherDependencyPublishedIdCache = authorPublishedId;
+				return authorPublishedId;
+			}
+
+			Log.Warn(
+				$"Audio Switcher dependency candidate from author mods used non-official ID {authorPublishedId.ToString(CultureInfo.InvariantCulture)}. " +
+				$"Falling back to official ID {kAudioSwitcherOfficialPublishedId.ToString(CultureInfo.InvariantCulture)}.");
 		}
 
 		if (TryResolveAudioSwitcherDependencyPublishedIdFromActiveParadoxMods(out int activePublishedId))
 		{
-			Log.Info($"Audio Switcher dependency resolved from active mods: ID={activePublishedId}");
-			s_DeveloperAudioSwitcherDependencyPublishedIdCache = activePublishedId;
-			return activePublishedId;
+			if (activePublishedId == kAudioSwitcherOfficialPublishedId)
+			{
+				Log.Info($"Audio Switcher dependency resolved from active mods: ID={activePublishedId}");
+				s_DeveloperAudioSwitcherDependencyPublishedIdCache = activePublishedId;
+				return activePublishedId;
+			}
+
+			Log.Warn(
+				$"Audio Switcher dependency candidate from active mods used non-official ID {activePublishedId.ToString(CultureInfo.InvariantCulture)}. " +
+				$"Falling back to official ID {kAudioSwitcherOfficialPublishedId.ToString(CultureInfo.InvariantCulture)}.");
 		}
 
-		if (s_DeveloperAudioSwitcherDependencyPublishedIdCache > 0)
+		if (s_DeveloperAudioSwitcherDependencyPublishedIdCache == kAudioSwitcherOfficialPublishedId)
 		{
 			Log.Info($"Audio Switcher dependency resolved from cache: ID={s_DeveloperAudioSwitcherDependencyPublishedIdCache}");
 			return s_DeveloperAudioSwitcherDependencyPublishedIdCache;
 		}
 
-		Log.Warn("Audio Switcher dependency could not be resolved from any source");
-		return 0;
+		if (s_DeveloperAudioSwitcherDependencyPublishedIdCache > 0)
+		{
+			Log.Warn(
+				$"Ignoring non-official cached Audio Switcher dependency ID {s_DeveloperAudioSwitcherDependencyPublishedIdCache.ToString(CultureInfo.InvariantCulture)}. " +
+				$"Using official ID {kAudioSwitcherOfficialPublishedId.ToString(CultureInfo.InvariantCulture)}.");
+		}
+		else
+		{
+			Log.Warn(
+				$"Audio Switcher dependency could not be resolved from platform data. " +
+				$"Using official ID {kAudioSwitcherOfficialPublishedId.ToString(CultureInfo.InvariantCulture)}.");
+		}
+
+		s_DeveloperAudioSwitcherDependencyPublishedIdCache = kAudioSwitcherOfficialPublishedId;
+		return kAudioSwitcherOfficialPublishedId;
 	}
 
 	// Resolve dependency ID from author-owned mods returned by platform sync.
@@ -2608,15 +2937,36 @@ public sealed partial class SirenChangerMod
 	// Match Audio Switcher listing names across historical naming variants.
 	private static bool MatchesAudioSwitcherDependencyName(string displayName)
 	{
-		string normalized = (displayName ?? string.Empty).Trim();
+		string normalized = NormalizeAudioSwitcherDependencyName(displayName);
 		if (string.IsNullOrWhiteSpace(normalized))
 		{
 			return false;
 		}
 
-		return normalized.IndexOf("audio switcher", StringComparison.OrdinalIgnoreCase) >= 0 ||
-			normalized.IndexOf("siren changer", StringComparison.OrdinalIgnoreCase) >= 0 ||
-			normalized.IndexOf("sirenchanger", StringComparison.OrdinalIgnoreCase) >= 0;
+		return string.Equals(normalized, "audioswitcher", StringComparison.Ordinal) ||
+			string.Equals(normalized, "sirenchanger", StringComparison.Ordinal);
+	}
+
+	// Normalize listing display names for exact dependency-name comparisons.
+	private static string NormalizeAudioSwitcherDependencyName(string displayName)
+	{
+		string trimmed = (displayName ?? string.Empty).Trim();
+		if (trimmed.Length == 0)
+		{
+			return string.Empty;
+		}
+
+		StringBuilder builder = new StringBuilder(trimmed.Length);
+		for (int i = 0; i < trimmed.Length; i++)
+		{
+			char c = trimmed[i];
+			if (char.IsLetterOrDigit(c))
+			{
+				builder.Append(char.ToLowerInvariant(c));
+			}
+		}
+
+		return builder.ToString();
 	}
 
 	// Read one active Paradox mod display name via tolerant reflection.
@@ -2995,7 +3345,14 @@ public sealed partial class SirenChangerMod
 			return kDeveloperModuleUploadDefaultShortDescription;
 		}
 
-		return $"{trimmed} - Audio Switcher asset module";
+		string generated = $"{trimmed} - Audio Switcher asset module";
+		if (generated.Length <= kDeveloperModuleUploadShortDescriptionMaxLength)
+		{
+			return generated;
+		}
+
+		string truncated = generated.Substring(0, kDeveloperModuleUploadShortDescriptionMaxLength).Trim();
+		return string.IsNullOrWhiteSpace(truncated) ? kDeveloperModuleUploadDefaultShortDescription : truncated;
 	}
 
 	// Long description attached to generated asset-module uploads.
@@ -3015,12 +3372,6 @@ public sealed partial class SirenChangerMod
 
 		builder.Append(' ').Append("Contains AudioSwitcherModule.json and audio assets under content/.");
 		return builder.ToString();
-	}
-
-	// Build a stable, semver-like module version string accepted by PDX publish APIs.
-	private static string BuildDeveloperModuleUploadVersion()
-	{
-		return "1." + DateTime.UtcNow.ToString("yyyyMMdd.HHmm", CultureInfo.InvariantCulture);
 	}
 
 	// Return true when module folder has upload-ready manifest in content/.
@@ -3209,6 +3560,88 @@ public sealed partial class SirenChangerMod
 		}
 
 		return string.IsNullOrWhiteSpace(normalized) ? kDeveloperModuleDefaultId : normalized;
+	}
+
+	// Normalize module version input to digits and periods only.
+	// When trimEdgePeriods is false, preserve trailing periods for in-progress UI typing.
+	private static string NormalizeDeveloperModuleVersion(string value, bool trimEdgePeriods = true)
+	{
+		string source = string.IsNullOrWhiteSpace(value)
+			? kDeveloperModuleDefaultVersion
+			: value.Trim();
+
+		StringBuilder builder = new StringBuilder(source.Length);
+		for (int i = 0; i < source.Length; i++)
+		{
+			char c = source[i];
+			if (char.IsDigit(c) || c == '.')
+			{
+				builder.Append(c);
+			}
+		}
+
+		string normalized = builder.ToString();
+		while (normalized.Contains("..", StringComparison.Ordinal))
+		{
+			normalized = normalized.Replace("..", ".", StringComparison.Ordinal);
+		}
+
+		if (trimEdgePeriods)
+		{
+			normalized = normalized.Trim('.');
+		}
+
+		return string.IsNullOrWhiteSpace(normalized) ? kDeveloperModuleDefaultVersion : normalized;
+	}
+
+	// Normalize upload display-name metadata and enforce platform-safe length.
+	private static string NormalizeDeveloperModuleUploadDisplayName(string value)
+	{
+		string normalized = NormalizeDeveloperModuleDisplayName(value);
+		return TruncateDeveloperModuleUploadText(normalized, kDeveloperModuleUploadDisplayNameMaxLength, kDeveloperModuleDefaultDisplayName);
+	}
+
+	// Normalize upload short-description metadata and enforce platform-safe length.
+	private static string NormalizeDeveloperModuleUploadShortDescription(string value)
+	{
+		string normalized = string.IsNullOrWhiteSpace(value)
+			? kDeveloperModuleUploadDefaultShortDescription
+			: value.Trim();
+		return TruncateDeveloperModuleUploadText(normalized, kDeveloperModuleUploadShortDescriptionMaxLength, kDeveloperModuleUploadDefaultShortDescription);
+	}
+
+	// Normalize upload mod-version metadata and enforce platform-safe length.
+	private static string NormalizeDeveloperModuleUploadVersion(string value)
+	{
+		string normalized = NormalizeDeveloperModuleVersion(value);
+		return TruncateDeveloperModuleUploadText(normalized, kDeveloperModuleUploadVersionMaxLength, kDeveloperModuleDefaultVersion);
+	}
+
+	// Normalize upload game-version metadata and enforce platform-safe length.
+	private static string NormalizeDeveloperModuleUploadGameVersion(string value)
+	{
+		string normalized = string.IsNullOrWhiteSpace(value)
+			? kDeveloperModuleUploadDefaultRecommendedGameVersion
+			: value.Trim();
+		return TruncateDeveloperModuleUploadText(normalized, kDeveloperModuleUploadGameVersionMaxLength, kDeveloperModuleUploadDefaultRecommendedGameVersion);
+	}
+
+	// Trim and truncate one upload metadata text field with fallback support.
+	private static string TruncateDeveloperModuleUploadText(string value, int maxLength, string fallback)
+	{
+		string normalized = (value ?? string.Empty).Trim();
+		string fallbackValue = (fallback ?? string.Empty).Trim();
+		if (string.IsNullOrWhiteSpace(normalized))
+		{
+			normalized = fallbackValue;
+		}
+
+		if (maxLength > 0 && normalized.Length > maxLength)
+		{
+			normalized = normalized.Substring(0, maxLength).Trim();
+		}
+
+		return string.IsNullOrWhiteSpace(normalized) ? fallbackValue : normalized;
 	}
 
 	// Normalize module output folder name input.
@@ -3774,6 +4207,7 @@ public sealed partial class SirenChangerMod
 		string moduleRootPath,
 		string displayName,
 		string moduleId,
+		string moduleVersion,
 		int sirenCount,
 		int engineCount,
 		int ambientCount,
@@ -3785,6 +4219,7 @@ public sealed partial class SirenChangerMod
 		builder.AppendLine();
 		builder.Append("Display Name: ").AppendLine(displayName);
 		builder.Append("Module ID: ").AppendLine(moduleId);
+		builder.Append("Module Version: ").AppendLine(moduleVersion);
 		builder.AppendLine();
 		builder.Append("Sirens: ").AppendLine(sirenCount.ToString(CultureInfo.InvariantCulture));
 		builder.Append("Vehicle Engines: ").AppendLine(engineCount.ToString(CultureInfo.InvariantCulture));
@@ -4100,14 +4535,14 @@ public sealed partial class SirenChangerMod
 			string gameVersion,
 			string thumbnailPath)
 		{
-			DisplayName = string.IsNullOrWhiteSpace(displayName) ? kDeveloperModuleDefaultDisplayName : displayName.Trim();
+			DisplayName = NormalizeDeveloperModuleUploadDisplayName(displayName);
 			ModuleId = string.IsNullOrWhiteSpace(moduleId) ? kDeveloperModuleDefaultId : moduleId.Trim();
-			ShortDescription = string.IsNullOrWhiteSpace(shortDescription) ? kDeveloperModuleUploadDefaultShortDescription : shortDescription.Trim();
-			LongDescription = string.IsNullOrWhiteSpace(longDescription) ? ShortDescription : longDescription.Trim();
-			ModVersion = string.IsNullOrWhiteSpace(modVersion)
-				? BuildDeveloperModuleUploadVersion()
-				: modVersion.Trim();
-			GameVersion = string.IsNullOrWhiteSpace(gameVersion) ? kDeveloperModuleUploadDefaultRecommendedGameVersion : gameVersion.Trim();
+			ShortDescription = NormalizeDeveloperModuleUploadShortDescription(shortDescription);
+			LongDescription = string.IsNullOrWhiteSpace(longDescription)
+				? ShortDescription
+				: NormalizeDeveloperModuleUploadDescription(longDescription);
+			ModVersion = NormalizeDeveloperModuleUploadVersion(modVersion);
+			GameVersion = NormalizeDeveloperModuleUploadGameVersion(gameVersion);
 			ThumbnailPath = (thumbnailPath ?? string.Empty).Trim();
 		}
 
@@ -4140,16 +4575,19 @@ public sealed partial class SirenChangerMod
 		[DataMember(Order = 3, Name = "displayName")]
 		public string DisplayName { get; set; } = string.Empty;
 
-		[DataMember(Order = 4, Name = "sirens")]
+		[DataMember(Order = 4, Name = "version")]
+		public string Version { get; set; } = string.Empty;
+
+		[DataMember(Order = 5, Name = "sirens")]
 		public List<DeveloperModuleManifestEntry> Sirens { get; set; } = new List<DeveloperModuleManifestEntry>();
 
-		[DataMember(Order = 5, Name = "vehicleEngines")]
+		[DataMember(Order = 6, Name = "vehicleEngines")]
 		public List<DeveloperModuleManifestEntry> VehicleEngines { get; set; } = new List<DeveloperModuleManifestEntry>();
 
-		[DataMember(Order = 6, Name = "ambient")]
+		[DataMember(Order = 7, Name = "ambient")]
 		public List<DeveloperModuleManifestEntry> Ambient { get; set; } = new List<DeveloperModuleManifestEntry>();
 
-		[DataMember(Order = 7, Name = "transitAnnouncements")]
+		[DataMember(Order = 8, Name = "transitAnnouncements")]
 		public List<DeveloperModuleManifestEntry> TransitAnnouncements { get; set; } = new List<DeveloperModuleManifestEntry>();
 	}
 
@@ -4196,8 +4634,3 @@ public sealed partial class SirenChangerMod
 		public SirenSfxProfile Profile { get; }
 	}
 }
-
-
-
-
-

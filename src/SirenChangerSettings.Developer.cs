@@ -153,6 +153,16 @@ public sealed partial class SirenChangerSettings
 	}
 
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUITextInput]
+	[SettingsUIDisplayName(overrideValue: "Module Version")]
+	[SettingsUIDescription(overrideValue: "Version used for generated modules and uploads. Numbers and periods only (for example, 1.0.3).")]
+	public string DeveloperModuleVersion
+	{
+		get => SirenChangerMod.GetDeveloperModuleVersion();
+		set => SirenChangerMod.SetDeveloperModuleVersion(value);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIDirectoryPicker]
 	[SettingsUIDisplayName(overrideValue: "Export Directory")]
 	[SettingsUIDescription(overrideValue: "Destination folder for generated module packages.")]

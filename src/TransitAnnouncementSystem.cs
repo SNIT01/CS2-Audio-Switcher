@@ -62,9 +62,9 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 
 	private readonly Dictionary<TransitAnnouncementSlot, AnnouncementErrorState> m_LastErrorBySlot = new Dictionary<TransitAnnouncementSlot, AnnouncementErrorState>();
 
-	private readonly Dictionary<TransitAnnouncementSlot, List<DeferredAnnouncementRequest>> m_PendingAnnouncementsBySlot = new Dictionary<TransitAnnouncementSlot, List<DeferredAnnouncementRequest>>();
+	private readonly Dictionary<PendingAnnouncementQueueKey, List<DeferredAnnouncementRequest>> m_PendingAnnouncementsByQueueKey = new Dictionary<PendingAnnouncementQueueKey, List<DeferredAnnouncementRequest>>();
 
-	private readonly List<TransitAnnouncementSlot> m_PendingAnnouncementSlotsScratch = new List<TransitAnnouncementSlot>();
+	private readonly List<PendingAnnouncementQueueKey> m_PendingAnnouncementKeysScratch = new List<PendingAnnouncementQueueKey>();
 
 	// Per-vehicle transition memory used to detect clean edge transitions.
 	private struct VehicleAnnouncementState
@@ -88,14 +88,47 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		public string LastMessage;
 	}
 
-	// Deferred playback request payload kept in a per-slot queue while async load is pending.
+	// Deferred playback request payload kept in a per slot+line queue while async load is pending.
 	private struct DeferredAnnouncementRequest
 	{
 		public Vector3 WorldPosition;
 
 		public float RequestedRealtime;
+	}
 
-		public string LineKey;
+	// Queue key for pending announcement loads. Isolation is per slot + line identity.
+	private readonly struct PendingAnnouncementQueueKey : IEquatable<PendingAnnouncementQueueKey>
+	{
+		public PendingAnnouncementQueueKey(TransitAnnouncementSlot slot, string lineKey)
+		{
+			Slot = slot;
+			LineKey = SirenChangerMod.NormalizeTransitLineIdentity(lineKey);
+		}
+
+		public TransitAnnouncementSlot Slot { get; }
+
+		public string LineKey { get; }
+
+		public bool Equals(PendingAnnouncementQueueKey other)
+		{
+			return Slot == other.Slot &&
+				string.Equals(LineKey, other.LineKey, StringComparison.OrdinalIgnoreCase);
+		}
+
+		public override bool Equals(object? obj)
+		{
+			return obj is PendingAnnouncementQueueKey other && Equals(other);
+		}
+
+		public override int GetHashCode()
+		{
+			unchecked
+			{
+				int hash = (int)Slot * 397;
+				hash ^= StringComparer.OrdinalIgnoreCase.GetHashCode(LineKey ?? string.Empty);
+				return hash;
+			}
+		}
 	}
 
 	protected override void OnCreate()
@@ -375,8 +408,8 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		m_SeenVehicles.Clear();
 		m_StaleVehicles.Clear();
 		m_LastErrorBySlot.Clear();
-		m_PendingAnnouncementsBySlot.Clear();
-		m_PendingAnnouncementSlotsScratch.Clear();
+		m_PendingAnnouncementsByQueueKey.Clear();
+		m_PendingAnnouncementKeysScratch.Clear();
 		SirenChangerMod.ResetTransitLineObservationSession();
 	}
 
@@ -449,6 +482,12 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 				arrivalSlot = TransitAnnouncementSlot.TramArrival;
 				departureSlot = TransitAnnouncementSlot.TramDeparture;
 				return true;
+			case TransportType.Ferry:
+			case TransportType.Ship:
+				serviceType = TransitAnnouncementServiceType.Ferry;
+				arrivalSlot = TransitAnnouncementSlot.FerryArrival;
+				departureSlot = TransitAnnouncementSlot.FerryDeparture;
+				return true;
 			default:
 				serviceType = default;
 				arrivalSlot = default;
@@ -472,6 +511,7 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		}
 
 		string lineKey = ResolveAnnouncementLineKey(serviceType, vehicle);
+		PendingAnnouncementQueueKey queueKey = new PendingAnnouncementQueueKey(slot, lineKey);
 		TransitAnnouncementLoadStatus loadStatus = SirenChangerMod.TryBuildTransitAnnouncementSequence(
 			slot,
 			lineKey,
@@ -484,29 +524,28 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 			{
 				// Queue deferred requests so concurrent arrivals/departures on one slot are preserved.
 				if (!EnqueuePendingAnnouncement(
-						slot,
+						queueKey,
 						new Vector3(worldPosition.x, worldPosition.y, worldPosition.z),
-						now,
-						lineKey))
+						now))
 				{
 					LogSlotError(slot, "Announcement queue is full; newest pending event was dropped.", now);
 				}
 			}
 			else
 			{
-				m_PendingAnnouncementsBySlot.Remove(slot);
+				m_PendingAnnouncementsByQueueKey.Remove(queueKey);
 			}
 			return;
 		}
 
 		if (loadStatus == TransitAnnouncementLoadStatus.Failure)
 		{
-			m_PendingAnnouncementsBySlot.Remove(slot);
+			m_PendingAnnouncementsByQueueKey.Remove(queueKey);
 			LogSlotError(slot, statusMessage, now);
 			return;
 		}
 
-		m_PendingAnnouncementsBySlot.Remove(slot);
+		m_PendingAnnouncementsByQueueKey.Remove(queueKey);
 		Vector3 position = new Vector3(worldPosition.x, worldPosition.y, worldPosition.z);
 		if (!TransitAnnouncementAudioPlayer.TryPlaySequence(segments, position, out string playError))
 		{
@@ -514,29 +553,42 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		}
 	}
 
-	// Queue one deferred request while limiting per-slot backlog size.
+	// Queue one deferred request while limiting total backlog size per slot across all lines.
 	private bool EnqueuePendingAnnouncement(
-		TransitAnnouncementSlot slot,
+		PendingAnnouncementQueueKey queueKey,
 		Vector3 worldPosition,
-		float requestedRealtime,
-		string lineKey)
+		float requestedRealtime)
 	{
-		if (!m_PendingAnnouncementsBySlot.TryGetValue(slot, out List<DeferredAnnouncementRequest>? requests) || requests == null)
-		{
-			requests = new List<DeferredAnnouncementRequest>(kMaxDeferredAnnouncementsPerSlot);
-			m_PendingAnnouncementsBySlot[slot] = requests;
-		}
-
-		if (requests.Count >= kMaxDeferredAnnouncementsPerSlot)
+		if (string.IsNullOrWhiteSpace(queueKey.LineKey))
 		{
 			return false;
+		}
+
+		int pendingCountForSlot = 0;
+		foreach (KeyValuePair<PendingAnnouncementQueueKey, List<DeferredAnnouncementRequest>> pair in m_PendingAnnouncementsByQueueKey)
+		{
+			if (pair.Key.Slot != queueKey.Slot || pair.Value == null)
+			{
+				continue;
+			}
+
+			pendingCountForSlot += pair.Value.Count;
+			if (pendingCountForSlot >= kMaxDeferredAnnouncementsPerSlot)
+			{
+				return false;
+			}
+		}
+
+		if (!m_PendingAnnouncementsByQueueKey.TryGetValue(queueKey, out List<DeferredAnnouncementRequest>? requests) || requests == null)
+		{
+			requests = new List<DeferredAnnouncementRequest>(kMaxDeferredAnnouncementsPerSlot);
+			m_PendingAnnouncementsByQueueKey[queueKey] = requests;
 		}
 
 		requests.Add(new DeferredAnnouncementRequest
 		{
 			WorldPosition = worldPosition,
-			RequestedRealtime = requestedRealtime,
-			LineKey = lineKey ?? string.Empty
+			RequestedRealtime = requestedRealtime
 		});
 		return true;
 	}
@@ -544,25 +596,25 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 	// Retry pending async loads so the first event after selecting an OGG can still play.
 	private void ProcessPendingAnnouncements(float now)
 	{
-		if (m_PendingAnnouncementsBySlot.Count == 0)
+		if (m_PendingAnnouncementsByQueueKey.Count == 0)
 		{
 			return;
 		}
 
-		m_PendingAnnouncementSlotsScratch.Clear();
-		foreach (KeyValuePair<TransitAnnouncementSlot, List<DeferredAnnouncementRequest>> pair in m_PendingAnnouncementsBySlot)
+		m_PendingAnnouncementKeysScratch.Clear();
+		foreach (KeyValuePair<PendingAnnouncementQueueKey, List<DeferredAnnouncementRequest>> pair in m_PendingAnnouncementsByQueueKey)
 		{
-			m_PendingAnnouncementSlotsScratch.Add(pair.Key);
+			m_PendingAnnouncementKeysScratch.Add(pair.Key);
 		}
 
-		for (int i = 0; i < m_PendingAnnouncementSlotsScratch.Count; i++)
+		for (int i = 0; i < m_PendingAnnouncementKeysScratch.Count; i++)
 		{
-			TransitAnnouncementSlot slot = m_PendingAnnouncementSlotsScratch[i];
-			if (!m_PendingAnnouncementsBySlot.TryGetValue(slot, out List<DeferredAnnouncementRequest>? requests) ||
+			PendingAnnouncementQueueKey queueKey = m_PendingAnnouncementKeysScratch[i];
+			if (!m_PendingAnnouncementsByQueueKey.TryGetValue(queueKey, out List<DeferredAnnouncementRequest>? requests) ||
 				requests == null ||
 				requests.Count == 0)
 			{
-				m_PendingAnnouncementsBySlot.Remove(slot);
+				m_PendingAnnouncementsByQueueKey.Remove(queueKey);
 				continue;
 			}
 
@@ -575,7 +627,7 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 
 			if (requests.Count == 0)
 			{
-				m_PendingAnnouncementsBySlot.Remove(slot);
+				m_PendingAnnouncementsByQueueKey.Remove(queueKey);
 				continue;
 			}
 
@@ -583,8 +635,8 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 			{
 				DeferredAnnouncementRequest request = requests[0];
 				TransitAnnouncementLoadStatus loadStatus = SirenChangerMod.TryBuildTransitAnnouncementSequence(
-					slot,
-					request.LineKey,
+					queueKey.Slot,
+					queueKey.LineKey,
 					out List<TransitAnnouncementPlaybackSegment> segments,
 					out string message);
 				if (loadStatus == TransitAnnouncementLoadStatus.Pending)
@@ -597,12 +649,12 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 				{
 					if (!TransitAnnouncementAudioPlayer.TryPlaySequence(segments, request.WorldPosition, out string playError))
 					{
-						LogSlotError(slot, $"Playback failed: {playError}", now);
+						LogSlotError(queueKey.Slot, $"Playback failed: {playError}", now);
 					}
 				}
 				else if (loadStatus == TransitAnnouncementLoadStatus.Failure)
 				{
-					LogSlotError(slot, message, now);
+					LogSlotError(queueKey.Slot, message, now);
 				}
 
 				requests.RemoveAt(0);
@@ -610,11 +662,11 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 
 			if (requests.Count == 0)
 			{
-				m_PendingAnnouncementsBySlot.Remove(slot);
+				m_PendingAnnouncementsByQueueKey.Remove(queueKey);
 			}
 		}
 
-		m_PendingAnnouncementSlotsScratch.Clear();
+		m_PendingAnnouncementKeysScratch.Clear();
 	}
 
 	// Resolve the line identity key used for per-line announcement overrides.
@@ -708,8 +760,9 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		}
 
 		bool hasRouteNumber = TryGetRouteNumberWithOwnerFallback(routeEntity, out int routeNumber);
-		int normalizedRouteNumber = hasRouteNumber && routeNumber > 0 ? routeNumber : 0;
-		stableLineId = $"route:{routeEntity.Index}:{routeEntity.Version}:{normalizedRouteNumber}";
+		stableLineId = hasRouteNumber && routeNumber > 0
+			? $"number:{routeNumber}"
+			: $"route:{routeEntity.Index}:{routeEntity.Version}:0";
 
 		// Prefer the route entity name; owner labels are often generic and collapse distinct lines.
 		string routeLabel = GetEntityDisplayName(routeEntity);

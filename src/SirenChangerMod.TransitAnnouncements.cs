@@ -18,7 +18,9 @@ internal enum TransitAnnouncementSlot
 	MetroArrival = 4,
 	MetroDeparture = 5,
 	TramArrival = 6,
-	TramDeparture = 7
+	TramDeparture = 7,
+	FerryArrival = 8,
+	FerryDeparture = 9
 }
 
 // Supported transit service buckets for line overrides and slot mapping.
@@ -27,7 +29,8 @@ internal enum TransitAnnouncementServiceType
 	Train = 0,
 	Bus = 1,
 	Metro = 2,
-	Tram = 3
+	Tram = 3,
+	Ferry = 4
 }
 
 // Result type for loading one transit announcement clip.
@@ -79,7 +82,9 @@ public sealed partial class SirenChangerMod
 		"metro.arrival",
 		"metro.departure",
 		"tram.arrival",
-		"tram.departure"
+		"tram.departure",
+		"ferry.arrival",
+		"ferry.departure"
 	};
 
 	private static readonly string[] s_TransitAnnouncementServiceVoiceKeys =
@@ -87,7 +92,8 @@ public sealed partial class SirenChangerMod
 		"train",
 		"bus",
 		"metro",
-		"tram"
+		"tram",
+		"ferry"
 	};
 
 	private static int s_TransitAnnouncementDropdownCacheVersion = -1;
@@ -990,6 +996,10 @@ public sealed partial class SirenChangerMod
 				return "Tram Arrival";
 			case TransitAnnouncementSlot.TramDeparture:
 				return "Tram Departure";
+			case TransitAnnouncementSlot.FerryArrival:
+				return "Ferry Arrival";
+			case TransitAnnouncementSlot.FerryDeparture:
+				return "Ferry Departure";
 			default:
 				return "Transit Announcement";
 		}
@@ -1007,6 +1017,8 @@ public sealed partial class SirenChangerMod
 				return "Metro";
 			case TransitAnnouncementServiceType.Tram:
 				return "Tram";
+			case TransitAnnouncementServiceType.Ferry:
+				return "Ferry";
 			default:
 				return "Transit";
 		}
@@ -1161,7 +1173,89 @@ public sealed partial class SirenChangerMod
 			}
 		}
 
+		if (TryGetTransitAnnouncementSelectionByRouteNumberFallback(slotKey, serviceType, stableId, out selection))
+		{
+			return true;
+		}
+
+		if (TryGetTransitAnnouncementSelectionByDisplayNameFallback(
+			slotKey,
+			serviceType,
+			normalizedLineKey,
+			out selection))
+		{
+			return true;
+		}
+
 		selection = string.Empty;
+		return false;
+	}
+
+	// Fallback for older route-entity keyed overrides when current line identity is number-based.
+	private static bool TryGetTransitAnnouncementSelectionByRouteNumberFallback(
+		string slotKey,
+		TransitAnnouncementServiceType serviceType,
+		string stableId,
+		out string selection)
+	{
+		selection = string.Empty;
+		if (!TryExtractRouteNumberFromStableId(stableId, out int routeNumber) || routeNumber <= 0)
+		{
+			return false;
+		}
+
+		foreach (KeyValuePair<string, string> pair in TransitAnnouncementConfig.TransitAnnouncementLineSelections)
+		{
+			if (!TryParseTransitLineOverrideKey(pair.Key, out string candidateSlotKey, out string candidateLineKey) ||
+				!string.Equals(candidateSlotKey, slotKey, StringComparison.OrdinalIgnoreCase) ||
+				!TryParseTransitLineIdentity(candidateLineKey, out TransitAnnouncementServiceType candidateService, out string candidateStableId) ||
+				candidateService != serviceType ||
+				!TryExtractRouteNumberFromStableId(candidateStableId, out int candidateRouteNumber) ||
+				candidateRouteNumber != routeNumber)
+			{
+				continue;
+			}
+
+			selection = pair.Value;
+			return true;
+		}
+
+		return false;
+	}
+
+	// Fallback for non-numbered lines by matching slot+service+display name.
+	private static bool TryGetTransitAnnouncementSelectionByDisplayNameFallback(
+		string slotKey,
+		TransitAnnouncementServiceType serviceType,
+		string normalizedLineKey,
+		out string selection)
+	{
+		selection = string.Empty;
+		string displayName = AudioReplacementDomainConfig.NormalizeTransitDisplayText(GetTransitLineDisplayName(normalizedLineKey));
+		if (string.IsNullOrWhiteSpace(displayName))
+		{
+			return false;
+		}
+
+		foreach (KeyValuePair<string, string> pair in TransitAnnouncementConfig.TransitAnnouncementLineSelections)
+		{
+			if (!TryParseTransitLineOverrideKey(pair.Key, out string candidateSlotKey, out string candidateLineKey) ||
+				!string.Equals(candidateSlotKey, slotKey, StringComparison.OrdinalIgnoreCase) ||
+				!TryParseTransitLineIdentity(candidateLineKey, out TransitAnnouncementServiceType candidateService, out _) ||
+				candidateService != serviceType)
+			{
+				continue;
+			}
+
+			string candidateDisplayName = AudioReplacementDomainConfig.NormalizeTransitDisplayText(GetTransitLineDisplayName(candidateLineKey));
+			if (!string.IsNullOrWhiteSpace(candidateDisplayName) &&
+				string.Equals(candidateDisplayName, displayName, StringComparison.OrdinalIgnoreCase))
+			{
+				selection = pair.Value;
+				return true;
+			}
+		}
+
 		return false;
 	}
 
@@ -1206,6 +1300,8 @@ public sealed partial class SirenChangerMod
 		{
 			if (TransitAnnouncementConfig.TransitAnnouncementLineSelections.Remove(overrideKey))
 			{
+				SaveConfig();
+				ConfigVersion++;
 				OptionsVersion++;
 			}
 			return;
@@ -1219,6 +1315,8 @@ public sealed partial class SirenChangerMod
 
 		TransitAnnouncementConfig.TransitAnnouncementLineSelections[overrideKey] = normalizedSelection;
 		TrackTransitLineForOptions(normalizedLineKey);
+		SaveConfig();
+		ConfigVersion++;
 		OptionsVersion++;
 	}
 
@@ -1322,7 +1420,9 @@ public sealed partial class SirenChangerMod
 
 		if (TryParseRouteStableId(normalized, out int routeEntityIndex, out int routeEntityVersion, out int routeNumber))
 		{
-			return $"route:{routeEntityIndex}:{routeEntityVersion}:{routeNumber}";
+			return routeNumber > 0
+				? $"number:{routeNumber}"
+				: $"route:{routeEntityIndex}:{routeEntityVersion}:0";
 		}
 
 		if (normalized.StartsWith("number:", StringComparison.OrdinalIgnoreCase))
@@ -1356,6 +1456,30 @@ public sealed partial class SirenChangerMod
 		return string.IsNullOrWhiteSpace(normalizedLabel)
 			? string.Empty
 			: $"label:{normalizedLabel}";
+	}
+
+	private static bool TryExtractRouteNumberFromStableId(string stableId, out int routeNumber)
+	{
+		routeNumber = 0;
+		string normalizedStableId = NormalizeTransitLineStableId(stableId);
+		if (string.IsNullOrWhiteSpace(normalizedStableId))
+		{
+			return false;
+		}
+
+		if (normalizedStableId.StartsWith("number:", StringComparison.OrdinalIgnoreCase))
+		{
+			string numberText = normalizedStableId.Substring("number:".Length).Trim();
+			return int.TryParse(numberText, out routeNumber) && routeNumber > 0;
+		}
+
+		if (TryParseRouteStableId(normalizedStableId, out _, out _, out int parsedRouteNumber) && parsedRouteNumber > 0)
+		{
+			routeNumber = parsedRouteNumber;
+			return true;
+		}
+
+		return false;
 	}
 
 	private static bool TryParseRouteStableId(
@@ -1443,6 +1567,8 @@ public sealed partial class SirenChangerMod
 				return isArrival ? TransitAnnouncementSlot.MetroArrival : TransitAnnouncementSlot.MetroDeparture;
 			case TransitAnnouncementServiceType.Tram:
 				return isArrival ? TransitAnnouncementSlot.TramArrival : TransitAnnouncementSlot.TramDeparture;
+			case TransitAnnouncementServiceType.Ferry:
+				return isArrival ? TransitAnnouncementSlot.FerryArrival : TransitAnnouncementSlot.FerryDeparture;
 			default:
 				return TransitAnnouncementSlot.TrainArrival;
 		}
@@ -1478,6 +1604,12 @@ public sealed partial class SirenChangerMod
 		if (string.Equals(normalized, s_TransitAnnouncementServiceVoiceKeys[3], StringComparison.OrdinalIgnoreCase))
 		{
 			serviceType = TransitAnnouncementServiceType.Tram;
+			return true;
+		}
+
+		if (string.Equals(normalized, s_TransitAnnouncementServiceVoiceKeys[4], StringComparison.OrdinalIgnoreCase))
+		{
+			serviceType = TransitAnnouncementServiceType.Ferry;
 			return true;
 		}
 
@@ -1686,6 +1818,10 @@ public sealed partial class SirenChangerMod
 				return s_TransitAnnouncementLeadTargetKeys[6];
 			case TransitAnnouncementSlot.TramDeparture:
 				return s_TransitAnnouncementLeadTargetKeys[7];
+			case TransitAnnouncementSlot.FerryArrival:
+				return s_TransitAnnouncementLeadTargetKeys[8];
+			case TransitAnnouncementSlot.FerryDeparture:
+				return s_TransitAnnouncementLeadTargetKeys[9];
 			default:
 				return string.Empty;
 		}
@@ -1703,6 +1839,8 @@ public sealed partial class SirenChangerMod
 				return s_TransitAnnouncementServiceVoiceKeys[2];
 			case TransitAnnouncementServiceType.Tram:
 				return s_TransitAnnouncementServiceVoiceKeys[3];
+			case TransitAnnouncementServiceType.Ferry:
+				return s_TransitAnnouncementServiceVoiceKeys[4];
 			default:
 				return string.Empty;
 		}
