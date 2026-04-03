@@ -76,7 +76,7 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementLineServiceOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Line Service")]
-	[SettingsUIDescription(overrideValue: "Select which service's discovered lines are shown in the line override editor.")]
+	[SettingsUIDescription(overrideValue: "Select which service's discovered stations and lines are shown in the station-line override editor.")]
 	public string TransitAnnouncementLineOverrideService
 	{
 		get => SirenChangerMod.GetTransitAnnouncementLineEditorService();
@@ -84,10 +84,21 @@ public sealed partial class SirenChangerSettings
 	}
 
 	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementLineGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementStationOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Transit Station")]
+	[SettingsUIDescription(overrideValue: "Choose a station to edit line-specific arrival/departure overrides for that location.")]
+	public string TransitAnnouncementSelectedStationOverride
+	{
+		get => SirenChangerMod.GetTransitAnnouncementSelectedStationForOptions();
+		set => SirenChangerMod.SetTransitAnnouncementSelectedStationForOptions(value);
+	}
+
+	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementLineGroup)]
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementLineOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Transit Line")]
-	[SettingsUIDescription(overrideValue: "Choose one discovered line to edit per-line arrival/departure overrides.")]
+	[SettingsUIDescription(overrideValue: "Choose one discovered line that serves the selected station.")]
 	public string TransitAnnouncementSelectedLineOverride
 	{
 		get => SirenChangerMod.GetTransitAnnouncementSelectedLineForOptions();
@@ -98,8 +109,8 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsTransitAnnouncementLineOverrideDisabled))]
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Line Arrival Override")]
-	[SettingsUIDescription(overrideValue: "Clip used for arrivals of the selected line. Default means no arrival announcement for this line.")]
+	[SettingsUIDisplayName(overrideValue: "Station-Line Arrival Override")]
+	[SettingsUIDescription(overrideValue: "Clip used for arrivals of the selected line at the selected station. Default means no arrival announcement for that station-line pair.")]
 	public string TransitAnnouncementLineArrivalOverride
 	{
 		get => SirenChangerMod.GetTransitAnnouncementLineArrivalSelectionForOptions();
@@ -110,8 +121,8 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsTransitAnnouncementLineOverrideDisabled))]
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
-	[SettingsUIDisplayName(overrideValue: "Line Departure Override")]
-	[SettingsUIDescription(overrideValue: "Clip used for departures of the selected line. Default means no departure announcement for this line.")]
+	[SettingsUIDisplayName(overrideValue: "Station-Line Departure Override")]
+	[SettingsUIDescription(overrideValue: "Clip used for departures of the selected line at the selected station. Default means no departure announcement for that station-line pair.")]
 	public string TransitAnnouncementLineDepartureOverride
 	{
 		get => SirenChangerMod.GetTransitAnnouncementLineDepartureSelectionForOptions();
@@ -122,15 +133,15 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIMultilineText]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowTransitAnnouncementLineWarning))]
-	[SettingsUIDisplayName(overrideValue: "Line Override Status")]
-	[SettingsUIDescription(overrideValue: "Shows the selected line and its current arrival/departure overrides.")]
+	[SettingsUIDisplayName(overrideValue: "Station-Line Override Status")]
+	[SettingsUIDescription(overrideValue: "Shows the selected station-line pair and its current arrival/departure overrides.")]
 	public string TransitAnnouncementLineOverrideStatus => SirenChangerMod.GetSelectedTransitAnnouncementLineStatusText();
 
 	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementLineGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kTransitAnnouncementButtonGroup)]
 	[SettingsUIDisplayName(overrideValue: "Scan Transit Lines")]
-	[SettingsUIDescription(overrideValue: "Scan active transit vehicles and add newly observed lines to the per-line override list.")]
+	[SettingsUIDescription(overrideValue: "Scan active transit routes and vehicles, then add newly observed stations, lines, and station-line pairs.")]
 	public bool ScanTransitLines
 	{
 		set => SirenChangerMod.RefreshTransitLinesFromOptions();
@@ -140,13 +151,13 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIMultilineText]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Transit Line Scan Status")]
-	[SettingsUIDescription(overrideValue: "Shows the latest transit line scan summary and detected line counts.")]
+	[SettingsUIDescription(overrideValue: "Shows the latest transit scan summary and detected line/station counts.")]
 	public string TransitAnnouncementLineScanStatus => SirenChangerMod.GetTransitLineScanStatusText();
 
 	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementLineGroup)]
 	[SettingsUIButton]
 	[SettingsUIDisplayName(overrideValue: "Prune Stale Lines")]
-	[SettingsUIDescription(overrideValue: "Remove discovered lines that are not observed in this session and have no line-specific overrides.")]
+	[SettingsUIDescription(overrideValue: "Remove discovered stations/lines not observed in this session and not referenced by overrides.")]
 	public bool PruneStaleTransitAnnouncementLines
 	{
 		set => SirenChangerMod.PruneStaleTransitAnnouncementLinesFromOptions();
@@ -195,6 +206,12 @@ public sealed partial class SirenChangerSettings
 	}
 
 	[Preserve]
+	public static DropdownItem<string>[] GetTransitAnnouncementStationOptions()
+	{
+		return SirenChangerMod.BuildTransitAnnouncementStationDropdownItems();
+	}
+
+	[Preserve]
 	public static string GetRescanCustomAnnouncementFilesLabel() => "Rescan Custom Announcement Files";
 
 	[Preserve]
@@ -215,6 +232,11 @@ public sealed partial class SirenChangerSettings
 		config.TransitAnnouncementKnownLines.Clear();
 		config.TransitAnnouncementSelectedLine = string.Empty;
 		config.TransitAnnouncementLineDisplayByKey.Clear();
+		config.TransitAnnouncementStationLineSelections.Clear();
+		config.TransitAnnouncementKnownStations.Clear();
+		config.TransitAnnouncementSelectedStation = string.Empty;
+		config.TransitAnnouncementStationDisplayByKey.Clear();
+		config.TransitAnnouncementKnownStationLines.Clear();
 		config.TargetSelectionTarget = string.Empty;
 		config.KnownTargets.Clear();
 		config.MissingSelectionFallbackBehavior = SirenFallbackBehavior.Default;

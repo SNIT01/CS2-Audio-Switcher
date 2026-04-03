@@ -27,6 +27,8 @@ public sealed partial class SirenChangerSettings
 
 	private const string kDeveloperModuleTransitButtonGroup = "Transit";
 
+	private const string kDeveloperModuleProfileButtonGroup = "Sound Set Profiles";
+
 	private const string kDeveloperModuleBulkButtonGroup = "Selection";
 
 	private const string kDeveloperModuleBuildButtonGroup = "Build";
@@ -307,6 +309,57 @@ public sealed partial class SirenChangerSettings
 	}
 
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetModuleBuilderSoundSetProfileOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Sound Set Profile")]
+	[SettingsUIDescription(overrideValue: "Choose a saved sound set profile to add or remove from this package.")]
+	public string DeveloperModuleSoundSetProfileSelection
+	{
+		get => SirenChangerMod.GetDeveloperModuleSoundSetProfileSelection();
+		set => SirenChangerMod.SetDeveloperModuleSoundSetProfileSelection(value);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kDeveloperModuleProfileButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Add Selected Sound Set")]
+	[SettingsUIDescription(overrideValue: "Include the selected sound set profile in this package.")]
+	public bool IncludeSelectedModuleSoundSetProfile
+	{
+		set => SirenChangerMod.IncludeSelectedSoundSetProfileInModule();
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kDeveloperModuleProfileButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Remove Selected Sound Set")]
+	[SettingsUIDescription(overrideValue: "Exclude the selected sound set profile from this package.")]
+	public bool ExcludeSelectedModuleSoundSetProfile
+	{
+		set => SirenChangerMod.ExcludeSelectedSoundSetProfileFromModule();
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kDeveloperModuleProfileButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Select All Sound Sets")]
+	[SettingsUIDescription(overrideValue: "Include all saved sound set profiles in this package.")]
+	public bool IncludeAllSoundSetProfilesInModule
+	{
+		set => SirenChangerMod.IncludeAllSoundSetProfilesInModule();
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kDeveloperModuleProfileButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Clear Sound Set Selection")]
+	[SettingsUIDescription(overrideValue: "Remove all selected sound set profiles from this package.")]
+	public bool ClearSoundSetProfileModuleInclusions
+	{
+		set => SirenChangerMod.ClearSoundSetProfileModuleInclusions();
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kDeveloperModuleBulkButtonGroup)]
 	[SettingsUIDisplayName(overrideValue: "Select All Local Audio")]
@@ -332,6 +385,13 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDisplayName(overrideValue: "Audio Selection Summary")]
 	[SettingsUIDescription(overrideValue: "Shows the local files currently selected for package generation.")]
 	public string DeveloperModuleIncludedAudioSummary => SirenChangerMod.GetDeveloperModuleInclusionSummaryText();
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Sound Set Profile Summary")]
+	[SettingsUIDescription(overrideValue: "Shows the sound set profiles currently selected for package generation.")]
+	public string DeveloperModuleIncludedSoundSetProfileSummary => SirenChangerMod.GetDeveloperModuleSoundSetProfileSummaryText();
 
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIButton]
@@ -397,6 +457,17 @@ public sealed partial class SirenChangerSettings
 	{
 		get => SirenChangerMod.GetDeveloperModuleUploadDescription();
 		set => SirenChangerMod.SetDeveloperModuleUploadDescription(value);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUITextInput]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeveloperModuleUploadControlsDisabled))]
+	[SettingsUIDisplayName(overrideValue: "Additional Dependency IDs")]
+	[SettingsUIDescription(overrideValue: "Optional extra dependencies for this module. Use comma, semicolon, or new-line separated published IDs. Optional @version suffix is supported (for example, 123456@1.0.0). Audio Switcher is always added automatically.")]
+	public string DeveloperModuleUploadAdditionalDependencies
+	{
+		get => SirenChangerMod.GetDeveloperModuleUploadAdditionalDependencies();
+		set => SirenChangerMod.SetDeveloperModuleUploadAdditionalDependencies(value);
 	}
 
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
@@ -468,20 +539,24 @@ public sealed partial class SirenChangerSettings
 
 			foreach (AutomaticSettings.SettingItemData item in tab.items)
 			{
-				if (!string.Equals(item.property.name, nameof(DeveloperModuleUploadDescription), StringComparison.Ordinal))
-				{
-					continue;
-				}
-
-				if (item.widget is StringInputField inputField)
+				string propertyName = item.property.name;
+				if (item.widget is StringInputField inputField &&
+					string.Equals(propertyName, nameof(DeveloperModuleUploadDescription), StringComparison.Ordinal))
 				{
 					// Make the page description editor visibly larger than a standard single-line input.
 					inputField.multiline = Math.Max(StringInputField.kDefaultMultilines, 8);
 					// Keep UI and backend truncation limits aligned.
 					inputField.maxLength = 4000;
+					continue;
 				}
 
-				return pageData;
+				if (item.widget is StringInputField dependencyField &&
+					string.Equals(propertyName, nameof(DeveloperModuleUploadAdditionalDependencies), StringComparison.Ordinal))
+				{
+					// Give dependency input enough room for multi-line ID lists.
+					dependencyField.multiline = Math.Max(StringInputField.kDefaultMultilines, 4);
+					dependencyField.maxLength = 2000;
+				}
 			}
 
 			break;
@@ -559,6 +634,12 @@ public sealed partial class SirenChangerSettings
 	public static DropdownItem<string>[] GetModuleBuilderLocalTransitAnnouncementOptions()
 	{
 		return SirenChangerMod.BuildDeveloperModuleLocalAudioDropdown(DeveloperAudioDomain.TransitAnnouncement);
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetModuleBuilderSoundSetProfileOptions()
+	{
+		return SirenChangerMod.BuildDeveloperModuleSoundSetProfileDropdown();
 	}
 
 	[Preserve]

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("SirenChanger")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+263b48fb65345673e4a7e39a4cdbbac9391a2c04")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+46eea0f484d826532c0bd540eac5b51d0a5fd423")]
 [assembly: System.Reflection.AssemblyProductAttribute("SirenChanger")]
 [assembly: System.Reflection.AssemblyTitleAttribute("SirenChanger")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

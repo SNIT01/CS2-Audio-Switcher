@@ -206,6 +206,48 @@ internal static class SirenConfigValidator
 
 					ValidateDomainSelection($"{domainLabel} line override {label}", domain, domainConfig, lineSelection);
 				}
+
+				List<string> stationLineOverrideKeys = domainConfig.TransitAnnouncementStationLineSelections.Keys
+					.OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+					.ToList();
+				for (int i = 0; i < stationLineOverrideKeys.Count; i++)
+				{
+					string overrideKey = stationLineOverrideKeys[i];
+					if (!SirenChangerMod.TryParseTransitStationLineOverrideKey(
+							overrideKey,
+							out string slotKey,
+							out string stationKey,
+							out string lineKey))
+					{
+						AddWarning($"{domainLabel} station-line override key '{overrideKey}' is invalid.");
+						continue;
+					}
+
+					string stationDisplay = SirenChangerMod.GetTransitStationDisplayName(stationKey);
+					if (string.IsNullOrWhiteSpace(stationDisplay))
+					{
+						stationDisplay = SirenChangerMod.GetTransitStationStableId(stationKey);
+					}
+
+					string label = $"Station '{stationDisplay}' ({slotKey})";
+					if (SirenChangerMod.TryParseTransitLineIdentity(lineKey, out TransitAnnouncementServiceType serviceType, out string lineStableId))
+					{
+						string lineDisplay = SirenChangerMod.GetTransitLineDisplayName(lineKey);
+						if (string.IsNullOrWhiteSpace(lineDisplay))
+						{
+							lineDisplay = lineStableId;
+						}
+
+						label = $"{SirenChangerMod.GetTransitAnnouncementServiceLabel(serviceType)} line '{lineDisplay}' at station '{stationDisplay}' ({slotKey})";
+					}
+
+					if (!domainConfig.TransitAnnouncementStationLineSelections.TryGetValue(overrideKey, out string stationLineSelection))
+					{
+						continue;
+					}
+
+					ValidateDomainSelection($"{domainLabel} station-line override {label}", domain, domainConfig, stationLineSelection);
+				}
 			}
 
 			if (domainConfig.MissingSelectionFallbackBehavior == SirenFallbackBehavior.AlternateCustomSiren)

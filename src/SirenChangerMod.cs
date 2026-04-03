@@ -927,6 +927,12 @@ public sealed partial class SirenChangerMod : IMod
 	internal static void SaveConfig()
 	{
 		string activeSet = GetActiveSoundSetId();
+		if (IsModuleSoundSetProfileSelection(activeSet))
+		{
+			// Module-provided sound-set profiles are read-only snapshots and are never written in-place.
+			SaveCitySoundProfileRegistry();
+			return;
+		}
 
 		string sirenSettingsPath = GetSoundSetSettingsPath(
 			activeSet,
@@ -1129,6 +1135,8 @@ public sealed partial class SirenChangerMod : IMod
 		s_TransitAnnouncementDropdownWithDefault = Array.Empty<DropdownItem<string>>();
 		s_TransitAnnouncementLineServiceDropdownCacheVersion = -1;
 		s_TransitAnnouncementLineServiceDropdown = Array.Empty<DropdownItem<string>>();
+		s_TransitAnnouncementStationDropdownCacheVersion = -1;
+		s_TransitAnnouncementStationDropdown = Array.Empty<DropdownItem<string>>();
 		s_TransitAnnouncementLineDropdownCacheVersion = -1;
 		s_TransitAnnouncementLineDropdown = Array.Empty<DropdownItem<string>>();
 	}

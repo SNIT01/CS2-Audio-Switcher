@@ -15,10 +15,28 @@ public sealed partial class SirenChangerMod
 		return AudioModuleCatalog.GetProfileKeys(domain);
 	}
 
+	// Enumerate module-provided city sound-set profile keys.
+	internal static string[] GetAudioModuleSoundSetProfileKeys()
+	{
+		return AudioModuleCatalog.GetSoundSetProfileKeys();
+	}
+
 	// Read a module profile template used to seed per-selection SFX settings.
 	internal static bool TryGetAudioModuleProfileTemplate(DeveloperAudioDomain domain, string profileKey, out SirenSfxProfile profile)
 	{
 		return AudioModuleCatalog.TryGetProfileTemplate(domain, profileKey, out profile);
+	}
+
+	// Resolve user-facing display labels for module-provided city sound-set profiles.
+	internal static bool TryGetAudioModuleSoundSetProfileDisplayName(string profileKey, out string displayName)
+	{
+		return AudioModuleCatalog.TryGetSoundSetProfileDisplayName(profileKey, out displayName);
+	}
+
+	// Resolve one module-provided city sound-set settings file.
+	internal static bool TryGetAudioModuleSoundSetProfileSettingsFilePath(string profileKey, string fileName, out string filePath)
+	{
+		return AudioModuleCatalog.TryGetSoundSetProfileSettingsFilePath(profileKey, fileName, out filePath);
 	}
 
 	internal static bool TryResolveAudioProfilePath(

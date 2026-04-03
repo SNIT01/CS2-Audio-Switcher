@@ -30,6 +30,8 @@ internal static class AudioModuleCatalog
 
 	private static readonly Dictionary<string, ModuleAudioEntry> s_TransitAnnouncementEntries = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 
+	private static readonly Dictionary<string, ModuleSoundSetProfileEntry> s_SoundSetProfileEntries = new Dictionary<string, ModuleSoundSetProfileEntry>(StringComparer.OrdinalIgnoreCase);
+
 	private static string[] s_ModuleRoots = Array.Empty<string>();
 
 	private const int kRootPriorityActiveLoadedMod = 0;
@@ -45,12 +47,13 @@ internal static class AudioModuleCatalog
 		Dictionary<string, ModuleAudioEntry> nextVehicleEngines = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 		Dictionary<string, ModuleAudioEntry> nextAmbient = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 		Dictionary<string, ModuleAudioEntry> nextTransitAnnouncements = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
+		Dictionary<string, ModuleSoundSetProfileEntry> nextSoundSetProfiles = new Dictionary<string, ModuleSoundSetProfileEntry>(StringComparer.OrdinalIgnoreCase);
 		List<string> rootList = CollectCandidateRoots(currentModRootPath);
 
 		for (int i = 0; i < rootList.Count; i++)
 		{
 			string rootPath = rootList[i];
-			TryLoadManifestFromRoot(rootPath, nextSirens, nextVehicleEngines, nextAmbient, nextTransitAnnouncements, log);
+			TryLoadManifestFromRoot(rootPath, nextSirens, nextVehicleEngines, nextAmbient, nextTransitAnnouncements, nextSoundSetProfiles, log);
 		}
 
 		bool changed =
@@ -58,6 +61,7 @@ internal static class AudioModuleCatalog
 			!DictionaryContentEquals(s_VehicleEngineEntries, nextVehicleEngines) ||
 			!DictionaryContentEquals(s_AmbientEntries, nextAmbient) ||
 			!DictionaryContentEquals(s_TransitAnnouncementEntries, nextTransitAnnouncements) ||
+			!SoundSetProfileDictionaryContentEquals(s_SoundSetProfileEntries, nextSoundSetProfiles) ||
 			!SequenceEqualsIgnoreCase(s_ModuleRoots, rootList);
 		if (!changed)
 		{
@@ -68,8 +72,10 @@ internal static class AudioModuleCatalog
 		ReplaceEntries(s_VehicleEngineEntries, nextVehicleEngines);
 		ReplaceEntries(s_AmbientEntries, nextAmbient);
 		ReplaceEntries(s_TransitAnnouncementEntries, nextTransitAnnouncements);
+		ReplaceEntries(s_SoundSetProfileEntries, nextSoundSetProfiles);
 		s_ModuleRoots = rootList.ToArray();
-		log.Info($"Audio module scan complete. Roots: {s_ModuleRoots.Length}, Sirens: {s_SirenEntries.Count}, Engines: {s_VehicleEngineEntries.Count}, Ambient: {s_AmbientEntries.Count}, Transit: {s_TransitAnnouncementEntries.Count}");
+		log.Info(
+			$"Audio module scan complete. Roots: {s_ModuleRoots.Length}, Sirens: {s_SirenEntries.Count}, Engines: {s_VehicleEngineEntries.Count}, Ambient: {s_AmbientEntries.Count}, Transit: {s_TransitAnnouncementEntries.Count}, Sound Set Profiles: {s_SoundSetProfileEntries.Count}");
 		return true;
 	}
 
@@ -85,6 +91,68 @@ internal static class AudioModuleCatalog
 		return map.Keys
 			.OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
 			.ToArray();
+	}
+
+	// Enumerate discovered module sound-set profile keys (<moduleId>/<setId>).
+	internal static string[] GetSoundSetProfileKeys()
+	{
+		if (s_SoundSetProfileEntries.Count == 0)
+		{
+			return Array.Empty<string>();
+		}
+
+		return s_SoundSetProfileEntries.Keys
+			.OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+			.ToArray();
+	}
+
+	// Resolve one module sound-set profile display name.
+	internal static bool TryGetSoundSetProfileDisplayName(string profileKey, out string displayName)
+	{
+		displayName = string.Empty;
+		string normalizedProfileKey = SirenPathUtils.NormalizeProfileKey(profileKey ?? string.Empty);
+		if (string.IsNullOrWhiteSpace(normalizedProfileKey))
+		{
+			return false;
+		}
+
+		if (!s_SoundSetProfileEntries.TryGetValue(normalizedProfileKey, out ModuleSoundSetProfileEntry entry))
+		{
+			return false;
+		}
+
+		displayName = entry.DisplayName;
+		return true;
+	}
+
+	// Resolve one sound-set profile settings file exported by a module.
+	internal static bool TryGetSoundSetProfileSettingsFilePath(string profileKey, string fileName, out string filePath)
+	{
+		filePath = string.Empty;
+		string normalizedProfileKey = SirenPathUtils.NormalizeProfileKey(profileKey ?? string.Empty);
+		if (string.IsNullOrWhiteSpace(normalizedProfileKey))
+		{
+			return false;
+		}
+
+		string normalizedFileName = Path.GetFileName((fileName ?? string.Empty).Trim());
+		if (string.IsNullOrWhiteSpace(normalizedFileName))
+		{
+			return false;
+		}
+
+		if (!s_SoundSetProfileEntries.TryGetValue(normalizedProfileKey, out ModuleSoundSetProfileEntry entry))
+		{
+			return false;
+		}
+
+		if (!entry.SettingsFiles.TryGetValue(normalizedFileName, out string candidatePath) || !File.Exists(candidatePath))
+		{
+			return false;
+		}
+
+		filePath = candidatePath;
+		return true;
 	}
 
 	internal static bool TryGetFilePath(DeveloperAudioDomain domain, string profileKey, out string filePath)
@@ -546,6 +614,7 @@ internal static class AudioModuleCatalog
 		IDictionary<string, ModuleAudioEntry> vehicleEngines,
 		IDictionary<string, ModuleAudioEntry> ambient,
 		IDictionary<string, ModuleAudioEntry> transitAnnouncements,
+		IDictionary<string, ModuleSoundSetProfileEntry> soundSetProfiles,
 		ILog log)
 	{
 		// Accept both current and legacy manifest file names for backward compatibility.
@@ -586,11 +655,13 @@ internal static class AudioModuleCatalog
 		List<AudioModuleManifestEntry> vehicleEngineEntries = manifest.VehicleEngines ?? new List<AudioModuleManifestEntry>();
 		List<AudioModuleManifestEntry> ambientEntries = manifest.Ambient ?? new List<AudioModuleManifestEntry>();
 		List<AudioModuleManifestEntry> transitAnnouncementEntries = manifest.TransitAnnouncements ?? new List<AudioModuleManifestEntry>();
+		List<AudioModuleManifestSoundSetProfile> soundSetProfileEntries = manifest.SoundSetProfiles ?? new List<AudioModuleManifestSoundSetProfile>();
 
 		RegisterEntries(rootPath, moduleId, moduleDisplayName, DeveloperAudioDomain.Siren, sirenEntries, sirens, log);
 		RegisterEntries(rootPath, moduleId, moduleDisplayName, DeveloperAudioDomain.VehicleEngine, vehicleEngineEntries, vehicleEngines, log);
 		RegisterEntries(rootPath, moduleId, moduleDisplayName, DeveloperAudioDomain.Ambient, ambientEntries, ambient, log);
 		RegisterEntries(rootPath, moduleId, moduleDisplayName, DeveloperAudioDomain.TransitAnnouncement, transitAnnouncementEntries, transitAnnouncements, log);
+		RegisterSoundSetProfiles(rootPath, moduleId, moduleDisplayName, soundSetProfileEntries, soundSetProfiles, log);
 	}
 
 	private static void RegisterEntries(
@@ -641,6 +712,106 @@ internal static class AudioModuleCatalog
 
 			destination.Add(profileKey, normalized);
 		}
+	}
+
+	private static void RegisterSoundSetProfiles(
+		string rootPath,
+		string moduleId,
+		string moduleDisplayName,
+		IList<AudioModuleManifestSoundSetProfile> entries,
+		IDictionary<string, ModuleSoundSetProfileEntry> destination,
+		ILog log)
+	{
+		if (entries == null || entries.Count == 0)
+		{
+			return;
+		}
+
+		for (int i = 0; i < entries.Count; i++)
+		{
+			AudioModuleManifestSoundSetProfile entry = entries[i] ?? new AudioModuleManifestSoundSetProfile();
+			string setId = CitySoundProfileRegistry.NormalizeSetId(entry.SetId);
+			if (string.IsNullOrWhiteSpace(setId))
+			{
+				log.Warn($"Audio module sound-set profile skipped due to invalid set ID. Module='{moduleDisplayName}', Index={i}");
+				continue;
+			}
+
+			string key = BuildSoundSetProfileKey(moduleId, setId);
+			if (string.IsNullOrWhiteSpace(key))
+			{
+				log.Warn($"Audio module sound-set profile skipped due to invalid key. Module='{moduleDisplayName}', SetId='{setId}'");
+				continue;
+			}
+
+			string folder = SirenPathUtils.NormalizeProfileKey(entry.Folder ?? string.Empty);
+			if (string.IsNullOrWhiteSpace(folder))
+			{
+				folder = $"Profiles/{setId}";
+			}
+
+			Dictionary<string, string> settingsFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			List<string> declaredFiles = entry.Files ?? new List<string>();
+			for (int fileIndex = 0; fileIndex < declaredFiles.Count; fileIndex++)
+			{
+				string fileName = Path.GetFileName((declaredFiles[fileIndex] ?? string.Empty).Trim());
+				if (string.IsNullOrWhiteSpace(fileName) || settingsFiles.ContainsKey(fileName))
+				{
+					continue;
+				}
+
+				if (!TryResolveModuleRelativePath(rootPath, $"{folder}/{fileName}", out string absolutePath))
+				{
+					log.Warn(
+						$"Audio module sound-set profile file skipped due to invalid path. Module='{moduleDisplayName}', SetId='{setId}', File='{declaredFiles[fileIndex]}'");
+					continue;
+				}
+
+				if (!File.Exists(absolutePath))
+				{
+					log.Warn(
+						$"Audio module sound-set profile file skipped because it does not exist. Module='{moduleDisplayName}', SetId='{setId}', File='{declaredFiles[fileIndex]}'");
+					continue;
+				}
+
+				settingsFiles[fileName] = absolutePath;
+			}
+
+			if (settingsFiles.Count == 0)
+			{
+				continue;
+			}
+
+			string displayName = string.IsNullOrWhiteSpace(entry.DisplayName)
+				? $"{setId} [Module: {moduleDisplayName}]"
+				: $"{entry.DisplayName.Trim()} [Module: {moduleDisplayName}]";
+			ModuleSoundSetProfileEntry normalized = new ModuleSoundSetProfileEntry(
+				key,
+				setId,
+				displayName,
+				moduleId,
+				moduleDisplayName,
+				settingsFiles);
+			if (destination.ContainsKey(key))
+			{
+				log.Warn($"Audio module sound-set profile key collision skipped: '{key}' from module '{moduleDisplayName}'.");
+				continue;
+			}
+
+			destination.Add(key, normalized);
+		}
+	}
+
+	private static string BuildSoundSetProfileKey(string moduleId, string setId)
+	{
+		string normalizedModuleId = SanitizeModuleSegment(moduleId);
+		string normalizedSetId = CitySoundProfileRegistry.NormalizeSetId(setId);
+		if (string.IsNullOrWhiteSpace(normalizedModuleId) || string.IsNullOrWhiteSpace(normalizedSetId))
+		{
+			return string.Empty;
+		}
+
+		return SirenPathUtils.NormalizeProfileKey($"{ModuleSelectionPrefix}/sound-set-profiles/{normalizedModuleId}/{normalizedSetId}");
 	}
 
 	private static string BuildProfileKey(DeveloperAudioDomain domain, string moduleId, string entryKey, string filePath)
@@ -724,6 +895,41 @@ internal static class AudioModuleCatalog
 		}
 
 		if (!File.Exists(combined))
+		{
+			return false;
+		}
+
+		absolutePath = combined;
+		return true;
+	}
+
+	private static bool TryResolveModuleRelativePath(string rootPath, string relativePath, out string absolutePath)
+	{
+		absolutePath = string.Empty;
+		string normalizedRelative = SirenPathUtils.NormalizeProfileKey(relativePath ?? string.Empty);
+		if (string.IsNullOrWhiteSpace(normalizedRelative))
+		{
+			return false;
+		}
+
+		string root = SafeGetFullPath(rootPath);
+		if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
+		{
+			return false;
+		}
+
+		string rootWithSeparator = EnsureTrailingSeparator(root);
+		string combined;
+		try
+		{
+			combined = Path.GetFullPath(Path.Combine(rootWithSeparator, normalizedRelative.Replace('/', Path.DirectorySeparatorChar)));
+		}
+		catch
+		{
+			return false;
+		}
+
+		if (!combined.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
 		{
 			return false;
 		}
@@ -897,6 +1103,31 @@ internal static class AudioModuleCatalog
 		return true;
 	}
 
+	private static bool SoundSetProfileDictionaryContentEquals(
+		IDictionary<string, ModuleSoundSetProfileEntry> left,
+		IDictionary<string, ModuleSoundSetProfileEntry> right)
+	{
+		if (ReferenceEquals(left, right))
+		{
+			return true;
+		}
+
+		if (left.Count != right.Count)
+		{
+			return false;
+		}
+
+		foreach (KeyValuePair<string, ModuleSoundSetProfileEntry> pair in left)
+		{
+			if (!right.TryGetValue(pair.Key, out ModuleSoundSetProfileEntry other) || !pair.Value.ContentEquals(other))
+			{
+				return false;
+			}
+		}
+
+		return true;
+	}
+
 	private static bool SequenceEqualsIgnoreCase(IList<string> left, IList<string> right)
 	{
 		if (ReferenceEquals(left, right))
@@ -920,10 +1151,10 @@ internal static class AudioModuleCatalog
 		return true;
 	}
 
-	private static void ReplaceEntries(IDictionary<string, ModuleAudioEntry> destination, IDictionary<string, ModuleAudioEntry> source)
+	private static void ReplaceEntries<TValue>(IDictionary<string, TValue> destination, IDictionary<string, TValue> source)
 	{
 		destination.Clear();
-		foreach (KeyValuePair<string, ModuleAudioEntry> pair in source)
+		foreach (KeyValuePair<string, TValue> pair in source)
 		{
 			destination[pair.Key] = pair.Value;
 		}
@@ -980,6 +1211,9 @@ internal static class AudioModuleCatalog
 
 		[DataMember(Order = 7, Name = "transitAnnouncements")]
 		public List<AudioModuleManifestEntry> TransitAnnouncements { get; set; } = new List<AudioModuleManifestEntry>();
+
+		[DataMember(Order = 8, Name = "soundSetProfiles")]
+		public List<AudioModuleManifestSoundSetProfile> SoundSetProfiles { get; set; } = new List<AudioModuleManifestSoundSetProfile>();
 	}
 
 	[DataContract]
@@ -997,6 +1231,22 @@ internal static class AudioModuleCatalog
 
 		[DataMember(Order = 4, Name = "profile")]
 		public SirenSfxProfile? Profile { get; set; }
+	}
+
+	[DataContract]
+	private sealed class AudioModuleManifestSoundSetProfile
+	{
+		[DataMember(Order = 1, Name = "setId")]
+		public string SetId { get; set; } = CitySoundProfileRegistry.DefaultSetId;
+
+		[DataMember(Order = 2, Name = "displayName")]
+		public string DisplayName { get; set; } = CitySoundProfileRegistry.DefaultSetDisplayName;
+
+		[DataMember(Order = 3, Name = "folder")]
+		public string Folder { get; set; } = string.Empty;
+
+		[DataMember(Order = 4, Name = "files")]
+		public List<string> Files { get; set; } = new List<string>();
 	}
 
 	// Cached resolved module entry stored per domain.
@@ -1054,6 +1304,71 @@ internal static class AudioModuleCatalog
 				string.Equals(FilePath, other.FilePath, StringComparison.OrdinalIgnoreCase) &&
 				string.Equals(ModuleId, other.ModuleId, StringComparison.OrdinalIgnoreCase) &&
 				string.Equals(ModuleDisplayName, other.ModuleDisplayName, StringComparison.Ordinal);
+		}
+	}
+
+	// Cached resolved module sound-set profile snapshot.
+	private sealed class ModuleSoundSetProfileEntry
+	{
+		public ModuleSoundSetProfileEntry(
+			string profileKey,
+			string setId,
+			string displayName,
+			string moduleId,
+			string moduleDisplayName,
+			IDictionary<string, string> settingsFiles)
+		{
+			ProfileKey = profileKey;
+			SetId = setId;
+			DisplayName = displayName;
+			ModuleId = moduleId;
+			ModuleDisplayName = moduleDisplayName;
+			SettingsFiles = new Dictionary<string, string>(settingsFiles ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase);
+		}
+
+		public string ProfileKey { get; }
+
+		public string SetId { get; }
+
+		public string DisplayName { get; }
+
+		public string ModuleId { get; }
+
+		public string ModuleDisplayName { get; }
+
+		public Dictionary<string, string> SettingsFiles { get; }
+
+		public bool ContentEquals(ModuleSoundSetProfileEntry? other)
+		{
+			if (other == null)
+			{
+				return false;
+			}
+
+			if (!string.Equals(ProfileKey, other.ProfileKey, StringComparison.OrdinalIgnoreCase) ||
+				!string.Equals(SetId, other.SetId, StringComparison.OrdinalIgnoreCase) ||
+				!string.Equals(DisplayName, other.DisplayName, StringComparison.Ordinal) ||
+				!string.Equals(ModuleId, other.ModuleId, StringComparison.OrdinalIgnoreCase) ||
+				!string.Equals(ModuleDisplayName, other.ModuleDisplayName, StringComparison.Ordinal))
+			{
+				return false;
+			}
+
+			if (SettingsFiles.Count != other.SettingsFiles.Count)
+			{
+				return false;
+			}
+
+			foreach (KeyValuePair<string, string> pair in SettingsFiles)
+			{
+				if (!other.SettingsFiles.TryGetValue(pair.Key, out string candidatePath) ||
+					!string.Equals(pair.Value, candidatePath, StringComparison.OrdinalIgnoreCase))
+				{
+					return false;
+				}
+			}
+
+			return true;
 		}
 	}
 }

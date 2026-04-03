@@ -79,9 +79,21 @@ public sealed partial class SirenChangerMod
 
 	private const int kDeveloperModuleUploadGameVersionMaxLength = 64;
 
+	private const int kDeveloperModuleUploadAdditionalDependenciesMaxLength = 2000;
+
 	private const string kDeveloperModuleUploadLegacyAssetTag = "Asset";
 
 	private const string kDeveloperModuleUploadAssetPackTag = "AssetPack";
+
+	private static readonly char[] s_DeveloperModuleUploadDependencySeparators = { ',', ';', '\n' };
+
+	private static readonly string[] s_DeveloperModuleSoundSetProfileSettingsFileNames =
+	{
+		SirenReplacementConfig.SettingsFileName,
+		VehicleEngineSettingsFileName,
+		AmbientSettingsFileName,
+		TransitAnnouncementSettingsFileName
+	};
 
 	// Official published PDX Mods ID for Audio Switcher.
 	private const int kAudioSwitcherOfficialPublishedId = 135367;
@@ -135,6 +147,8 @@ public sealed partial class SirenChangerMod
 
 	private static string s_DeveloperModuleUploadDescription = string.Empty;
 
+	private static string s_DeveloperModuleUploadAdditionalDependencies = string.Empty;
+
 	private static int s_DeveloperAudioSwitcherDependencyPublishedIdCache;
 
 	private static readonly object s_DeveloperModuleUploadSync = new object();
@@ -149,6 +163,8 @@ public sealed partial class SirenChangerMod
 
 	private static string s_DeveloperModuleSelectedLocalTransitAnnouncementKey = string.Empty;
 
+	private static string s_DeveloperModuleSelectedSoundSetProfileId = string.Empty;
+
 	private static readonly HashSet<string> s_DeveloperModuleIncludedSirens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 	private static readonly HashSet<string> s_DeveloperModuleIncludedEngines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -156,6 +172,8 @@ public sealed partial class SirenChangerMod
 	private static readonly HashSet<string> s_DeveloperModuleIncludedAmbient = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 	private static readonly HashSet<string> s_DeveloperModuleIncludedTransitAnnouncements = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+	private static readonly HashSet<string> s_DeveloperModuleIncludedSoundSetProfiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 	private static bool s_DeveloperModuleIncludeInitialized;
 
@@ -535,6 +553,25 @@ public sealed partial class SirenChangerMod
 		s_DeveloperModuleUploadDescription = NormalizeDeveloperModuleUploadDescription(value);
 	}
 
+	// Read/write optional additional dependency IDs for uploaded modules.
+	internal static string GetDeveloperModuleUploadAdditionalDependencies()
+	{
+		return s_DeveloperModuleUploadAdditionalDependencies;
+	}
+
+	// Update optional additional dependency IDs for uploaded modules.
+	internal static void SetDeveloperModuleUploadAdditionalDependencies(string value)
+	{
+		string normalized = NormalizeDeveloperModuleUploadAdditionalDependencies(value);
+		if (string.Equals(s_DeveloperModuleUploadAdditionalDependencies, normalized, StringComparison.Ordinal))
+		{
+			return;
+		}
+
+		s_DeveloperModuleUploadAdditionalDependencies = normalized;
+		OptionsVersion++;
+	}
+
 	// Read currently selected upload thumbnail candidate path.
 	internal static string GetDeveloperModuleUploadThumbnailPath()
 	{
@@ -747,6 +784,490 @@ public sealed partial class SirenChangerMod
 		}
 
 		return items.ToArray();
+	}
+
+	// Dropdown source for module-builder sound-set profile selector.
+	internal static DropdownItem<string>[] BuildDeveloperModuleSoundSetProfileDropdown()
+	{
+		EnsureDeveloperModuleIncludeStateCurrent();
+		List<string> setIds = GetEligibleDeveloperModuleSoundSetProfileIds();
+		if (setIds.Count == 0)
+		{
+			return new[]
+			{
+				new DropdownItem<string>
+				{
+					value = string.Empty,
+					displayName = "No sound set profiles found",
+					disabled = true
+				}
+			};
+		}
+
+		List<DropdownItem<string>> items = new List<DropdownItem<string>>(setIds.Count);
+		for (int i = 0; i < setIds.Count; i++)
+		{
+			string setId = setIds[i];
+			string displayName = BuildDeveloperModuleSoundSetProfileDisplayName(setId);
+			if (s_DeveloperModuleIncludedSoundSetProfiles.Contains(setId))
+			{
+				displayName = $"{displayName} (Included)";
+			}
+
+			items.Add(new DropdownItem<string>
+			{
+				value = setId,
+				displayName = displayName
+			});
+		}
+
+		return items.ToArray();
+	}
+
+	// Get currently selected sound-set profile in module-builder state.
+	internal static string GetDeveloperModuleSoundSetProfileSelection()
+	{
+		EnsureDeveloperModuleIncludeStateCurrent();
+		return s_DeveloperModuleSelectedSoundSetProfileId;
+	}
+
+	// Set sound-set profile selection used by module-builder include/exclude actions.
+	internal static void SetDeveloperModuleSoundSetProfileSelection(string selection)
+	{
+		EnsureDeveloperModuleIncludeStateCurrent();
+		string normalized = CitySoundProfileRegistry.NormalizeSetId(selection);
+		List<string> setIds = GetEligibleDeveloperModuleSoundSetProfileIds();
+		string next = string.Empty;
+		if (!string.IsNullOrWhiteSpace(normalized))
+		{
+			for (int i = 0; i < setIds.Count; i++)
+			{
+				if (string.Equals(setIds[i], normalized, StringComparison.OrdinalIgnoreCase))
+				{
+					next = setIds[i];
+					break;
+				}
+			}
+		}
+
+		if (string.IsNullOrWhiteSpace(next) && setIds.Count > 0)
+		{
+			next = setIds[0];
+		}
+
+		if (string.Equals(s_DeveloperModuleSelectedSoundSetProfileId, next, StringComparison.OrdinalIgnoreCase))
+		{
+			return;
+		}
+
+		s_DeveloperModuleSelectedSoundSetProfileId = next;
+		OptionsVersion++;
+	}
+
+	// Include currently selected sound-set profile in module export.
+	internal static void IncludeSelectedSoundSetProfileInModule()
+	{
+		EnsureDeveloperModuleIncludeStateCurrent();
+		string selection = CitySoundProfileRegistry.NormalizeSetId(s_DeveloperModuleSelectedSoundSetProfileId);
+		if (string.IsNullOrWhiteSpace(selection))
+		{
+			SetDeveloperModuleStatus("No sound set profile is selected.", isWarning: true);
+			return;
+		}
+
+		if (!s_DeveloperModuleIncludedSoundSetProfiles.Add(selection))
+		{
+			SetDeveloperModuleStatus(
+				$"Sound set profile '{BuildDeveloperModuleSoundSetProfileDisplayName(selection)}' is already included.",
+				isWarning: false);
+			return;
+		}
+
+		List<string> coverageWarnings = BuildDeveloperModuleCurrentSoundSetProfileCoverageWarningsForSetIds(new[] { selection });
+		if (coverageWarnings.Count > 0)
+		{
+			SetDeveloperModuleStatus(
+				$"Included sound set profile '{BuildDeveloperModuleSoundSetProfileDisplayName(selection)}' for module export. Warning: profile references audio that is not included in this module.",
+				isWarning: true);
+			return;
+		}
+
+		SetDeveloperModuleStatus(
+			$"Included sound set profile '{BuildDeveloperModuleSoundSetProfileDisplayName(selection)}' for module export.",
+			isWarning: false);
+	}
+
+	// Exclude currently selected sound-set profile from module export.
+	internal static void ExcludeSelectedSoundSetProfileFromModule()
+	{
+		EnsureDeveloperModuleIncludeStateCurrent();
+		string selection = CitySoundProfileRegistry.NormalizeSetId(s_DeveloperModuleSelectedSoundSetProfileId);
+		if (string.IsNullOrWhiteSpace(selection))
+		{
+			SetDeveloperModuleStatus("No sound set profile is selected.", isWarning: true);
+			return;
+		}
+
+		if (!s_DeveloperModuleIncludedSoundSetProfiles.Remove(selection))
+		{
+			SetDeveloperModuleStatus(
+				$"Sound set profile '{BuildDeveloperModuleSoundSetProfileDisplayName(selection)}' is already excluded.",
+				isWarning: false);
+			return;
+		}
+
+		SetDeveloperModuleStatus(
+			$"Excluded sound set profile '{BuildDeveloperModuleSoundSetProfileDisplayName(selection)}' from module export.",
+			isWarning: false);
+	}
+
+	// Include every available sound-set profile in module export.
+	internal static void IncludeAllSoundSetProfilesInModule()
+	{
+		EnsureDeveloperModuleIncludeStateCurrent();
+		List<string> setIds = GetEligibleDeveloperModuleSoundSetProfileIds();
+		if (setIds.Count == 0)
+		{
+			SetDeveloperModuleStatus("No sound set profiles are currently available to include.", isWarning: true);
+			return;
+		}
+
+		int added = 0;
+		for (int i = 0; i < setIds.Count; i++)
+		{
+			if (s_DeveloperModuleIncludedSoundSetProfiles.Add(setIds[i]))
+			{
+				added++;
+			}
+		}
+
+		List<string> coverageWarnings = BuildDeveloperModuleCurrentSoundSetProfileCoverageWarningsForSetIds(s_DeveloperModuleIncludedSoundSetProfiles);
+		bool hasCoverageWarnings = coverageWarnings.Count > 0;
+		SetDeveloperModuleStatus(
+			added > 0
+				? hasCoverageWarnings
+					? $"Included {added} sound set profile(s). Total included profiles: {GetTotalDeveloperModuleIncludedSoundSetProfileCount()}. Warning: one or more selected sound-set profiles reference audio not included in this module."
+					: $"Included {added} sound set profile(s). Total included profiles: {GetTotalDeveloperModuleIncludedSoundSetProfileCount()}."
+				: hasCoverageWarnings
+					? $"All available sound set profiles are already included ({GetTotalDeveloperModuleIncludedSoundSetProfileCount()}). Warning: one or more selected sound-set profiles reference audio not included in this module."
+					: $"All available sound set profiles are already included ({GetTotalDeveloperModuleIncludedSoundSetProfileCount()}).",
+			isWarning: hasCoverageWarnings);
+	}
+
+	// Clear all selected sound-set profiles from module export.
+	internal static void ClearSoundSetProfileModuleInclusions()
+	{
+		EnsureDeveloperModuleIncludeStateCurrent();
+		int previous = GetTotalDeveloperModuleIncludedSoundSetProfileCount();
+		if (previous == 0)
+		{
+			SetDeveloperModuleStatus("No sound set profiles are currently included.", isWarning: false);
+			return;
+		}
+
+		s_DeveloperModuleIncludedSoundSetProfiles.Clear();
+		SetDeveloperModuleStatus("Cleared all included sound set profiles.", isWarning: false);
+	}
+
+	// Read-only summary of selected sound-set profiles.
+	internal static string GetDeveloperModuleSoundSetProfileSummaryText()
+	{
+		EnsureDeveloperModuleIncludeStateCurrent();
+		List<string> setIds = GetEligibleDeveloperModuleSoundSetProfileIds();
+		if (setIds.Count == 0)
+		{
+			return "No sound set profiles are currently available.";
+		}
+
+		StringBuilder builder = new StringBuilder(256);
+		builder.Append("Included: ")
+			.Append(GetTotalDeveloperModuleIncludedSoundSetProfileCount())
+			.Append('/')
+			.Append(setIds.Count);
+		for (int i = 0; i < setIds.Count; i++)
+		{
+			string setId = setIds[i];
+			if (!s_DeveloperModuleIncludedSoundSetProfiles.Contains(setId))
+			{
+				continue;
+			}
+
+			builder.Append('\n').Append(" - ").Append(BuildDeveloperModuleSoundSetProfileDisplayName(setId));
+		}
+
+		List<string> coverageWarnings = BuildDeveloperModuleCurrentSoundSetProfileCoverageWarningsForSetIds(s_DeveloperModuleIncludedSoundSetProfiles);
+		if (coverageWarnings.Count > 0)
+		{
+			builder
+				.Append('\n')
+				.Append("Warnings: ")
+				.Append(coverageWarnings.Count)
+				.Append(" selected sound-set profile reference(s) are not included in module audio.");
+			int warningPreviewCount = Math.Min(coverageWarnings.Count, 10);
+			for (int i = 0; i < warningPreviewCount; i++)
+			{
+				builder.Append('\n').Append(" ! ").Append(coverageWarnings[i]);
+			}
+
+			if (coverageWarnings.Count > warningPreviewCount)
+			{
+				builder.Append('\n')
+					.Append(" ! ")
+					.Append(coverageWarnings.Count - warningPreviewCount)
+					.Append(" additional warning(s) not shown.");
+			}
+		}
+
+		return builder.ToString();
+	}
+
+	// Build warning lines when included sound-set profiles reference selections not included in module audio.
+	private static List<string> BuildDeveloperModuleCurrentSoundSetProfileCoverageWarningsForSetIds(IEnumerable<string> setIds)
+	{
+		List<DeveloperSoundSetProfileSnapshot> snapshots = BuildDeveloperSoundSetProfileSnapshotsFromLocalRegistry(setIds);
+		Dictionary<DeveloperAudioDomain, HashSet<string>> includedByDomain = BuildDeveloperModuleIncludedAudioKeysByDomain();
+		return BuildDeveloperSoundSetProfileCoverageWarnings(snapshots, includedByDomain);
+	}
+
+	// Capture currently selected local module keys per audio domain.
+	private static Dictionary<DeveloperAudioDomain, HashSet<string>> BuildDeveloperModuleIncludedAudioKeysByDomain()
+	{
+		return new Dictionary<DeveloperAudioDomain, HashSet<string>>
+		{
+			{ DeveloperAudioDomain.Siren, new HashSet<string>(s_DeveloperModuleIncludedSirens, StringComparer.OrdinalIgnoreCase) },
+			{ DeveloperAudioDomain.VehicleEngine, new HashSet<string>(s_DeveloperModuleIncludedEngines, StringComparer.OrdinalIgnoreCase) },
+			{ DeveloperAudioDomain.Ambient, new HashSet<string>(s_DeveloperModuleIncludedAmbient, StringComparer.OrdinalIgnoreCase) },
+			{ DeveloperAudioDomain.TransitAnnouncement, new HashSet<string>(s_DeveloperModuleIncludedTransitAnnouncements, StringComparer.OrdinalIgnoreCase) }
+		};
+	}
+
+	// Build set snapshots from the local sound-set registry paths.
+	private static List<DeveloperSoundSetProfileSnapshot> BuildDeveloperSoundSetProfileSnapshotsFromLocalRegistry(IEnumerable<string> setIds)
+	{
+		List<DeveloperSoundSetProfileSnapshot> snapshots = new List<DeveloperSoundSetProfileSnapshot>();
+		HashSet<string> seenSetIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		foreach (string rawSetId in setIds ?? Enumerable.Empty<string>())
+		{
+			string normalizedSetId = CitySoundProfileRegistry.NormalizeSetId(rawSetId);
+			if (string.IsNullOrWhiteSpace(normalizedSetId) || !seenSetIds.Add(normalizedSetId))
+			{
+				continue;
+			}
+
+			DeveloperSoundSetProfileSnapshot snapshot = new DeveloperSoundSetProfileSnapshot
+			{
+				SetId = normalizedSetId,
+				DisplayName = BuildDeveloperModuleSoundSetProfileDisplayName(normalizedSetId)
+			};
+			snapshot.SettingsPathByDomain[DeveloperAudioDomain.Siren] = CitySoundProfileRegistry.GetSetSettingsPath(
+				SettingsDirectory,
+				normalizedSetId,
+				SirenReplacementConfig.SettingsFileName,
+				ensureDirectoryExists: false);
+			snapshot.SettingsPathByDomain[DeveloperAudioDomain.VehicleEngine] = CitySoundProfileRegistry.GetSetSettingsPath(
+				SettingsDirectory,
+				normalizedSetId,
+				VehicleEngineSettingsFileName,
+				ensureDirectoryExists: false);
+			snapshot.SettingsPathByDomain[DeveloperAudioDomain.Ambient] = CitySoundProfileRegistry.GetSetSettingsPath(
+				SettingsDirectory,
+				normalizedSetId,
+				AmbientSettingsFileName,
+				ensureDirectoryExists: false);
+			snapshot.SettingsPathByDomain[DeveloperAudioDomain.TransitAnnouncement] = CitySoundProfileRegistry.GetSetSettingsPath(
+				SettingsDirectory,
+				normalizedSetId,
+				TransitAnnouncementSettingsFileName,
+				ensureDirectoryExists: false);
+			snapshots.Add(snapshot);
+		}
+
+		return snapshots;
+	}
+
+	// Compare profile selections against included module keys and return warning lines.
+	private static List<string> BuildDeveloperSoundSetProfileCoverageWarnings(
+		IReadOnlyList<DeveloperSoundSetProfileSnapshot> snapshots,
+		IReadOnlyDictionary<DeveloperAudioDomain, HashSet<string>> includedByDomain)
+	{
+		List<string> warnings = new List<string>();
+		if (snapshots == null || snapshots.Count == 0)
+		{
+			return warnings;
+		}
+
+		for (int snapshotIndex = 0; snapshotIndex < snapshots.Count; snapshotIndex++)
+		{
+			DeveloperSoundSetProfileSnapshot snapshot = snapshots[snapshotIndex];
+			foreach (KeyValuePair<DeveloperAudioDomain, HashSet<string>> pair in includedByDomain)
+			{
+				DeveloperAudioDomain domain = pair.Key;
+				HashSet<string> includedKeys = pair.Value;
+				if (!snapshot.SettingsPathByDomain.TryGetValue(domain, out string settingsPath) ||
+					string.IsNullOrWhiteSpace(settingsPath))
+				{
+					warnings.Add($"{snapshot.DisplayName}: {GetDeveloperModuleDomainName(domain)} settings path is missing.");
+					continue;
+				}
+
+				if (!TryCollectReferencedSelectionsFromSettingsFile(domain, settingsPath, out HashSet<string> referencedSelections, out string loadError))
+				{
+					warnings.Add($"{snapshot.DisplayName}: {GetDeveloperModuleDomainName(domain)} settings could not be read ({loadError}).");
+					continue;
+				}
+
+				if (referencedSelections.Count == 0)
+				{
+					continue;
+				}
+
+				List<string> missingSelections = referencedSelections
+					.Where(selection => !includedKeys.Contains(selection))
+					.OrderBy(selection => selection, StringComparer.OrdinalIgnoreCase)
+					.ToList();
+				if (missingSelections.Count == 0)
+				{
+					continue;
+				}
+
+				string sample = string.Join(", ", missingSelections.Take(3));
+				if (missingSelections.Count > 3)
+				{
+					sample = $"{sample}, ...";
+				}
+
+				warnings.Add(
+					$"{snapshot.DisplayName}: {GetDeveloperModuleDomainName(domain)} references {missingSelections.Count.ToString(CultureInfo.InvariantCulture)} not-included selection(s): {sample}");
+			}
+		}
+
+		return warnings;
+	}
+
+	// Read one domain settings file and collect all referenced custom selection keys.
+	private static bool TryCollectReferencedSelectionsFromSettingsFile(
+		DeveloperAudioDomain domain,
+		string settingsPath,
+		out HashSet<string> selections,
+		out string error)
+	{
+		selections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		error = string.Empty;
+		if (string.IsNullOrWhiteSpace(settingsPath) || !File.Exists(settingsPath))
+		{
+			error = "file not found";
+			return false;
+		}
+
+		try
+		{
+			string json = File.ReadAllText(settingsPath);
+			switch (domain)
+			{
+				case DeveloperAudioDomain.Siren:
+					if (!JsonDataSerializer.TryDeserialize(json, out SirenReplacementConfig? sirenConfig, out string sirenParseError) ||
+						sirenConfig == null)
+					{
+						error = sirenParseError;
+						return false;
+					}
+
+					sirenConfig.Normalize();
+					CollectSirenReplacementSelections(sirenConfig, selections);
+					return true;
+
+				case DeveloperAudioDomain.VehicleEngine:
+				case DeveloperAudioDomain.Ambient:
+				case DeveloperAudioDomain.TransitAnnouncement:
+					if (!JsonDataSerializer.TryDeserialize(json, out AudioReplacementDomainConfig? domainConfig, out string domainParseError) ||
+						domainConfig == null)
+					{
+						error = domainParseError;
+						return false;
+					}
+
+					domainConfig.Normalize(GetLocalDomainFolderName(domain));
+					CollectDomainReplacementSelections(domain, domainConfig, selections);
+					return true;
+
+				default:
+					error = "unsupported domain";
+					return false;
+			}
+		}
+		catch (Exception ex)
+		{
+			error = ex.Message;
+			return false;
+		}
+	}
+
+	// Collect referenced custom selections from siren config fields.
+	private static void CollectSirenReplacementSelections(SirenReplacementConfig config, ISet<string> selections)
+	{
+		AddSelectionIfCustom(config.PoliceSirenSelectionNA, SirenReplacementConfig.IsDefaultSelection, selections);
+		AddSelectionIfCustom(config.PoliceSirenSelectionEU, SirenReplacementConfig.IsDefaultSelection, selections);
+		AddSelectionIfCustom(config.FireSirenSelectionNA, SirenReplacementConfig.IsDefaultSelection, selections);
+		AddSelectionIfCustom(config.FireSirenSelectionEU, SirenReplacementConfig.IsDefaultSelection, selections);
+		AddSelectionIfCustom(config.AmbulanceSirenSelectionNA, SirenReplacementConfig.IsDefaultSelection, selections);
+		AddSelectionIfCustom(config.AmbulanceSirenSelectionEU, SirenReplacementConfig.IsDefaultSelection, selections);
+		AddSelectionIfCustom(config.AlternateFallbackSelection, SirenReplacementConfig.IsDefaultSelection, selections);
+
+		Dictionary<string, string> vehicleSelections = config.VehiclePrefabSelections ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		foreach (KeyValuePair<string, string> pair in vehicleSelections)
+		{
+			AddSelectionIfCustom(pair.Value, SirenReplacementConfig.IsDefaultSelection, selections);
+		}
+	}
+
+	// Collect referenced custom selections from one generic domain config.
+	private static void CollectDomainReplacementSelections(
+		DeveloperAudioDomain domain,
+		AudioReplacementDomainConfig config,
+		ISet<string> selections)
+	{
+		AddSelectionIfCustom(config.DefaultSelection, AudioReplacementDomainConfig.IsDefaultSelection, selections);
+		AddSelectionIfCustom(config.AlternateFallbackSelection, AudioReplacementDomainConfig.IsDefaultSelection, selections);
+
+		Dictionary<string, string> targetSelections = config.TargetSelections ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		foreach (KeyValuePair<string, string> pair in targetSelections)
+		{
+			AddSelectionIfCustom(pair.Value, AudioReplacementDomainConfig.IsDefaultSelection, selections);
+		}
+
+		if (domain != DeveloperAudioDomain.TransitAnnouncement)
+		{
+			return;
+		}
+
+		Dictionary<string, string> lineSelections = config.TransitAnnouncementLineSelections ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		foreach (KeyValuePair<string, string> pair in lineSelections)
+		{
+			AddSelectionIfCustom(pair.Value, AudioReplacementDomainConfig.IsDefaultSelection, selections);
+		}
+
+		Dictionary<string, string> stationLineSelections = config.TransitAnnouncementStationLineSelections ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		foreach (KeyValuePair<string, string> pair in stationLineSelections)
+		{
+			AddSelectionIfCustom(pair.Value, AudioReplacementDomainConfig.IsDefaultSelection, selections);
+		}
+	}
+
+	// Add one selection only when it resolves to a custom/module key and is not default.
+	private static void AddSelectionIfCustom(string selection, Func<string?, bool> isDefaultSelection, ISet<string> destination)
+	{
+		if (isDefaultSelection(selection))
+		{
+			return;
+		}
+
+		string normalized = SirenPathUtils.NormalizeProfileKey(selection ?? string.Empty);
+		if (string.IsNullOrWhiteSpace(normalized))
+		{
+			return;
+		}
+
+		destination.Add(normalized);
 	}
 
 	// Get currently selected local key in one module-builder domain.
@@ -1187,9 +1708,15 @@ public sealed partial class SirenChangerMod
 	{
 		moduleRootPath = string.Empty;
 		EnsureDeveloperModuleIncludeStateCurrent();
-		if (GetTotalDeveloperModuleIncludedCount() == 0)
+		int selectedAudioCount = GetTotalDeveloperModuleIncludedCount();
+		int selectedSoundSetProfileCount = GetTotalDeveloperModuleIncludedSoundSetProfileCount();
+		if (selectedAudioCount == 0)
 		{
-			SetDeveloperModuleStatus("No local audio files are selected. Include one or more files before creating a module.", isWarning: true);
+			SetDeveloperModuleStatus(
+				selectedSoundSetProfileCount > 0
+					? "Profile-only modules are temporarily disabled. Include one or more local audio files before creating a module."
+					: "No local audio files are selected. Include one or more local audio files before creating a module.",
+				isWarning: true);
 			return false;
 		}
 
@@ -1218,10 +1745,17 @@ public sealed partial class SirenChangerMod
 				? Path.Combine(moduleRootPath, kDeveloperModuleAssetContentFolderName)
 				: moduleRootPath;
 			Directory.CreateDirectory(moduleContentRootPath);
+			if (selectedSoundSetProfileCount > 0)
+			{
+				// Persist in-memory edits before exporting sound-set profile snapshots.
+				SaveConfig();
+			}
 
 			int skippedMissing = 0;
 			int skippedUnsupported = 0;
 			int skippedModuleSelections = 0;
+			int skippedMissingProfileSettings = 0;
+			int skippedProfileCopyFailures = 0;
 
 			List<DeveloperModuleManifestEntry> sirenEntries = ExportLocalProfilesToModule(
 				Config.CustomSirenProfiles,
@@ -1263,13 +1797,21 @@ public sealed partial class SirenChangerMod
 				ref skippedUnsupported,
 				ref skippedModuleSelections);
 
-			int totalExported = sirenEntries.Count + engineEntries.Count + ambientEntries.Count + transitAnnouncementEntries.Count;
-			if (totalExported == 0)
+			List<DeveloperModuleManifestSoundSetProfile> soundSetProfiles = ExportSelectedSoundSetProfilesToModule(
+				moduleContentRootPath,
+				s_DeveloperModuleIncludedSoundSetProfiles,
+				ref skippedMissingProfileSettings,
+				ref skippedProfileCopyFailures);
+			List<string> soundSetCoverageWarnings = BuildDeveloperModuleCurrentSoundSetProfileCoverageWarningsForSetIds(
+				s_DeveloperModuleIncludedSoundSetProfiles);
+
+			int totalAudioExported = sirenEntries.Count + engineEntries.Count + ambientEntries.Count + transitAnnouncementEntries.Count;
+			if (totalAudioExported == 0)
 			{
 				TryDeleteDirectory(moduleRootPath);
 				moduleRootPath = string.Empty;
 				SetDeveloperModuleStatus(
-					$"No selected local audio files were eligible for module generation. Skipped missing: {skippedMissing}, unsupported format: {skippedUnsupported}, module-based selections: {skippedModuleSelections}.",
+					$"No selected local audio files were eligible for generation. Skipped audio missing: {skippedMissing}, audio unsupported: {skippedUnsupported}, audio module-based selections: {skippedModuleSelections}. Profile-only modules are temporarily disabled (profile missing/copy failures: {skippedMissingProfileSettings}/{skippedProfileCopyFailures}).",
 					isWarning: true);
 				return false;
 			}
@@ -1283,7 +1825,8 @@ public sealed partial class SirenChangerMod
 				Sirens = sirenEntries,
 				VehicleEngines = engineEntries,
 				Ambient = ambientEntries,
-				TransitAnnouncements = transitAnnouncementEntries
+				TransitAnnouncements = transitAnnouncementEntries,
+				SoundSetProfiles = soundSetProfiles
 			};
 
 			string manifestPath = Path.Combine(moduleContentRootPath, kDeveloperModuleManifestFileName);
@@ -1298,13 +1841,19 @@ public sealed partial class SirenChangerMod
 				engineEntries.Count,
 				ambientEntries.Count,
 				transitAnnouncementEntries.Count,
+				soundSetProfiles.Count,
 				uploadReadyAssetPackage);
 			string manifestRelativePath = Path.GetRelativePath(moduleRootPath, manifestPath).Replace('\\', '/');
 
 			string statusMessage = uploadReadyAssetPackage
-				? $"Created upload-ready asset module '{displayName}' at '{moduleRootPath}'. Version: {moduleVersion}. Manifest: {manifestRelativePath}. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Transit: {transitAnnouncementEntries.Count}. Skipped missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}."
-				: $"Created local module (legacy layout) '{displayName}' at '{moduleRootPath}'. Version: {moduleVersion}. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Transit: {transitAnnouncementEntries.Count}. Skipped missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}.";
-			SetDeveloperModuleStatus(statusMessage, isWarning: false);
+				? $"Created upload-ready asset module '{displayName}' at '{moduleRootPath}'. Version: {moduleVersion}. Manifest: {manifestRelativePath}. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Transit: {transitAnnouncementEntries.Count}, Sound Set Profiles: {soundSetProfiles.Count}. Skipped audio missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}. Skipped profile missing/copy failures: {skippedMissingProfileSettings}/{skippedProfileCopyFailures}. Coverage warnings: {soundSetCoverageWarnings.Count}."
+				: $"Created local module (legacy layout) '{displayName}' at '{moduleRootPath}'. Version: {moduleVersion}. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Transit: {transitAnnouncementEntries.Count}, Sound Set Profiles: {soundSetProfiles.Count}. Skipped audio missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}. Skipped profile missing/copy failures: {skippedMissingProfileSettings}/{skippedProfileCopyFailures}. Coverage warnings: {soundSetCoverageWarnings.Count}.";
+			if (soundSetCoverageWarnings.Count > 0)
+			{
+				statusMessage = $"{statusMessage} {string.Join(" | ", soundSetCoverageWarnings)}";
+			}
+
+			SetDeveloperModuleStatus(statusMessage, isWarning: soundSetCoverageWarnings.Count > 0);
 			if (uploadReadyAssetPackage)
 			{
 				s_DeveloperLastUploadReadyModulePath = moduleRootPath;
@@ -1992,6 +2541,37 @@ public sealed partial class SirenChangerMod
 			return false;
 		}
 
+		if (!TryParseDeveloperModuleAdditionalUploadDependencies(
+				out List<IModsUploadSupport.ModInfo.ModDependency> configuredAdditionalDependencies,
+				out string additionalDependencyError))
+		{
+			error = additionalDependencyError;
+			return false;
+		}
+
+		for (int dependencyIndex = 0; dependencyIndex < configuredAdditionalDependencies.Count; dependencyIndex++)
+		{
+			int configuredDependencyId = configuredAdditionalDependencies[dependencyIndex].m_Id;
+			bool foundConfiguredDependency = false;
+			for (int i = 0; i < dependencies.Length; i++)
+			{
+				if (dependencies[i].m_Id != configuredDependencyId)
+				{
+					continue;
+				}
+
+				foundConfiguredDependency = true;
+				break;
+			}
+
+			if (!foundConfiguredDependency)
+			{
+				error =
+					$"Configured dependency ID {configuredDependencyId.ToString(CultureInfo.InvariantCulture)} is missing from staged upload metadata.";
+				return false;
+			}
+		}
+
 		List<IModsUploadSupport.ExternalLinkData>? externalLinks = modInfo.m_ExternalLinks;
 		if (externalLinks != null)
 		{
@@ -2028,6 +2608,17 @@ public sealed partial class SirenChangerMod
 			return false;
 		}
 
+		if (!TryValidateStagedDeveloperModuleSoundSetProfiles(contentPath, out string soundSetValidationWarning, out string soundSetValidationError))
+		{
+			error = soundSetValidationError;
+			return false;
+		}
+
+		if (!string.IsNullOrWhiteSpace(soundSetValidationWarning))
+		{
+			Log.Warn($"Upload preflight warning: {soundSetValidationWarning}");
+		}
+
 		if (string.IsNullOrWhiteSpace(modInfo.m_ThumbnailFilename))
 		{
 			error = "Thumbnail filename was not set in upload metadata.";
@@ -2048,6 +2639,242 @@ public sealed partial class SirenChangerMod
 		}
 
 		Log.Info($"Asset upload publish preflight passed. {BuildDeveloperModuleUploadModInfoSummary(modInfo)}");
+		return true;
+	}
+
+	// Validate staged sound-set profile snapshots and warn when they reference non-included audio keys.
+	private static bool TryValidateStagedDeveloperModuleSoundSetProfiles(
+		string contentPath,
+		out string warning,
+		out string error)
+	{
+		warning = string.Empty;
+		error = string.Empty;
+		if (string.IsNullOrWhiteSpace(contentPath) || !Directory.Exists(contentPath))
+		{
+			error = "Staged content directory could not be resolved.";
+			return false;
+		}
+
+		string manifestPath = Path.Combine(contentPath, kDeveloperModuleManifestFileName);
+		if (!File.Exists(manifestPath))
+		{
+			error = $"Staged module manifest '{kDeveloperModuleManifestFileName}' was not found.";
+			return false;
+		}
+
+		DeveloperModuleManifest manifest;
+		try
+		{
+			string manifestJson = File.ReadAllText(manifestPath);
+			if (!JsonDataSerializer.TryDeserialize(manifestJson, out DeveloperModuleManifest? parsedManifest, out string parseError) ||
+				parsedManifest == null)
+			{
+				error = $"Staged module manifest could not be parsed: {parseError}";
+				return false;
+			}
+
+			manifest = parsedManifest;
+		}
+		catch (Exception ex)
+		{
+			error = $"Staged module manifest could not be read: {ex.Message}";
+			return false;
+		}
+
+		List<DeveloperSoundSetProfileSnapshot> snapshots = BuildDeveloperSoundSetProfileSnapshotsFromManifest(contentPath, manifest);
+		if (snapshots.Count == 0)
+		{
+			return true;
+		}
+
+		Dictionary<DeveloperAudioDomain, HashSet<string>> includedByDomain = BuildDeveloperModuleIncludedAudioKeysByDomainFromManifest(manifest);
+		List<string> coverageWarnings = BuildDeveloperSoundSetProfileCoverageWarnings(snapshots, includedByDomain);
+		if (coverageWarnings.Count == 0)
+		{
+			return true;
+		}
+
+		int previewCount = Math.Min(coverageWarnings.Count, 5);
+		string preview = string.Join(" | ", coverageWarnings.Take(previewCount));
+		if (coverageWarnings.Count > previewCount)
+		{
+			preview = $"{preview} | +{(coverageWarnings.Count - previewCount).ToString(CultureInfo.InvariantCulture)} more";
+		}
+
+		warning = $"Detected {coverageWarnings.Count.ToString(CultureInfo.InvariantCulture)} sound-set profile reference warning(s). {preview}";
+		return true;
+	}
+
+	// Build domain include sets from manifest entries for staged preflight validation.
+	private static Dictionary<DeveloperAudioDomain, HashSet<string>> BuildDeveloperModuleIncludedAudioKeysByDomainFromManifest(DeveloperModuleManifest manifest)
+	{
+		HashSet<string> BuildKeySet(IReadOnlyList<DeveloperModuleManifestEntry>? entries)
+		{
+			HashSet<string> keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			if (entries == null)
+			{
+				return keys;
+			}
+
+			for (int i = 0; i < entries.Count; i++)
+			{
+				string normalized = SirenPathUtils.NormalizeProfileKey(entries[i]?.Key ?? string.Empty);
+				if (!string.IsNullOrWhiteSpace(normalized))
+				{
+					keys.Add(normalized);
+				}
+			}
+
+			return keys;
+		}
+
+		return new Dictionary<DeveloperAudioDomain, HashSet<string>>
+		{
+			{ DeveloperAudioDomain.Siren, BuildKeySet(manifest.Sirens) },
+			{ DeveloperAudioDomain.VehicleEngine, BuildKeySet(manifest.VehicleEngines) },
+			{ DeveloperAudioDomain.Ambient, BuildKeySet(manifest.Ambient) },
+			{ DeveloperAudioDomain.TransitAnnouncement, BuildKeySet(manifest.TransitAnnouncements) }
+		};
+	}
+
+	// Build profile snapshots from manifest folder/file metadata under staged content root.
+	private static List<DeveloperSoundSetProfileSnapshot> BuildDeveloperSoundSetProfileSnapshotsFromManifest(
+		string contentPath,
+		DeveloperModuleManifest manifest)
+	{
+		List<DeveloperSoundSetProfileSnapshot> snapshots = new List<DeveloperSoundSetProfileSnapshot>();
+		List<DeveloperModuleManifestSoundSetProfile> soundSetProfiles = manifest.SoundSetProfiles ?? new List<DeveloperModuleManifestSoundSetProfile>();
+		for (int index = 0; index < soundSetProfiles.Count; index++)
+		{
+			DeveloperModuleManifestSoundSetProfile entry = soundSetProfiles[index] ?? new DeveloperModuleManifestSoundSetProfile();
+			string normalizedSetId = CitySoundProfileRegistry.NormalizeSetId(entry.SetId);
+			if (string.IsNullOrWhiteSpace(normalizedSetId))
+			{
+				continue;
+			}
+
+			string displayName = string.IsNullOrWhiteSpace(entry.DisplayName)
+				? BuildDeveloperModuleSoundSetProfileDisplayName(normalizedSetId)
+				: $"{entry.DisplayName.Trim()} ({normalizedSetId})";
+			string folder = SirenPathUtils.NormalizeProfileKey(entry.Folder ?? string.Empty);
+			if (string.IsNullOrWhiteSpace(folder))
+			{
+				folder = $"Profiles/{normalizedSetId}";
+			}
+
+			HashSet<string> declaredFiles = new HashSet<string>(
+				(entry.Files ?? new List<string>())
+					.Select(file => Path.GetFileName((file ?? string.Empty).Trim()))
+					.Where(file => !string.IsNullOrWhiteSpace(file)),
+				StringComparer.OrdinalIgnoreCase);
+
+			DeveloperSoundSetProfileSnapshot snapshot = new DeveloperSoundSetProfileSnapshot
+			{
+				SetId = normalizedSetId,
+				DisplayName = displayName
+			};
+
+			if (TryResolveDeveloperModuleProfileSettingsPath(contentPath, folder, declaredFiles, SirenReplacementConfig.SettingsFileName, out string sirenSettingsPath))
+			{
+				snapshot.SettingsPathByDomain[DeveloperAudioDomain.Siren] = sirenSettingsPath;
+			}
+
+			if (TryResolveDeveloperModuleProfileSettingsPath(contentPath, folder, declaredFiles, VehicleEngineSettingsFileName, out string engineSettingsPath))
+			{
+				snapshot.SettingsPathByDomain[DeveloperAudioDomain.VehicleEngine] = engineSettingsPath;
+			}
+
+			if (TryResolveDeveloperModuleProfileSettingsPath(contentPath, folder, declaredFiles, AmbientSettingsFileName, out string ambientSettingsPath))
+			{
+				snapshot.SettingsPathByDomain[DeveloperAudioDomain.Ambient] = ambientSettingsPath;
+			}
+
+			if (TryResolveDeveloperModuleProfileSettingsPath(contentPath, folder, declaredFiles, TransitAnnouncementSettingsFileName, out string transitSettingsPath))
+			{
+				snapshot.SettingsPathByDomain[DeveloperAudioDomain.TransitAnnouncement] = transitSettingsPath;
+			}
+
+			snapshots.Add(snapshot);
+		}
+
+		return snapshots;
+	}
+
+	// Resolve one profile settings file path from staged content root while enforcing root containment.
+	private static bool TryResolveDeveloperModuleProfileSettingsPath(
+		string contentPath,
+		string relativeFolder,
+		ISet<string> declaredFiles,
+		string expectedFileName,
+		out string settingsPath)
+	{
+		settingsPath = string.Empty;
+		string fileName = Path.GetFileName(expectedFileName ?? string.Empty);
+		if (string.IsNullOrWhiteSpace(fileName))
+		{
+			return false;
+		}
+
+		string relative = $"{relativeFolder}/{fileName}";
+		if (declaredFiles.Count > 0 && !declaredFiles.Contains(fileName))
+		{
+			// Keep checking fallback path so legacy manifests without Files lists still work.
+		}
+
+		if (!TryResolveDeveloperModulePathWithinRoot(contentPath, relative, out string resolved) || !File.Exists(resolved))
+		{
+			return false;
+		}
+
+		settingsPath = resolved;
+		return true;
+	}
+
+	// Resolve one relative path under a root and reject traversal outside of the root.
+	private static bool TryResolveDeveloperModulePathWithinRoot(string rootPath, string relativePath, out string resolvedPath)
+	{
+		resolvedPath = string.Empty;
+		string normalizedRelative = SirenPathUtils.NormalizeProfileKey(relativePath ?? string.Empty);
+		if (string.IsNullOrWhiteSpace(normalizedRelative))
+		{
+			return false;
+		}
+
+		string fullRoot;
+		try
+		{
+			fullRoot = Path.GetFullPath(rootPath);
+		}
+		catch
+		{
+			return false;
+		}
+
+		if (string.IsNullOrWhiteSpace(fullRoot) || !Directory.Exists(fullRoot))
+		{
+			return false;
+		}
+
+		string rootWithSeparator = fullRoot.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+			? fullRoot
+			: fullRoot + Path.DirectorySeparatorChar;
+		string combined;
+		try
+		{
+			combined = Path.GetFullPath(Path.Combine(rootWithSeparator, normalizedRelative.Replace('/', Path.DirectorySeparatorChar)));
+		}
+		catch
+		{
+			return false;
+		}
+
+		if (!combined.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase))
+		{
+			return false;
+		}
+
+		resolvedPath = combined;
 		return true;
 	}
 
@@ -2713,6 +3540,83 @@ public sealed partial class SirenChangerMod
 		return listMethod.Invoke(manager, args);
 	}
 
+	// Parse optional dependency IDs entered in options (comma/semicolon/newline delimited; optional @version suffix).
+	private static bool TryParseDeveloperModuleAdditionalUploadDependencies(
+		out List<IModsUploadSupport.ModInfo.ModDependency> dependencies,
+		out string error)
+	{
+		dependencies = new List<IModsUploadSupport.ModInfo.ModDependency>();
+		error = string.Empty;
+
+		string raw = NormalizeDeveloperModuleUploadAdditionalDependencies(s_DeveloperModuleUploadAdditionalDependencies);
+		if (string.IsNullOrWhiteSpace(raw))
+		{
+			return true;
+		}
+
+		string[] tokens = raw.Split(s_DeveloperModuleUploadDependencySeparators, StringSplitOptions.RemoveEmptyEntries);
+		HashSet<int> seen = new HashSet<int>();
+		for (int i = 0; i < tokens.Length; i++)
+		{
+			string token = (tokens[i] ?? string.Empty).Trim();
+			if (string.IsNullOrWhiteSpace(token))
+			{
+				continue;
+			}
+
+			string idToken = token;
+			string versionToken = string.Empty;
+			int atIndex = token.IndexOf('@');
+			if (atIndex >= 0)
+			{
+				if (token.IndexOf('@', atIndex + 1) >= 0)
+				{
+					error = $"Invalid additional dependency token '{token}'. Use '<PublishedId>' or '<PublishedId>@<Version>'.";
+					return false;
+				}
+
+				idToken = token.Substring(0, atIndex).Trim();
+				versionToken = token.Substring(atIndex + 1).Trim();
+			}
+
+			if (!int.TryParse(idToken, NumberStyles.Integer, CultureInfo.InvariantCulture, out int publishedId) || publishedId <= 0)
+			{
+				error = $"Invalid additional dependency token '{token}'. Published IDs must be positive integers.";
+				return false;
+			}
+
+			if (publishedId == kAudioSwitcherOfficialPublishedId || !seen.Add(publishedId))
+			{
+				continue;
+			}
+
+			dependencies.Add(new IModsUploadSupport.ModInfo.ModDependency
+			{
+				m_Id = publishedId,
+				m_Version = NormalizeDeveloperModuleDependencyVersion(versionToken)
+			});
+		}
+
+		return true;
+	}
+
+	// Normalize optional dependency version suffix.
+	private static string NormalizeDeveloperModuleDependencyVersion(string rawVersion)
+	{
+		string normalized = (rawVersion ?? string.Empty).Trim();
+		if (string.IsNullOrWhiteSpace(normalized))
+		{
+			return string.Empty;
+		}
+
+		if (normalized.Length <= kDeveloperModuleUploadVersionMaxLength)
+		{
+			return normalized;
+		}
+
+		return normalized.Substring(0, kDeveloperModuleUploadVersionMaxLength).Trim();
+	}
+
 	// Add Audio Switcher as a required dependency on every auto-uploaded module asset.
 	private static bool TryAttachAudioSwitcherUploadDependency(PdxAssetUploadHandle uploadHandle, out string error)
 	{
@@ -2730,41 +3634,72 @@ public sealed partial class SirenChangerMod
 			return false;
 		}
 
+		if (!TryParseDeveloperModuleAdditionalUploadDependencies(
+				out List<IModsUploadSupport.ModInfo.ModDependency> configuredAdditionalDependencies,
+				out string additionalDependencyError))
+		{
+			error = additionalDependencyError;
+			return false;
+		}
+
 		IModsUploadSupport.ModInfo modInfo = uploadHandle.modInfo;
 		IModsUploadSupport.ModInfo.ModDependency[] existingDependencies = modInfo.m_ModDependencies ??
 			Array.Empty<IModsUploadSupport.ModInfo.ModDependency>();
 		List<IModsUploadSupport.ModInfo.ModDependency> mergedDependencies =
-			new List<IModsUploadSupport.ModInfo.ModDependency>(existingDependencies.Length + 1);
+			new List<IModsUploadSupport.ModInfo.ModDependency>(existingDependencies.Length + configuredAdditionalDependencies.Count + 1);
+		HashSet<int> seenDependencyIds = new HashSet<int>();
 		bool hasAudioSwitcherDependency = false;
-		for (int i = 0; i < existingDependencies.Length; i++)
+
+		void AddOrMergeDependency(IModsUploadSupport.ModInfo.ModDependency dependency)
 		{
-			IModsUploadSupport.ModInfo.ModDependency dependency = existingDependencies[i];
 			if (dependency.m_Id <= 0)
 			{
-				continue;
+				return;
 			}
 
+			dependency.m_Version = NormalizeDeveloperModuleDependencyVersion(dependency.m_Version);
 			if (dependency.m_Id == dependencyPublishedId)
 			{
-				if (hasAudioSwitcherDependency)
+				hasAudioSwitcherDependency = true;
+			}
+
+			if (!seenDependencyIds.Add(dependency.m_Id))
+			{
+				if (!string.IsNullOrWhiteSpace(dependency.m_Version))
 				{
-					continue;
+					for (int index = 0; index < mergedDependencies.Count; index++)
+					{
+						IModsUploadSupport.ModInfo.ModDependency existing = mergedDependencies[index];
+						if (existing.m_Id != dependency.m_Id || !string.IsNullOrWhiteSpace(existing.m_Version))
+						{
+							continue;
+						}
+
+						existing.m_Version = dependency.m_Version;
+						mergedDependencies[index] = existing;
+						break;
+					}
 				}
 
-				dependency.m_Version = string.IsNullOrWhiteSpace(dependency.m_Version)
-					? string.Empty
-					: dependency.m_Version.Trim();
-				mergedDependencies.Add(dependency);
-				hasAudioSwitcherDependency = true;
-				continue;
+				return;
 			}
 
 			mergedDependencies.Add(dependency);
 		}
 
+		for (int i = 0; i < existingDependencies.Length; i++)
+		{
+			AddOrMergeDependency(existingDependencies[i]);
+		}
+
+		for (int i = 0; i < configuredAdditionalDependencies.Count; i++)
+		{
+			AddOrMergeDependency(configuredAdditionalDependencies[i]);
+		}
+
 		if (!hasAudioSwitcherDependency)
 		{
-			mergedDependencies.Add(new IModsUploadSupport.ModInfo.ModDependency
+			AddOrMergeDependency(new IModsUploadSupport.ModInfo.ModDependency
 			{
 				m_Id = dependencyPublishedId,
 				m_Version = string.Empty
@@ -2773,7 +3708,9 @@ public sealed partial class SirenChangerMod
 
 		modInfo.m_ModDependencies = mergedDependencies.ToArray();
 		uploadHandle.modInfo = modInfo;
-		Log.Info($"Applied Audio Switcher dependency metadata to upload. Published ID={dependencyPublishedId.ToString(CultureInfo.InvariantCulture)}");
+		Log.Info(
+			$"Applied upload dependency metadata. Audio Switcher ID={dependencyPublishedId.ToString(CultureInfo.InvariantCulture)}, " +
+			$"additional configured={configuredAdditionalDependencies.Count.ToString(CultureInfo.InvariantCulture)}, total={mergedDependencies.Count.ToString(CultureInfo.InvariantCulture)}.");
 		return true;
 	}
 
@@ -3475,6 +4412,78 @@ public sealed partial class SirenChangerMod
 		return entries;
 	}
 
+	// Copy selected city sound-set profile settings into generated module output.
+	private static List<DeveloperModuleManifestSoundSetProfile> ExportSelectedSoundSetProfilesToModule(
+		string moduleRootPath,
+		ISet<string> includedSetIds,
+		ref int skippedMissingSettingsFiles,
+		ref int skippedCopyFailures)
+	{
+		List<DeveloperModuleManifestSoundSetProfile> exported = new List<DeveloperModuleManifestSoundSetProfile>();
+		if (includedSetIds == null || includedSetIds.Count == 0)
+		{
+			return exported;
+		}
+
+		List<string> normalizedSetIds = includedSetIds
+			.Select(static setId => CitySoundProfileRegistry.NormalizeSetId(setId))
+			.Where(static setId => !string.IsNullOrWhiteSpace(setId))
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.OrderBy(static setId => setId, StringComparer.OrdinalIgnoreCase)
+			.ToList();
+		for (int i = 0; i < normalizedSetIds.Count; i++)
+		{
+			string setId = normalizedSetIds[i];
+			string relativeFolderPath = $"Profiles/{setId}";
+			string outputFolderPath = Path.Combine(moduleRootPath, relativeFolderPath.Replace('/', Path.DirectorySeparatorChar));
+			Directory.CreateDirectory(outputFolderPath);
+
+			List<string> copiedFiles = new List<string>(s_DeveloperModuleSoundSetProfileSettingsFileNames.Length);
+			for (int fileIndex = 0; fileIndex < s_DeveloperModuleSoundSetProfileSettingsFileNames.Length; fileIndex++)
+			{
+				string fileName = s_DeveloperModuleSoundSetProfileSettingsFileNames[fileIndex];
+				string sourcePath = CitySoundProfileRegistry.GetSetSettingsPath(
+					SettingsDirectory,
+					setId,
+					fileName,
+					ensureDirectoryExists: false);
+				if (!File.Exists(sourcePath))
+				{
+					skippedMissingSettingsFiles++;
+					continue;
+				}
+
+				string outputPath = Path.Combine(outputFolderPath, fileName);
+				try
+				{
+					File.Copy(sourcePath, outputPath, overwrite: true);
+					copiedFiles.Add(fileName.Replace('\\', '/'));
+				}
+				catch (Exception ex)
+				{
+					skippedCopyFailures++;
+					Log.Warn($"Failed to copy sound set profile settings '{fileName}' for set '{setId}'. {ex.Message}");
+				}
+			}
+
+			if (copiedFiles.Count == 0)
+			{
+				TryDeleteDirectory(outputFolderPath);
+				continue;
+			}
+
+			exported.Add(new DeveloperModuleManifestSoundSetProfile
+			{
+				SetId = setId,
+				DisplayName = GetSoundSetDisplayName(setId),
+				Folder = relativeFolderPath.Replace('\\', '/'),
+				Files = copiedFiles
+			});
+		}
+
+		return exported;
+	}
+
 	// Resolve the target root where generated modules are written.
 	private static string GetDeveloperModulesRootDirectory(bool ensureExists)
 	{
@@ -3695,6 +4704,26 @@ public sealed partial class SirenChangerMod
 		return normalized.Substring(0, kDeveloperModuleUploadDescriptionMaxLength);
 	}
 
+	// Normalize optional additional upload dependencies text.
+	private static string NormalizeDeveloperModuleUploadAdditionalDependencies(string value)
+	{
+		string normalized = (value ?? string.Empty)
+			.Replace("\r\n", "\n")
+			.Replace('\r', '\n')
+			.Trim();
+		if (string.IsNullOrWhiteSpace(normalized))
+		{
+			return string.Empty;
+		}
+
+		if (normalized.Length <= kDeveloperModuleUploadAdditionalDependenciesMaxLength)
+		{
+			return normalized;
+		}
+
+		return normalized.Substring(0, kDeveloperModuleUploadAdditionalDependenciesMaxLength).Trim();
+	}
+
 	// Normalize module export directory input into a full path when possible.
 	private static string NormalizeDeveloperModuleExportDirectory(string value)
 	{
@@ -3871,12 +4900,14 @@ public sealed partial class SirenChangerMod
 		List<string> engineKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.VehicleEngine);
 		List<string> ambientKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.Ambient);
 		List<string> transitAnnouncementKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.TransitAnnouncement);
+		List<string> soundSetProfileIds = GetEligibleDeveloperModuleSoundSetProfileIds();
 
 		bool changed = false;
 		changed |= SyncDeveloperModuleDomainState(DeveloperAudioDomain.Siren, sirenKeys);
 		changed |= SyncDeveloperModuleDomainState(DeveloperAudioDomain.VehicleEngine, engineKeys);
 		changed |= SyncDeveloperModuleDomainState(DeveloperAudioDomain.Ambient, ambientKeys);
 		changed |= SyncDeveloperModuleDomainState(DeveloperAudioDomain.TransitAnnouncement, transitAnnouncementKeys);
+		changed |= SyncDeveloperModuleSoundSetProfileState(soundSetProfileIds);
 
 		if (!s_DeveloperModuleIncludeInitialized)
 		{
@@ -3959,6 +4990,43 @@ public sealed partial class SirenChangerMod
 		return changed;
 	}
 
+	// Validate sound-set profile selection and included profile set IDs against current registry state.
+	private static bool SyncDeveloperModuleSoundSetProfileState(IReadOnlyList<string> eligibleSetIds)
+	{
+		HashSet<string> eligible = new HashSet<string>(eligibleSetIds, StringComparer.OrdinalIgnoreCase);
+		bool changed = false;
+
+		List<string> staleIncluded = new List<string>();
+		foreach (string setId in s_DeveloperModuleIncludedSoundSetProfiles)
+		{
+			if (!eligible.Contains(setId))
+			{
+				staleIncluded.Add(setId);
+			}
+		}
+
+		for (int i = 0; i < staleIncluded.Count; i++)
+		{
+			if (s_DeveloperModuleIncludedSoundSetProfiles.Remove(staleIncluded[i]))
+			{
+				changed = true;
+			}
+		}
+
+		string normalizedSelection = CitySoundProfileRegistry.NormalizeSetId(s_DeveloperModuleSelectedSoundSetProfileId);
+		if (string.IsNullOrWhiteSpace(normalizedSelection) || !eligible.Contains(normalizedSelection))
+		{
+			string next = eligibleSetIds.Count > 0 ? eligibleSetIds[0] : string.Empty;
+			if (!string.Equals(s_DeveloperModuleSelectedSoundSetProfileId, next, StringComparison.OrdinalIgnoreCase))
+			{
+				s_DeveloperModuleSelectedSoundSetProfileId = next;
+				changed = true;
+			}
+		}
+
+		return changed;
+	}
+
 	// Enumerate local (non-module) profile keys that currently map to readable custom audio files.
 	private static List<string> GetEligibleLocalModuleKeys(DeveloperAudioDomain domain)
 	{
@@ -3996,6 +5064,44 @@ public sealed partial class SirenChangerMod
 
 		keys.Sort(StringComparer.OrdinalIgnoreCase);
 		return keys;
+	}
+
+	// Enumerate sound-set profile IDs currently available in the city sound-set registry.
+	private static List<string> GetEligibleDeveloperModuleSoundSetProfileIds()
+	{
+		List<string> setIds = new List<string>();
+		if (s_CitySoundProfileRegistry?.Sets != null)
+		{
+			foreach (KeyValuePair<string, CitySoundProfileSet> pair in s_CitySoundProfileRegistry.Sets)
+			{
+				string normalized = CitySoundProfileRegistry.NormalizeSetId(pair.Key);
+				if (string.IsNullOrWhiteSpace(normalized))
+				{
+					continue;
+				}
+
+				if (!setIds.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+				{
+					setIds.Add(normalized);
+				}
+			}
+		}
+
+		if (!setIds.Contains(CitySoundProfileRegistry.DefaultSetId, StringComparer.OrdinalIgnoreCase))
+		{
+			setIds.Add(CitySoundProfileRegistry.DefaultSetId);
+		}
+
+		setIds.Sort((left, right) =>
+		{
+			string leftDisplay = GetSoundSetDisplayName(left);
+			string rightDisplay = GetSoundSetDisplayName(right);
+			int byDisplay = string.Compare(leftDisplay, rightDisplay, StringComparison.OrdinalIgnoreCase);
+			return byDisplay != 0
+				? byDisplay
+				: string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
+		});
+		return setIds;
 	}
 
 	// Map module-builder domain to active local profile dictionary.
@@ -4123,6 +5229,12 @@ public sealed partial class SirenChangerMod
 			s_DeveloperModuleIncludedTransitAnnouncements.Count;
 	}
 
+	// Aggregate count of currently included sound-set profiles for module-builder export.
+	private static int GetTotalDeveloperModuleIncludedSoundSetProfileCount()
+	{
+		return s_DeveloperModuleIncludedSoundSetProfiles.Count;
+	}
+
 	// Append one domain's include summary block with per-file lines.
 	private static void AppendDeveloperModuleInclusionSummary(
 		StringBuilder builder,
@@ -4170,6 +5282,14 @@ public sealed partial class SirenChangerMod
 		return baseName;
 	}
 
+	// Build a readable sound-set profile label with stable set-ID suffix.
+	private static string BuildDeveloperModuleSoundSetProfileDisplayName(string setId)
+	{
+		string normalized = CitySoundProfileRegistry.NormalizeSetId(setId);
+		string displayName = GetSoundSetDisplayName(normalized);
+		return $"{displayName} ({normalized})";
+	}
+
 	// Status setter used by asset-module upload actions.
 	private static void SetDeveloperModuleUploadStatus(string message, bool isWarning)
 	{
@@ -4212,6 +5332,7 @@ public sealed partial class SirenChangerMod
 		int engineCount,
 		int ambientCount,
 		int transitAnnouncementCount,
+		int soundSetProfileCount,
 		bool uploadReadyAssetPackage)
 	{
 		StringBuilder builder = new StringBuilder(512);
@@ -4225,6 +5346,7 @@ public sealed partial class SirenChangerMod
 		builder.Append("Vehicle Engines: ").AppendLine(engineCount.ToString(CultureInfo.InvariantCulture));
 		builder.Append("Ambient Sounds: ").AppendLine(ambientCount.ToString(CultureInfo.InvariantCulture));
 		builder.Append("Transit Announcements: ").AppendLine(transitAnnouncementCount.ToString(CultureInfo.InvariantCulture));
+		builder.Append("Sound Set Profiles: ").AppendLine(soundSetProfileCount.ToString(CultureInfo.InvariantCulture));
 		builder.AppendLine();
 		builder.AppendLine(uploadReadyAssetPackage
 			? "Generated by Audio Switcher Developer > Module Creation & Upload (Build + Upload)."
@@ -4235,6 +5357,7 @@ public sealed partial class SirenChangerMod
 			builder.AppendLine("Upload-ready layout:");
 			builder.Append(" - ").Append(kDeveloperModuleAssetContentFolderName).AppendLine("/AudioSwitcherModule.json");
 			builder.Append(" - ").Append(kDeveloperModuleAssetContentFolderName).AppendLine("/Audio/");
+			builder.Append(" - ").Append(kDeveloperModuleAssetContentFolderName).AppendLine("/Profiles/");
 			builder.AppendLine("Upload this folder to PDX Mods as an asset package.");
 		}
 
@@ -4523,6 +5646,16 @@ public sealed partial class SirenChangerMod
 		return value.ToString("0.###", CultureInfo.InvariantCulture);
 	}
 
+	// In-memory view of one sound-set profile snapshot and its domain settings files.
+	private sealed class DeveloperSoundSetProfileSnapshot
+	{
+		public string SetId { get; set; } = CitySoundProfileRegistry.DefaultSetId;
+
+		public string DisplayName { get; set; } = CitySoundProfileRegistry.DefaultSetDisplayName;
+
+		public Dictionary<DeveloperAudioDomain, string> SettingsPathByDomain { get; } = new Dictionary<DeveloperAudioDomain, string>();
+	}
+
 	// Aggregated metadata used when uploading generated asset modules to PDX Mods.
 	private sealed class DeveloperModuleUploadMetadata
 	{
@@ -4589,6 +5722,9 @@ public sealed partial class SirenChangerMod
 
 		[DataMember(Order = 8, Name = "transitAnnouncements")]
 		public List<DeveloperModuleManifestEntry> TransitAnnouncements { get; set; } = new List<DeveloperModuleManifestEntry>();
+
+		[DataMember(Order = 9, Name = "soundSetProfiles")]
+		public List<DeveloperModuleManifestSoundSetProfile> SoundSetProfiles { get; set; } = new List<DeveloperModuleManifestSoundSetProfile>();
 	}
 
 	[DataContract]
@@ -4606,6 +5742,23 @@ public sealed partial class SirenChangerMod
 
 		[DataMember(Order = 4, Name = "profile")]
 		public SirenSfxProfile Profile { get; set; } = SirenSfxProfile.CreateFallback();
+	}
+
+	[DataContract]
+	// One generated sound-set profile snapshot included in a module package.
+	private sealed class DeveloperModuleManifestSoundSetProfile
+	{
+		[DataMember(Order = 1, Name = "setId")]
+		public string SetId { get; set; } = CitySoundProfileRegistry.DefaultSetId;
+
+		[DataMember(Order = 2, Name = "displayName")]
+		public string DisplayName { get; set; } = CitySoundProfileRegistry.DefaultSetDisplayName;
+
+		[DataMember(Order = 3, Name = "folder")]
+		public string Folder { get; set; } = string.Empty;
+
+		[DataMember(Order = 4, Name = "files")]
+		public List<string> Files { get; set; } = new List<string>();
 	}
 
 	// In-memory snapshot for one detected runtime audio source.

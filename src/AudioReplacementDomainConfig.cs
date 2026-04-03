@@ -71,6 +71,10 @@ internal sealed class AudioReplacementDomainConfig
 	[DataMember(Order = 18)]
 	public Dictionary<string, string> TransitAnnouncementLineDisplayByKey { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+	// Transit-only: per-station+line overrides keyed by slot+station+line for station-specific routing.
+	[DataMember(Order = 19)]
+	public Dictionary<string, string> TransitAnnouncementStationLineSelections { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
 	[DataMember(Order = 20)]
 	public long LastCatalogScanUtcTicks { get; set; }
 
@@ -85,6 +89,22 @@ internal sealed class AudioReplacementDomainConfig
 
 	[DataMember(Order = 24)]
 	public List<string> LastCatalogScanChangedFiles { get; set; } = new List<string>();
+
+	// Transit-only: discovered/known station keys used by options station selector.
+	[DataMember(Order = 25)]
+	public List<string> TransitAnnouncementKnownStations { get; set; } = new List<string>();
+
+	// Transit-only: currently selected station key for options station selector.
+	[DataMember(Order = 26)]
+	public string TransitAnnouncementSelectedStation { get; set; } = string.Empty;
+
+	// Transit-only: user-facing station labels keyed by stable station identity.
+	[DataMember(Order = 27)]
+	public Dictionary<string, string> TransitAnnouncementStationDisplayByKey { get; set; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+	// Transit-only: discovered station-line pairs used to filter line options by selected station.
+	[DataMember(Order = 28)]
+	public List<string> TransitAnnouncementKnownStationLines { get; set; } = new List<string>();
 
 	[DataMember(Order = 30)]
 	public long LastTargetScanUtcTicks { get; set; }
@@ -186,6 +206,11 @@ internal sealed class AudioReplacementDomainConfig
 		TransitAnnouncementKnownLines = NormalizeTransitLineList(TransitAnnouncementKnownLines);
 		TransitAnnouncementSelectedLine = NormalizeTransitLineKey(TransitAnnouncementSelectedLine);
 		TransitAnnouncementLineDisplayByKey = NormalizeTransitLineDisplayMap(TransitAnnouncementLineDisplayByKey);
+		TransitAnnouncementStationLineSelections = NormalizeTransitLineSelections(TransitAnnouncementStationLineSelections);
+		TransitAnnouncementKnownStations = NormalizeTransitLineList(TransitAnnouncementKnownStations);
+		TransitAnnouncementSelectedStation = NormalizeTransitLineKey(TransitAnnouncementSelectedStation);
+		TransitAnnouncementStationDisplayByKey = NormalizeTransitLineDisplayMap(TransitAnnouncementStationDisplayByKey);
+		TransitAnnouncementKnownStationLines = NormalizeTransitLineList(TransitAnnouncementKnownStationLines);
 		if (!string.IsNullOrWhiteSpace(TransitAnnouncementSelectedLine) &&
 			TransitAnnouncementKnownLines.All(line => !string.Equals(line, TransitAnnouncementSelectedLine, StringComparison.OrdinalIgnoreCase)))
 		{
@@ -193,10 +218,24 @@ internal sealed class AudioReplacementDomainConfig
 			TransitAnnouncementKnownLines.Sort(StringComparer.OrdinalIgnoreCase);
 		}
 
+		if (!string.IsNullOrWhiteSpace(TransitAnnouncementSelectedStation) &&
+			TransitAnnouncementKnownStations.All(station => !string.Equals(station, TransitAnnouncementSelectedStation, StringComparison.OrdinalIgnoreCase)))
+		{
+			TransitAnnouncementKnownStations.Add(TransitAnnouncementSelectedStation);
+			TransitAnnouncementKnownStations.Sort(StringComparer.OrdinalIgnoreCase);
+		}
+
 		if (string.IsNullOrWhiteSpace(TransitAnnouncementSelectedLine))
 		{
 			TransitAnnouncementSelectedLine = TransitAnnouncementKnownLines.Count > 0
 				? TransitAnnouncementKnownLines[0]
+				: string.Empty;
+		}
+
+		if (string.IsNullOrWhiteSpace(TransitAnnouncementSelectedStation))
+		{
+			TransitAnnouncementSelectedStation = TransitAnnouncementKnownStations.Count > 0
+				? TransitAnnouncementKnownStations[0]
 				: string.Empty;
 		}
 
@@ -207,6 +246,15 @@ internal sealed class AudioReplacementDomainConfig
 		for (int i = 0; i < staleDisplayLineKeys.Count; i++)
 		{
 			TransitAnnouncementLineDisplayByKey.Remove(staleDisplayLineKeys[i]);
+		}
+
+		HashSet<string> knownStationSet = new HashSet<string>(TransitAnnouncementKnownStations, StringComparer.OrdinalIgnoreCase);
+		List<string> staleDisplayStationKeys = TransitAnnouncementStationDisplayByKey.Keys
+			.Where(key => !knownStationSet.Contains(NormalizeTransitLineKey(key)))
+			.ToList();
+		for (int i = 0; i < staleDisplayStationKeys.Count; i++)
+		{
+			TransitAnnouncementStationDisplayByKey.Remove(staleDisplayStationKeys[i]);
 		}
 
 		TargetSelectionTarget = NormalizeTargetKey(TargetSelectionTarget);
@@ -421,6 +469,25 @@ internal sealed class AudioReplacementDomainConfig
 			changed = true;
 		}
 
+		Dictionary<string, string> normalizedStationLineSelections = NormalizeTransitLineSelections(TransitAnnouncementStationLineSelections);
+		if (available.Count > 0)
+		{
+			List<string> staleStationLineOverrideKeys = normalizedStationLineSelections
+				.Where(pair => !available.Contains(pair.Value))
+				.Select(pair => pair.Key)
+				.ToList();
+			for (int i = 0; i < staleStationLineOverrideKeys.Count; i++)
+			{
+				normalizedStationLineSelections.Remove(staleStationLineOverrideKeys[i]);
+			}
+		}
+
+		if (!DictionariesEqualIgnoreCase(TransitAnnouncementStationLineSelections, normalizedStationLineSelections))
+		{
+			TransitAnnouncementStationLineSelections = normalizedStationLineSelections;
+			changed = true;
+		}
+
 		Dictionary<string, string> normalizedLineDisplayMap = NormalizeTransitLineDisplayMap(TransitAnnouncementLineDisplayByKey);
 		if (!DictionariesEqualIgnoreCase(TransitAnnouncementLineDisplayByKey, normalizedLineDisplayMap))
 		{
@@ -428,10 +495,31 @@ internal sealed class AudioReplacementDomainConfig
 			changed = true;
 		}
 
+		Dictionary<string, string> normalizedStationDisplayMap = NormalizeTransitLineDisplayMap(TransitAnnouncementStationDisplayByKey);
+		if (!DictionariesEqualIgnoreCase(TransitAnnouncementStationDisplayByKey, normalizedStationDisplayMap))
+		{
+			TransitAnnouncementStationDisplayByKey = normalizedStationDisplayMap;
+			changed = true;
+		}
+
 		List<string> normalizedKnownLines = NormalizeTransitLineList(TransitAnnouncementKnownLines);
 		if (!ListsEqualIgnoreCase(TransitAnnouncementKnownLines, normalizedKnownLines))
 		{
 			TransitAnnouncementKnownLines = normalizedKnownLines;
+			changed = true;
+		}
+
+		List<string> normalizedKnownStations = NormalizeTransitLineList(TransitAnnouncementKnownStations);
+		if (!ListsEqualIgnoreCase(TransitAnnouncementKnownStations, normalizedKnownStations))
+		{
+			TransitAnnouncementKnownStations = normalizedKnownStations;
+			changed = true;
+		}
+
+		List<string> normalizedKnownStationLines = NormalizeTransitLineList(TransitAnnouncementKnownStationLines);
+		if (!ListsEqualIgnoreCase(TransitAnnouncementKnownStationLines, normalizedKnownStationLines))
+		{
+			TransitAnnouncementKnownStationLines = normalizedKnownStationLines;
 			changed = true;
 		}
 
@@ -444,6 +532,15 @@ internal sealed class AudioReplacementDomainConfig
 			changed = true;
 		}
 
+		string normalizedSelectedStation = NormalizeTransitLineKey(TransitAnnouncementSelectedStation);
+		if (!string.IsNullOrWhiteSpace(normalizedSelectedStation) &&
+			TransitAnnouncementKnownStations.All(station => !string.Equals(station, normalizedSelectedStation, StringComparison.OrdinalIgnoreCase)))
+		{
+			TransitAnnouncementKnownStations.Add(normalizedSelectedStation);
+			TransitAnnouncementKnownStations.Sort(StringComparer.OrdinalIgnoreCase);
+			changed = true;
+		}
+
 		if (string.IsNullOrWhiteSpace(normalizedSelectedLine))
 		{
 			normalizedSelectedLine = TransitAnnouncementKnownLines.Count > 0
@@ -451,9 +548,22 @@ internal sealed class AudioReplacementDomainConfig
 				: string.Empty;
 		}
 
+		if (string.IsNullOrWhiteSpace(normalizedSelectedStation))
+		{
+			normalizedSelectedStation = TransitAnnouncementKnownStations.Count > 0
+				? TransitAnnouncementKnownStations[0]
+				: string.Empty;
+		}
+
 		if (!string.Equals(TransitAnnouncementSelectedLine, normalizedSelectedLine, StringComparison.Ordinal))
 		{
 			TransitAnnouncementSelectedLine = normalizedSelectedLine;
+			changed = true;
+		}
+
+		if (!string.Equals(TransitAnnouncementSelectedStation, normalizedSelectedStation, StringComparison.Ordinal))
+		{
+			TransitAnnouncementSelectedStation = normalizedSelectedStation;
 			changed = true;
 		}
 
@@ -466,6 +576,20 @@ internal sealed class AudioReplacementDomainConfig
 			for (int i = 0; i < staleDisplayLineKeys.Count; i++)
 			{
 				TransitAnnouncementLineDisplayByKey.Remove(staleDisplayLineKeys[i]);
+			}
+
+			changed = true;
+		}
+
+		HashSet<string> knownStationSet = new HashSet<string>(TransitAnnouncementKnownStations, StringComparer.OrdinalIgnoreCase);
+		List<string> staleDisplayStationKeys = TransitAnnouncementStationDisplayByKey.Keys
+			.Where(key => !knownStationSet.Contains(NormalizeTransitLineKey(key)))
+			.ToList();
+		if (staleDisplayStationKeys.Count > 0)
+		{
+			for (int i = 0; i < staleDisplayStationKeys.Count; i++)
+			{
+				TransitAnnouncementStationDisplayByKey.Remove(staleDisplayStationKeys[i]);
 			}
 
 			changed = true;

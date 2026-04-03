@@ -30,7 +30,7 @@ public sealed partial class SirenChangerSettings : ModSetting
 
 	public const string kTransitAnnouncementGroup = "Global Announcement Settings";
 
-	public const string kTransitAnnouncementLineGroup = "Per-Line Overrides";
+	public const string kTransitAnnouncementLineGroup = "Per-Station Line Overrides";
 
 	public const string kVehicleGroup = "Siren Defaults";
 
@@ -103,7 +103,7 @@ public sealed partial class SirenChangerSettings : ModSetting
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetCitySoundSetOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Sound Set")]
-	[SettingsUIDescription(overrideValue: "Select the sound set to activate, edit, or bind to the current city.")]
+	[SettingsUIDescription(overrideValue: "Select a local or module sound set. Module profiles are read-only and can be activated or copied.")]
 	public string SelectedCitySoundSet
 	{
 		get => SirenChangerMod.GetSelectedCitySoundSetForOptions();
@@ -121,11 +121,12 @@ public sealed partial class SirenChangerSettings : ModSetting
 	}
 
 	[SettingsUISection(kGeneralTab, kCitySoundSetGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsUpdateCitySoundSetDisabled))]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kCitySoundSetButtonGroup)]
 	[SettingsUIConfirmation(overrideConfirmMessageValue: "Overwrite the selected sound set with the current active settings?")]
 	[SettingsUIDisplayName(overrideValue: "Update Selected Set")]
-	[SettingsUIDescription(overrideValue: "Save current settings into the selected sound set.")]
+	[SettingsUIDescription(overrideValue: "Save current settings into the selected local sound set.")]
 	public bool UpdateSelectedCitySoundSet
 	{
 		set => SirenChangerMod.UpdateSelectedCitySoundSetFromOptions();
@@ -190,7 +191,7 @@ public sealed partial class SirenChangerSettings : ModSetting
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kCitySoundSetButtonGroup)]
 	[SettingsUIDisplayName(overrideValue: "Bind Current City To Selected Set")]
-	[SettingsUIDescription(overrideValue: "Map the currently loaded city to the selected sound set.")]
+	[SettingsUIDescription(overrideValue: "Map the currently loaded city to the selected local sound set.")]
 	public bool BindCurrentCityToSelectedSet
 	{
 		set => SirenChangerMod.BindCurrentCityToSelectedSoundSetFromOptions();
@@ -835,22 +836,28 @@ public sealed partial class SirenChangerSettings : ModSetting
 		return IsSpecificVehicleOverrideDisabled();
 	}
 
-	// Condition helper: prevent deleting the Default sound set.
-	public bool IsDeleteCitySoundSetDisabled()
+	// Condition helper: prevent updating read-only sound sets (Default/module).
+	public bool IsUpdateCitySoundSetDisabled()
 	{
-		return SirenChangerMod.IsSelectedCitySoundSetDefault();
+		return SirenChangerMod.IsSelectedCitySoundSetReadOnly();
 	}
 
-	// Condition helper: prevent renaming the Default sound set.
+	// Condition helper: prevent deleting read-only sound sets (Default/module).
+	public bool IsDeleteCitySoundSetDisabled()
+	{
+		return SirenChangerMod.IsSelectedCitySoundSetReadOnly();
+	}
+
+	// Condition helper: prevent renaming read-only sound sets (Default/module).
 	public bool IsRenameCitySoundSetDisabled()
 	{
-		return SirenChangerMod.IsSelectedCitySoundSetDefault();
+		return SirenChangerMod.IsSelectedCitySoundSetReadOnly();
 	}
 
 	// Condition helper: city binding actions require a loaded city identity.
 	public bool IsBindCitySoundSetDisabled()
 	{
-		return !SirenChangerMod.HasCurrentCityIdentity();
+		return !SirenChangerMod.HasCurrentCityIdentity() || SirenChangerMod.IsSelectedCitySoundSetModuleProfile();
 	}
 
 	// Condition helper: clearing binding only applies when current city has one.

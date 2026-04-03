@@ -44,7 +44,7 @@
   <Screenshot Value="Images/Screen_Dev2.jpg" />
   <Screenshot Value="Images/Screen_Dev3.jpg" />
   <!--CHANGE LOG-->
-	<ChangeLog Value="Bug fixes, added Ferry to public transport announcements, fixed issues with Audio Switcher not being correctly set as dependency, Added the ability for users to set version numbers, firmed up cross update persistence" />
+	<ChangeLog Value="Profiles are now supported in modules, Public transport announcements now work on a per-station and per-line basis" />
   <Tag Value="" />
   <!--Link to the forum post where the mod can be discussed-->
   <ForumLink Value="https://forum.paradoxplaza.com/forum/threads/audio-switcher.1903848/" />
@@ -61,3 +61,4 @@
   <!--Supported values Public, Private, Unlisted-->
   <AccessLevel Value="Public" />
 </Publish>
+                                              

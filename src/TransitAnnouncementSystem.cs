@@ -28,6 +28,8 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 
 	private const int kMaxDeferredAnnouncementsPerSlot = 16;
 
+	private const float kStationGridSizeMeters = 4f;
+
 	private EntityQuery m_PublicTransportQuery = default;
 
 	private EntityQuery m_TransportLineQuery = default;
@@ -49,6 +51,12 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 	private ComponentLookup<RouteNumber> m_RouteNumberData = default;
 
 	private ComponentLookup<TransportLineData> m_TransportLineData = default;
+
+	private ComponentLookup<Game.Routes.TransportStop> m_TransportStopData = default;
+
+	private BufferLookup<RouteWaypoint> m_RouteWaypointBufferData = default;
+
+	private BufferLookup<ConnectedRoute> m_ConnectedRouteBufferData = default;
 
 	private NameSystem? m_NameSystem;
 
@@ -99,19 +107,23 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 	// Queue key for pending announcement loads. Isolation is per slot + line identity.
 	private readonly struct PendingAnnouncementQueueKey : IEquatable<PendingAnnouncementQueueKey>
 	{
-		public PendingAnnouncementQueueKey(TransitAnnouncementSlot slot, string lineKey)
+		public PendingAnnouncementQueueKey(TransitAnnouncementSlot slot, string stationKey, string lineKey)
 		{
 			Slot = slot;
+			StationKey = SirenChangerMod.NormalizeTransitStationIdentity(stationKey);
 			LineKey = SirenChangerMod.NormalizeTransitLineIdentity(lineKey);
 		}
 
 		public TransitAnnouncementSlot Slot { get; }
+
+		public string StationKey { get; }
 
 		public string LineKey { get; }
 
 		public bool Equals(PendingAnnouncementQueueKey other)
 		{
 			return Slot == other.Slot &&
+				string.Equals(StationKey, other.StationKey, StringComparison.OrdinalIgnoreCase) &&
 				string.Equals(LineKey, other.LineKey, StringComparison.OrdinalIgnoreCase);
 		}
 
@@ -125,6 +137,7 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 			unchecked
 			{
 				int hash = (int)Slot * 397;
+				hash ^= StringComparer.OrdinalIgnoreCase.GetHashCode(StationKey ?? string.Empty);
 				hash ^= StringComparer.OrdinalIgnoreCase.GetHashCode(LineKey ?? string.Empty);
 				return hash;
 			}
@@ -149,6 +162,9 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		m_CurrentRouteData = GetComponentLookup<CurrentRoute>(isReadOnly: true);
 		m_RouteNumberData = GetComponentLookup<RouteNumber>(isReadOnly: true);
 		m_TransportLineData = GetComponentLookup<TransportLineData>(isReadOnly: true);
+		m_TransportStopData = GetComponentLookup<Game.Routes.TransportStop>(isReadOnly: true);
+		m_RouteWaypointBufferData = GetBufferLookup<RouteWaypoint>(isReadOnly: true);
+		m_ConnectedRouteBufferData = GetBufferLookup<ConnectedRoute>(isReadOnly: true);
 		m_NameSystem = World.GetExistingSystemManaged<NameSystem>();
 	}
 
@@ -156,6 +172,7 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 	{
 		if (GameManager.instance.isGameLoading)
 		{
+			SirenChangerMod.PersistTransitObservationMetadataNow();
 			m_WasLoading = true;
 			return;
 		}
@@ -168,12 +185,14 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 
 		if (GameManager.instance.gameMode != GameMode.Game)
 		{
+			SirenChangerMod.PersistTransitObservationMetadataNow();
 			ResetSessionState();
 			return;
 		}
 
 		if (m_PublicTransportQuery.IsEmptyIgnoreFilter)
 		{
+			SirenChangerMod.FlushTransitObservationAutosaveIfDue();
 			ResetSessionState();
 			return;
 		}
@@ -190,8 +209,12 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		m_ControllerData.Update(this);
 		m_CurrentRouteData.Update(this);
 		m_RouteNumberData.Update(this);
+		m_TransportStopData.Update(this);
+		m_RouteWaypointBufferData.Update(this);
+		m_ConnectedRouteBufferData.Update(this);
 
 		float now = UnityEngine.Time.unscaledTime;
+		SirenChangerMod.FlushTransitObservationAutosaveIfDue();
 		ProcessPendingAnnouncements(now);
 		bool playbackEnabled = SirenChangerMod.TransitAnnouncementConfig.Enabled;
 		m_SeenVehicles.Clear();
@@ -227,11 +250,6 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 					continue;
 				}
 
-				if (TryResolveRouteIdentity(serviceType, vehicle, out string observedLineKey, out string observedLineDisplayName))
-				{
-					SirenChangerMod.RegisterTransitLineObservation(observedLineKey, observedLineDisplayName);
-				}
-
 				Game.Vehicles.PublicTransport transport = transports[i];
 				bool hasExistingState = m_StateByVehicle.TryGetValue(vehicle, out VehicleAnnouncementState state);
 
@@ -244,6 +262,20 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 				if (currentStop != Entity.Null)
 				{
 					state.LastStopEntity = currentStop;
+				}
+
+				if (TryResolveRouteIdentity(serviceType, vehicle, out string observedLineKey, out string observedLineDisplayName))
+				{
+					if (currentStop == Entity.Null ||
+						!RegisterObservedStationLineFromStop(
+							currentStop,
+							observedLineKey,
+							observedLineDisplayName,
+							seenStations: null,
+							seenStationLines: null))
+					{
+						SirenChangerMod.RegisterTransitLineObservation(observedLineKey, observedLineDisplayName);
+					}
 				}
 
 				// Seed transition memory for newly seen vehicles so current-state flags do not
@@ -297,14 +329,18 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		RemoveStaleVehicleStates();
 	}
 
-	// Explicit options action: scan current public transport vehicles and register route identities as known lines.
+	// Explicit options action: scan routes and active vehicles to discover lines, stations, and station-line pairs.
 	internal bool TryScanTransitLinesForOptions(
 		out int scannedVehicleCount,
 		out int observedLineCount,
+		out int observedStationCount,
+		out int observedStationLineCount,
 		out string status)
 	{
 		scannedVehicleCount = 0;
 		observedLineCount = 0;
+		observedStationCount = 0;
+		observedStationLineCount = 0;
 		status = string.Empty;
 		int scannedRouteCount = 0;
 
@@ -327,8 +363,16 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		m_RouteNumberData.Update(this);
 		m_OwnerData.Update(this);
 		m_TransportLineData.Update(this);
+		m_TargetData.Update(this);
+		m_ConnectedData.Update(this);
+		m_TransformData.Update(this);
+		m_TransportStopData.Update(this);
+		m_RouteWaypointBufferData.Update(this);
+		m_ConnectedRouteBufferData.Update(this);
 
 		HashSet<string> seenLines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		HashSet<string> seenStations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		HashSet<string> seenStationLines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		using (NativeArray<Entity> routeEntities = m_TransportLineQuery.ToEntityArray(Allocator.Temp))
 		using (NativeArray<PrefabRef> routePrefabs = m_TransportLineQuery.ToComponentDataArray<PrefabRef>(Allocator.Temp))
 		{
@@ -355,6 +399,12 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 
 				seenLines.Add(observedLineKey);
 				SirenChangerMod.RegisterTransitLineObservation(observedLineKey, observedLineDisplayName);
+				RegisterObservedRouteStationsForLine(
+					routeEntity,
+					observedLineKey,
+					observedLineDisplayName,
+					seenStations,
+					seenStationLines);
 			}
 		}
 
@@ -392,18 +442,31 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 				}
 
 				seenLines.Add(observedLineKey);
-				SirenChangerMod.RegisterTransitLineObservation(observedLineKey, observedLineDisplayName);
+				Entity currentStop = ResolveCurrentStopEntity(vehicle);
+				if (currentStop == Entity.Null ||
+					!RegisterObservedStationLineFromStop(
+						currentStop,
+						observedLineKey,
+						observedLineDisplayName,
+						seenStations,
+						seenStationLines))
+				{
+					SirenChangerMod.RegisterTransitLineObservation(observedLineKey, observedLineDisplayName);
+				}
 			}
 		}
 
 		observedLineCount = seenLines.Count;
-		status = $"Scanned routes: {scannedRouteCount}\nScanned vehicles: {scannedVehicleCount}\nObserved lines: {observedLineCount}";
+		observedStationCount = seenStations.Count;
+		observedStationLineCount = seenStationLines.Count;
+		status = $"Scanned routes: {scannedRouteCount}\nScanned vehicles: {scannedVehicleCount}\nObserved lines: {observedLineCount}\nObserved stations: {observedStationCount}\nObserved station-line pairs: {observedStationLineCount}";
 		return true;
 	}
 
 	// Reset transition memory when loading/game-mode transitions happen.
 	private void ResetSessionState()
 	{
+		SirenChangerMod.PersistTransitObservationMetadataNow();
 		m_StateByVehicle.Clear();
 		m_SeenVehicles.Clear();
 		m_StaleVehicles.Clear();
@@ -411,6 +474,160 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		m_PendingAnnouncementsByQueueKey.Clear();
 		m_PendingAnnouncementKeysScratch.Clear();
 		SirenChangerMod.ResetTransitLineObservationSession();
+	}
+
+	// Resolve route waypoints into station-line observations so scan can discover full line coverage.
+	private void RegisterObservedRouteStationsForLine(
+		Entity routeEntity,
+		string observedLineKey,
+		string observedLineDisplayName,
+		ISet<string> seenStations,
+		ISet<string> seenStationLines)
+	{
+		if (routeEntity == Entity.Null)
+		{
+			return;
+		}
+
+		HashSet<Entity> processedWaypoints = new HashSet<Entity>();
+		if (m_RouteWaypointBufferData.HasBuffer(routeEntity))
+		{
+			DynamicBuffer<RouteWaypoint> waypoints = m_RouteWaypointBufferData[routeEntity];
+			for (int i = 0; i < waypoints.Length; i++)
+			{
+				Entity waypointEntity = waypoints[i].m_Waypoint;
+				if (waypointEntity == Entity.Null || !processedWaypoints.Add(waypointEntity))
+				{
+					continue;
+				}
+
+				RegisterObservedStationLineFromWaypoint(
+					waypointEntity,
+					observedLineKey,
+					observedLineDisplayName,
+					seenStations,
+					seenStationLines);
+			}
+		}
+
+		if (!m_ConnectedRouteBufferData.HasBuffer(routeEntity))
+		{
+			return;
+		}
+
+		DynamicBuffer<ConnectedRoute> connectedWaypoints = m_ConnectedRouteBufferData[routeEntity];
+		for (int i = 0; i < connectedWaypoints.Length; i++)
+		{
+			Entity waypointEntity = connectedWaypoints[i].m_Waypoint;
+			if (waypointEntity == Entity.Null || !processedWaypoints.Add(waypointEntity))
+			{
+				continue;
+			}
+
+			RegisterObservedStationLineFromWaypoint(
+				waypointEntity,
+				observedLineKey,
+				observedLineDisplayName,
+				seenStations,
+				seenStationLines);
+		}
+	}
+
+	private void RegisterObservedStationLineFromWaypoint(
+		Entity waypointEntity,
+		string observedLineKey,
+		string observedLineDisplayName,
+		ISet<string>? seenStations,
+		ISet<string>? seenStationLines)
+	{
+		if (!TryResolveTransportStopEntity(waypointEntity, out Entity stopEntity) || stopEntity == Entity.Null)
+		{
+			return;
+		}
+
+		RegisterObservedStationLineFromStop(
+			stopEntity,
+			observedLineKey,
+			observedLineDisplayName,
+			seenStations,
+			seenStationLines);
+	}
+
+	private bool RegisterObservedStationLineFromStop(
+		Entity stopEntity,
+		string observedLineKey,
+		string observedLineDisplayName,
+		ISet<string>? seenStations,
+		ISet<string>? seenStationLines)
+	{
+		if (!TryResolveStationIdentity(stopEntity, out string observedStationKey, out string observedStationDisplayName))
+		{
+			return false;
+		}
+
+		string stationLineKey = SirenChangerMod.BuildTransitStationLineIdentity(observedStationKey, observedLineKey);
+		if (!string.IsNullOrWhiteSpace(stationLineKey))
+		{
+			seenStations?.Add(observedStationKey);
+			seenStationLines?.Add(stationLineKey);
+		}
+
+		SirenChangerMod.RegisterTransitStationLineObservation(
+			observedStationKey,
+			observedStationDisplayName,
+			observedLineKey,
+			observedLineDisplayName);
+		return true;
+	}
+
+	// Walk connected/owner chains until a transport-stop anchor is found.
+	private bool TryResolveTransportStopEntity(Entity sourceEntity, out Entity stopEntity)
+	{
+		stopEntity = Entity.Null;
+		if (sourceEntity == Entity.Null)
+		{
+			return false;
+		}
+
+		Entity connected = sourceEntity;
+		if (m_ConnectedData.TryGetComponent(connected, out Connected connectedData) &&
+			connectedData.m_Connected != Entity.Null)
+		{
+			connected = connectedData.m_Connected;
+		}
+
+		if (TryFindTransportStopAlongOwnerChain(connected, out stopEntity) ||
+			TryFindTransportStopAlongOwnerChain(sourceEntity, out stopEntity))
+		{
+			return true;
+		}
+
+		return false;
+	}
+
+	private bool TryFindTransportStopAlongOwnerChain(Entity entity, out Entity stopEntity)
+	{
+		Entity current = entity;
+		for (int depth = 0; depth < 8 && current != Entity.Null; depth++)
+		{
+			if (m_TransportStopData.HasComponent(current))
+			{
+				stopEntity = current;
+				return true;
+			}
+
+			if (!m_OwnerData.TryGetComponent(current, out Owner owner) ||
+				owner.m_Owner == Entity.Null ||
+				owner.m_Owner == current)
+			{
+				break;
+			}
+
+			current = owner.m_Owner;
+		}
+
+		stopEntity = Entity.Null;
+		return false;
 	}
 
 	// Remove state rows for vehicles no longer present in the active query.
@@ -510,10 +727,12 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 			return;
 		}
 
+		string stationKey = ResolveAnnouncementStationKey(stopEntity);
 		string lineKey = ResolveAnnouncementLineKey(serviceType, vehicle);
-		PendingAnnouncementQueueKey queueKey = new PendingAnnouncementQueueKey(slot, lineKey);
+		PendingAnnouncementQueueKey queueKey = new PendingAnnouncementQueueKey(slot, stationKey, lineKey);
 		TransitAnnouncementLoadStatus loadStatus = SirenChangerMod.TryBuildTransitAnnouncementSequence(
 			slot,
+			stationKey,
 			lineKey,
 			out List<TransitAnnouncementPlaybackSegment> segments,
 			out string statusMessage);
@@ -636,6 +855,7 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 				DeferredAnnouncementRequest request = requests[0];
 				TransitAnnouncementLoadStatus loadStatus = SirenChangerMod.TryBuildTransitAnnouncementSequence(
 					queueKey.Slot,
+					queueKey.StationKey,
 					queueKey.LineKey,
 					out List<TransitAnnouncementPlaybackSegment> segments,
 					out string message);
@@ -678,6 +898,102 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		}
 
 		return lineKey;
+	}
+
+	// Resolve the station identity key used for per-station+line announcement overrides.
+	private string ResolveAnnouncementStationKey(Entity stopEntity)
+	{
+		return TryResolveStationIdentity(stopEntity, out string stationKey, out _)
+			? stationKey
+			: string.Empty;
+	}
+
+	private bool TryResolveStationIdentity(Entity stopEntity, out string stationKey, out string displayName)
+	{
+		stationKey = string.Empty;
+		displayName = string.Empty;
+		if (!TryResolveStationDescriptor(stopEntity, out string stableStationId, out string stationDisplayName))
+		{
+			return false;
+		}
+
+		string key = SirenChangerMod.BuildTransitStationIdentity(stableStationId);
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return false;
+		}
+
+		stationKey = key;
+		displayName = stationDisplayName;
+		return true;
+	}
+
+	private bool TryResolveStationDescriptor(
+		Entity stopEntity,
+		out string stableStationId,
+		out string displayName)
+	{
+		stableStationId = string.Empty;
+		displayName = string.Empty;
+		if (stopEntity == Entity.Null)
+		{
+			return false;
+		}
+
+		Entity anchor = stopEntity;
+		Entity current = stopEntity;
+		string anchorDisplayName = string.Empty;
+		for (int depth = 0; depth < 8 && current != Entity.Null; depth++)
+		{
+			string candidateName = GetEntityDisplayName(current);
+			if (!string.IsNullOrWhiteSpace(candidateName))
+			{
+				anchor = current;
+				anchorDisplayName = candidateName;
+				break;
+			}
+
+			if (!m_OwnerData.TryGetComponent(current, out Owner owner) ||
+				owner.m_Owner == Entity.Null ||
+				owner.m_Owner == current)
+			{
+				break;
+			}
+
+			current = owner.m_Owner;
+		}
+
+		bool hasPosition = TryResolveWorldPosition(anchor, out float3 anchorPosition) ||
+			TryResolveWorldPosition(stopEntity, out anchorPosition);
+		if (!hasPosition)
+		{
+			anchorPosition = default;
+		}
+
+		string normalizedLabel = AudioReplacementDomainConfig.NormalizeTransitDisplayText(anchorDisplayName);
+		if (hasPosition)
+		{
+			int gridX = Mathf.RoundToInt(anchorPosition.x / kStationGridSizeMeters);
+			int gridZ = Mathf.RoundToInt(anchorPosition.z / kStationGridSizeMeters);
+			stableStationId = string.IsNullOrWhiteSpace(normalizedLabel)
+				? $"pos:{gridX}:{gridZ}"
+				: $"name:{normalizedLabel}@{gridX}:{gridZ}";
+			displayName = string.IsNullOrWhiteSpace(normalizedLabel)
+				? $"Station ({gridX}, {gridZ})"
+				: normalizedLabel;
+			return true;
+		}
+
+		if (!string.IsNullOrWhiteSpace(normalizedLabel))
+		{
+			stableStationId = $"name:{normalizedLabel}";
+			displayName = normalizedLabel;
+			return true;
+		}
+
+		stableStationId = $"entity:{anchor.Index}:{anchor.Version}";
+		displayName = $"Stop {anchor.Index}";
+		return true;
 	}
 
 	// Resolve stable line identity plus a user-facing display label.
@@ -760,9 +1076,10 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		}
 
 		bool hasRouteNumber = TryGetRouteNumberWithOwnerFallback(routeEntity, out int routeNumber);
-		stableLineId = hasRouteNumber && routeNumber > 0
-			? $"number:{routeNumber}"
-			: $"route:{routeEntity.Index}:{routeEntity.Version}:0";
+		int normalizedRouteNumber = hasRouteNumber && routeNumber > 0
+			? routeNumber
+			: 0;
+		stableLineId = $"route:{routeEntity.Index}:{routeEntity.Version}:{normalizedRouteNumber}";
 
 		// Prefer the route entity name; owner labels are often generic and collapse distinct lines.
 		string routeLabel = GetEntityDisplayName(routeEntity);

@@ -27,6 +27,12 @@ public sealed partial class SirenChangerMod
 	// Current selection in the saved-binding management dropdown.
 	private static string s_SelectedCityBindingGuidForOptions = string.Empty;
 
+	// Current options dropdown selection when it points to a module-provided sound-set profile key.
+	private static string s_SelectedModuleSoundSetProfileKeyForOptions = string.Empty;
+
+	// Active runtime sound-set selection identifier (local set id or module profile key).
+	private static string s_ActiveSoundSetSelectionId = CitySoundProfileRegistry.DefaultSetId;
+
 	// Initialize registry-backed sound-set state when the mod loads.
 	private static void InitializeCitySoundProfiles()
 	{
@@ -37,6 +43,7 @@ public sealed partial class SirenChangerMod
 			CitySoundProfileRegistry.DefaultSetDisplayName);
 		LoadSoundSetConfig(initialSetId);
 		s_SelectedCityBindingGuidForOptions = GetFirstBindingGuidOrEmpty();
+		s_SelectedModuleSoundSetProfileKeyForOptions = string.Empty;
 		SaveCitySoundProfileRegistry();
 		s_CitySoundSetStatus = $"Active sound set: {GetSoundSetDisplayName(initialSetId)}.";
 	}
@@ -56,6 +63,76 @@ public sealed partial class SirenChangerMod
 			setId,
 			fileName,
 			ensureDirectoryExists);
+	}
+
+	// True when one selection key resolves to an available module-provided sound-set profile.
+	private static bool TryNormalizeModuleSoundSetProfileKey(string selectionId, out string profileKey)
+	{
+		profileKey = SirenPathUtils.NormalizeProfileKey(selectionId ?? string.Empty);
+		if (string.IsNullOrWhiteSpace(profileKey))
+		{
+			return false;
+		}
+
+		return TryGetAudioModuleSoundSetProfileDisplayName(profileKey, out _);
+	}
+
+	// True when one selection key points to a module-provided sound-set profile.
+	private static bool IsModuleSoundSetProfileSelection(string selectionId)
+	{
+		return TryNormalizeModuleSoundSetProfileKey(selectionId, out _);
+	}
+
+	// Resolve selected options value, preferring module-profile selection when present.
+	private static string GetSelectedCitySoundSetReferenceForOptions()
+	{
+		if (TryNormalizeModuleSoundSetProfileKey(s_SelectedModuleSoundSetProfileKeyForOptions, out string moduleProfileKey))
+		{
+			s_SelectedModuleSoundSetProfileKeyForOptions = moduleProfileKey;
+			return moduleProfileKey;
+		}
+
+		s_SelectedModuleSoundSetProfileKeyForOptions = string.Empty;
+		return s_CitySoundProfileRegistry.SelectedSetId;
+	}
+
+	// Resolve active runtime selection id (local set id or module profile key).
+	private static string GetActiveSoundSetReferenceId()
+	{
+		if (TryNormalizeModuleSoundSetProfileKey(s_ActiveSoundSetSelectionId, out string moduleProfileKey))
+		{
+			s_ActiveSoundSetSelectionId = moduleProfileKey;
+			return moduleProfileKey;
+		}
+
+		s_ActiveSoundSetSelectionId = EnsureSoundSetExists(s_CitySoundProfileRegistry.ActiveSetId, CitySoundProfileRegistry.DefaultSetDisplayName);
+		return s_ActiveSoundSetSelectionId;
+	}
+
+	// Resolve settings-file read path from module snapshot or local set path.
+	private static bool TryResolveSoundSetSettingsReadPath(string setOrProfileId, string fileName, out string filePath)
+	{
+		filePath = string.Empty;
+		string normalizedFileName = Path.GetFileName((fileName ?? string.Empty).Trim());
+		if (string.IsNullOrWhiteSpace(normalizedFileName))
+		{
+			return false;
+		}
+
+		if (TryNormalizeModuleSoundSetProfileKey(setOrProfileId, out string moduleProfileKey))
+		{
+			return TryGetAudioModuleSoundSetProfileSettingsFilePath(moduleProfileKey, normalizedFileName, out filePath);
+		}
+
+		string setId = EnsureSoundSetExists(setOrProfileId, setOrProfileId);
+		string candidatePath = GetSoundSetSettingsPath(setId, normalizedFileName, ensureDirectoryExists: false);
+		if (!File.Exists(candidatePath))
+		{
+			return false;
+		}
+
+		filePath = candidatePath;
+		return true;
 	}
 
 	// Return the first valid bound city GUID so binding dropdowns always have a stable selection.
@@ -141,6 +218,63 @@ public sealed partial class SirenChangerMod
 	// Load siren/engine/ambient/transit-announcement configs for one set and update active-selection metadata.
 	private static void LoadSoundSetConfig(string setId)
 	{
+		if (TryNormalizeModuleSoundSetProfileKey(setId, out string moduleProfileKey))
+		{
+			SirenReplacementConfig moduleSirenConfig = SirenReplacementConfig.CreateDefault();
+			if (TryResolveSoundSetSettingsReadPath(moduleProfileKey, SirenReplacementConfig.SettingsFileName, out string moduleSirenSettingsPath))
+			{
+				moduleSirenConfig = SirenReplacementConfig.LoadOrCreateFromPath(moduleSirenSettingsPath, Log);
+			}
+
+			AudioReplacementDomainConfig moduleVehicleEngineConfig = AudioReplacementDomainConfig.CreateDefault(VehicleEngineCustomFolderName);
+			if (TryResolveSoundSetSettingsReadPath(moduleProfileKey, VehicleEngineSettingsFileName, out string moduleEngineSettingsPath))
+			{
+				moduleVehicleEngineConfig = AudioReplacementDomainConfig.LoadOrCreate(
+					moduleEngineSettingsPath,
+					VehicleEngineCustomFolderName,
+					Log);
+			}
+
+			AudioReplacementDomainConfig moduleAmbientConfig = AudioReplacementDomainConfig.CreateDefault(AmbientCustomFolderName);
+			if (TryResolveSoundSetSettingsReadPath(moduleProfileKey, AmbientSettingsFileName, out string moduleAmbientSettingsPath))
+			{
+				moduleAmbientConfig = AudioReplacementDomainConfig.LoadOrCreate(
+					moduleAmbientSettingsPath,
+					AmbientCustomFolderName,
+					Log);
+			}
+
+			AudioReplacementDomainConfig moduleTransitConfig = AudioReplacementDomainConfig.CreateDefault(TransitAnnouncementCustomFolderName);
+			if (TryResolveSoundSetSettingsReadPath(moduleProfileKey, TransitAnnouncementSettingsFileName, out string moduleTransitSettingsPath))
+			{
+				moduleTransitConfig = AudioReplacementDomainConfig.LoadOrCreate(
+					moduleTransitSettingsPath,
+					TransitAnnouncementCustomFolderName,
+					Log);
+			}
+
+			Config = moduleSirenConfig;
+			VehicleEngineConfig = moduleVehicleEngineConfig;
+			AmbientConfig = moduleAmbientConfig;
+			TransitAnnouncementConfig = moduleTransitConfig;
+			Config.Normalize();
+			VehicleEngineConfig.Normalize(VehicleEngineCustomFolderName);
+			AmbientConfig.Normalize(AmbientCustomFolderName);
+			TransitAnnouncementConfig.Normalize(TransitAnnouncementCustomFolderName);
+			NormalizeTransitAnnouncementTargets();
+			NormalizeTransitAnnouncementSpeechSettings();
+
+			// Module profiles are runtime-only and are never persisted as active/bound registry sets.
+			s_ActiveSoundSetSelectionId = moduleProfileKey;
+			s_CitySoundProfileRegistry.ActiveSetId = EnsureSoundSetExists(
+				s_CitySoundProfileRegistry.ActiveSetId,
+				CitySoundProfileRegistry.DefaultSetDisplayName);
+			s_CitySoundProfileRegistry.SelectedSetId = s_CitySoundProfileRegistry.ContainsSet(s_CitySoundProfileRegistry.SelectedSetId)
+				? CitySoundProfileRegistry.NormalizeSetId(s_CitySoundProfileRegistry.SelectedSetId)
+				: s_CitySoundProfileRegistry.ActiveSetId;
+			return;
+		}
+
 		string normalizedSet = EnsureSoundSetExists(setId, setId);
 		string sirenSettingsPath = GetSoundSetSettingsPath(
 			normalizedSet,
@@ -183,6 +317,7 @@ public sealed partial class SirenChangerMod
 		NormalizeTransitAnnouncementSpeechSettings();
 
 		s_CitySoundProfileRegistry.ActiveSetId = normalizedSet;
+		s_ActiveSoundSetSelectionId = normalizedSet;
 		s_CitySoundProfileRegistry.SelectedSetId = s_CitySoundProfileRegistry.ContainsSet(s_CitySoundProfileRegistry.SelectedSetId)
 			? CitySoundProfileRegistry.NormalizeSetId(s_CitySoundProfileRegistry.SelectedSetId)
 			: normalizedSet;
@@ -195,9 +330,11 @@ public sealed partial class SirenChangerMod
 	// Switch runtime state to one set and refresh catalogs/dropdowns as needed.
 	private static bool ActivateSoundSetInternal(string setId, string reason, bool forceReload)
 	{
-		string normalizedSet = EnsureSoundSetExists(setId, setId);
+		string normalizedSet = TryNormalizeModuleSoundSetProfileKey(setId, out string moduleProfileKey)
+			? moduleProfileKey
+			: EnsureSoundSetExists(setId, setId);
 		if (!forceReload &&
-			string.Equals(s_CitySoundProfileRegistry.ActiveSetId, normalizedSet, StringComparison.OrdinalIgnoreCase))
+			string.Equals(GetActiveSoundSetReferenceId(), normalizedSet, StringComparison.OrdinalIgnoreCase))
 		{
 			return false;
 		}
@@ -225,6 +362,12 @@ public sealed partial class SirenChangerMod
 	// Resolve display name for one set ID with safe fallback text.
 	private static string GetSoundSetDisplayName(string setId)
 	{
+		if (TryNormalizeModuleSoundSetProfileKey(setId, out string moduleProfileKey) &&
+			TryGetAudioModuleSoundSetProfileDisplayName(moduleProfileKey, out string moduleDisplayName))
+		{
+			return moduleDisplayName;
+		}
+
 		string normalized = CitySoundProfileRegistry.NormalizeSetId(setId);
 		if (s_CitySoundProfileRegistry.TryGetSetDisplayName(normalized, out string displayName) &&
 			!string.IsNullOrWhiteSpace(displayName))
@@ -263,7 +406,7 @@ public sealed partial class SirenChangerMod
 	{
 		if (!HasCurrentCityIdentity())
 		{
-			s_CitySoundSetStatus = $"No city identity is available, keeping active sound set '{GetSoundSetDisplayName(s_CitySoundProfileRegistry.ActiveSetId)}'.";
+			s_CitySoundSetStatus = $"No city identity is available, keeping active sound set '{GetSoundSetDisplayName(GetActiveSoundSetReferenceId())}'.";
 			OptionsVersion++;
 			return;
 		}
@@ -423,7 +566,7 @@ public sealed partial class SirenChangerMod
 		else
 		{
 			s_CitySoundSetStatus =
-				$"Detected city {GetCurrentCityLabel()}, auto-apply is off. Active sound set is '{GetSoundSetDisplayName(s_CitySoundProfileRegistry.ActiveSetId)}'.";
+				$"Detected city {GetCurrentCityLabel()}, auto-apply is off. Active sound set is '{GetSoundSetDisplayName(GetActiveSoundSetReferenceId())}'.";
 			OptionsVersion++;
 		}
 	}
@@ -451,11 +594,11 @@ public sealed partial class SirenChangerMod
 		else
 		{
 			s_CitySoundSetStatus =
-				$"City auto-apply disabled. Active sound set is '{GetSoundSetDisplayName(s_CitySoundProfileRegistry.ActiveSetId)}'.";
+				$"City auto-apply disabled. Active sound set is '{GetSoundSetDisplayName(GetActiveSoundSetReferenceId())}'.";
 		}
 	}
 
-	// Build dropdown options for selectable sound sets (Default first, then custom sets).
+	// Build dropdown options for selectable sound sets (Default, local sets, then module profiles).
 	internal static DropdownItem<string>[] BuildCitySoundSetDropdownItems()
 	{
 		List<DropdownItem<string>> items = new List<DropdownItem<string>>();
@@ -478,6 +621,24 @@ public sealed partial class SirenChangerMod
 			{
 				value = pair.Key,
 				displayName = string.IsNullOrWhiteSpace(set.DisplayName) ? pair.Key : set.DisplayName
+			});
+		}
+
+		string[] moduleProfileKeys = GetAudioModuleSoundSetProfileKeys();
+		for (int i = 0; i < moduleProfileKeys.Length; i++)
+		{
+			string profileKey = moduleProfileKeys[i];
+			string displayName = profileKey;
+			if (TryGetAudioModuleSoundSetProfileDisplayName(profileKey, out string resolvedDisplayName) &&
+				!string.IsNullOrWhiteSpace(resolvedDisplayName))
+			{
+				displayName = resolvedDisplayName;
+			}
+
+			items.Add(new DropdownItem<string>
+			{
+				value = profileKey,
+				displayName = $"{displayName} (Module Profile)"
 			});
 		}
 
@@ -528,20 +689,40 @@ public sealed partial class SirenChangerMod
 
 	internal static string GetSelectedCitySoundSetForOptions()
 	{
-		return s_CitySoundProfileRegistry.SelectedSetId;
+		return GetSelectedCitySoundSetReferenceForOptions();
 	}
 
 	// Update selected-set UI state and persist only when value changes.
 	internal static void SetSelectedCitySoundSetForOptions(string setId)
 	{
+		if (TryNormalizeModuleSoundSetProfileKey(setId, out string moduleProfileKey))
+		{
+			if (string.Equals(s_SelectedModuleSoundSetProfileKeyForOptions, moduleProfileKey, StringComparison.OrdinalIgnoreCase))
+			{
+				return;
+			}
+
+			s_SelectedModuleSoundSetProfileKeyForOptions = moduleProfileKey;
+			OptionsVersion++;
+			return;
+		}
+
 		string normalized = CitySoundProfileRegistry.NormalizeSetId(setId);
 		if (!s_CitySoundProfileRegistry.ContainsSet(normalized))
 		{
 			normalized = CitySoundProfileRegistry.DefaultSetId;
 		}
 
+		bool hadModuleSelection = !string.IsNullOrWhiteSpace(s_SelectedModuleSoundSetProfileKeyForOptions);
+		s_SelectedModuleSoundSetProfileKeyForOptions = string.Empty;
+
 		if (string.Equals(s_CitySoundProfileRegistry.SelectedSetId, normalized, StringComparison.OrdinalIgnoreCase))
 		{
+			if (hadModuleSelection)
+			{
+				OptionsVersion++;
+			}
+
 			return;
 		}
 
@@ -596,7 +777,7 @@ public sealed partial class SirenChangerMod
 	// Activate whichever set is selected in the General tab dropdown.
 	internal static void ActivateSelectedCitySoundSetFromOptions()
 	{
-		string setId = s_CitySoundProfileRegistry.SelectedSetId;
+		string setId = GetSelectedCitySoundSetReferenceForOptions();
 		if (!ActivateSoundSetInternal(setId, "manual selection", forceReload: false))
 		{
 			s_CitySoundSetStatus = $"Sound set '{GetSoundSetDisplayName(setId)}' is already active.";
@@ -607,7 +788,15 @@ public sealed partial class SirenChangerMod
 	// Persist current runtime configs into the selected set without switching active set.
 	internal static void UpdateSelectedCitySoundSetFromOptions()
 	{
-		string selectedSetId = CitySoundProfileRegistry.NormalizeSetId(s_CitySoundProfileRegistry.SelectedSetId);
+		string selectedReference = GetSelectedCitySoundSetReferenceForOptions();
+		if (IsModuleSoundSetProfileSelection(selectedReference))
+		{
+			s_CitySoundSetStatus = "Module sound-set profiles are read-only. Duplicate the selected profile to create an editable local copy.";
+			OptionsVersion++;
+			return;
+		}
+
+		string selectedSetId = CitySoundProfileRegistry.NormalizeSetId(selectedReference);
 		if (!s_CitySoundProfileRegistry.ContainsSet(selectedSetId))
 		{
 			s_CitySoundSetStatus = "Selected sound set does not exist.";
@@ -619,13 +808,14 @@ public sealed partial class SirenChangerMod
 		SaveCitySoundProfileRegistry();
 
 		string selectedDisplayName = GetSoundSetDisplayName(selectedSetId);
-		if (string.Equals(selectedSetId, s_CitySoundProfileRegistry.ActiveSetId, StringComparison.OrdinalIgnoreCase))
+		string activeReference = GetActiveSoundSetReferenceId();
+		if (string.Equals(selectedSetId, activeReference, StringComparison.OrdinalIgnoreCase))
 		{
 			s_CitySoundSetStatus = $"Updated sound set '{selectedDisplayName}' ({selectedSetId}) from current settings.";
 		}
 		else
 		{
-			string activeDisplayName = GetSoundSetDisplayName(s_CitySoundProfileRegistry.ActiveSetId);
+			string activeDisplayName = GetSoundSetDisplayName(activeReference);
 			s_CitySoundSetStatus =
 				$"Updated sound set '{selectedDisplayName}' ({selectedSetId}) using current active settings '{activeDisplayName}'.";
 		}
@@ -636,7 +826,15 @@ public sealed partial class SirenChangerMod
 	internal static void RenameSelectedCitySoundSetFromOptions()
 	{
 		// Rename only changes display text; set ID remains stable for bindings and file paths.
-		string selected = CitySoundProfileRegistry.NormalizeSetId(s_CitySoundProfileRegistry.SelectedSetId);
+		string selectedReference = GetSelectedCitySoundSetReferenceForOptions();
+		if (IsModuleSoundSetProfileSelection(selectedReference))
+		{
+			s_CitySoundSetStatus = "Module sound-set profiles are read-only and cannot be renamed.";
+			OptionsVersion++;
+			return;
+		}
+
+		string selected = CitySoundProfileRegistry.NormalizeSetId(selectedReference);
 		if (string.Equals(selected, CitySoundProfileRegistry.DefaultSetId, StringComparison.OrdinalIgnoreCase))
 		{
 			s_CitySoundSetStatus = "The Default sound set cannot be renamed.";
@@ -678,8 +876,12 @@ public sealed partial class SirenChangerMod
 	internal static void DuplicateSelectedCitySoundSetFromOptions()
 	{
 		// Duplicate selected set contents without switching the currently active runtime set.
-		string sourceSetId = CitySoundProfileRegistry.NormalizeSetId(s_CitySoundProfileRegistry.SelectedSetId);
-		if (!s_CitySoundProfileRegistry.ContainsSet(sourceSetId))
+		string sourceSelectionId = GetSelectedCitySoundSetReferenceForOptions();
+		bool sourceIsModuleProfile = TryNormalizeModuleSoundSetProfileKey(sourceSelectionId, out string sourceModuleProfileKey);
+		string sourceSetId = sourceIsModuleProfile
+			? sourceModuleProfileKey
+			: CitySoundProfileRegistry.NormalizeSetId(sourceSelectionId);
+		if (!sourceIsModuleProfile && !s_CitySoundProfileRegistry.ContainsSet(sourceSetId))
 		{
 			s_CitySoundSetStatus = "Selected sound set does not exist.";
 			OptionsVersion++;
@@ -695,8 +897,11 @@ public sealed partial class SirenChangerMod
 		s_CitySoundProfileRegistry.SelectedSetId = duplicatedSetId;
 		SaveCitySoundProfileRegistry();
 		NotifyOptionsCatalogChanged();
+		s_SelectedModuleSoundSetProfileKeyForOptions = string.Empty;
 		s_CitySoundSetStatus =
-			$"Duplicated sound set '{sourceDisplayName}' to '{duplicatedDisplayName}' ({duplicatedSetId}).";
+			sourceIsModuleProfile
+				? $"Copied module sound-set profile '{sourceDisplayName}' to editable local set '{duplicatedDisplayName}' ({duplicatedSetId})."
+				: $"Duplicated sound set '{sourceDisplayName}' to '{duplicatedDisplayName}' ({duplicatedSetId}).";
 	}
 
 	// Create a new set by snapshotting the currently loaded runtime configs.
@@ -714,6 +919,7 @@ public sealed partial class SirenChangerMod
 		string displayName = CitySoundProfileRegistry.NormalizeDisplayName(requestedName, setId);
 		s_CitySoundProfileRegistry.EnsureSet(setId, displayName);
 		s_CitySoundProfileRegistry.SelectedSetId = setId;
+		s_SelectedModuleSoundSetProfileKeyForOptions = string.Empty;
 		s_CitySoundProfileRegistry.PendingNewSetName = string.Empty;
 		SaveConfigSetFiles(setId);
 		SaveCitySoundProfileRegistry();
@@ -724,7 +930,15 @@ public sealed partial class SirenChangerMod
 	// Delete selected set, clean on-disk files, and keep active/runtime state valid.
 	internal static void DeleteSelectedCitySoundSetFromOptions()
 	{
-		string selected = CitySoundProfileRegistry.NormalizeSetId(s_CitySoundProfileRegistry.SelectedSetId);
+		string selectedReference = GetSelectedCitySoundSetReferenceForOptions();
+		if (IsModuleSoundSetProfileSelection(selectedReference))
+		{
+			s_CitySoundSetStatus = "Module sound-set profiles are read-only and cannot be deleted.";
+			OptionsVersion++;
+			return;
+		}
+
+		string selected = CitySoundProfileRegistry.NormalizeSetId(selectedReference);
 		if (string.Equals(selected, CitySoundProfileRegistry.DefaultSetId, StringComparison.OrdinalIgnoreCase))
 		{
 			s_CitySoundSetStatus = "The Default sound set cannot be deleted.";
@@ -739,10 +953,10 @@ public sealed partial class SirenChangerMod
 			return;
 		}
 
-		bool deletingActiveSet = string.Equals(
-			s_CitySoundProfileRegistry.ActiveSetId,
-			selected,
-			StringComparison.OrdinalIgnoreCase);
+		string activeReference = GetActiveSoundSetReferenceId();
+		bool deletingActiveSet =
+			!IsModuleSoundSetProfileSelection(activeReference) &&
+			string.Equals(activeReference, selected, StringComparison.OrdinalIgnoreCase);
 
 		string deletedDisplayName = GetSoundSetDisplayName(selected);
 		s_CitySoundProfileRegistry.RemoveSet(selected);
@@ -778,9 +992,17 @@ public sealed partial class SirenChangerMod
 	// Bind current city to whichever set is selected in the General tab.
 	internal static void BindCurrentCityToSelectedSoundSetFromOptions()
 	{
+		string selectedReference = GetSelectedCitySoundSetReferenceForOptions();
+		if (IsModuleSoundSetProfileSelection(selectedReference))
+		{
+			s_CitySoundSetStatus = "Module sound-set profiles are read-only and cannot be auto-applied by city binding. Duplicate one to bind an editable local copy.";
+			OptionsVersion++;
+			return;
+		}
+
 		string selectedSet = EnsureSoundSetExists(
-			s_CitySoundProfileRegistry.SelectedSetId,
-			s_CitySoundProfileRegistry.SelectedSetId);
+			selectedReference,
+			selectedReference);
 		BindCurrentCityToSoundSetFromOptions(selectedSet);
 	}
 
@@ -870,22 +1092,40 @@ public sealed partial class SirenChangerMod
 	// True when selected set is the built-in Default set.
 	internal static bool IsSelectedCitySoundSetDefault()
 	{
+		if (IsSelectedCitySoundSetModuleProfile())
+		{
+			return false;
+		}
+
 		return string.Equals(
-			s_CitySoundProfileRegistry.SelectedSetId,
+			CitySoundProfileRegistry.NormalizeSetId(GetSelectedCitySoundSetReferenceForOptions()),
 			CitySoundProfileRegistry.DefaultSetId,
 			StringComparison.OrdinalIgnoreCase);
+	}
+
+	// True when selected set is a module-provided profile entry.
+	internal static bool IsSelectedCitySoundSetModuleProfile()
+	{
+		return IsModuleSoundSetProfileSelection(GetSelectedCitySoundSetReferenceForOptions());
+	}
+
+	// True when selected set is not editable in-place.
+	internal static bool IsSelectedCitySoundSetReadOnly()
+	{
+		return IsSelectedCitySoundSetDefault() || IsSelectedCitySoundSetModuleProfile();
 	}
 
 	// Build multiline status text displayed in the General tab.
 	internal static string GetCitySoundSetStatusText()
 	{
-		string activeLabel = GetSoundSetDisplayName(s_CitySoundProfileRegistry.ActiveSetId);
+		string activeSetId = GetActiveSoundSetReferenceId();
+		string activeLabel = GetSoundSetDisplayName(activeSetId);
 		string cityLabel = GetCurrentCityLabel();
 		string bindingLabel = HasCurrentCityIdentity()
 			? GetSoundSetDisplayName(s_CitySoundProfileRegistry.ResolveBoundSetId(s_CurrentCitySaveAssetGuid))
 			: "n/a";
 		return
-			$"Active Set: {activeLabel} ({s_CitySoundProfileRegistry.ActiveSetId})\n" +
+			$"Active Set: {activeLabel} ({activeSetId})\n" +
 			$"Current City: {cityLabel}\n" +
 			$"Bound Set: {bindingLabel}\n" +
 			$"{s_CitySoundSetStatus}";
@@ -903,6 +1143,13 @@ public sealed partial class SirenChangerMod
 		if (!HasCurrentCityIdentity())
 		{
 			s_CitySoundSetStatus = "No loaded city identity is available yet. Load a city first.";
+			OptionsVersion++;
+			return;
+		}
+
+		if (IsModuleSoundSetProfileSelection(setId))
+		{
+			s_CitySoundSetStatus = "Module sound-set profiles cannot be used for city auto-apply bindings.";
 			OptionsVersion++;
 			return;
 		}
@@ -939,10 +1186,15 @@ public sealed partial class SirenChangerMod
 
 	private static void DuplicateSoundSetConfigFiles(string sourceSetId, string targetSetId)
 	{
-		// Ensure on-disk files are current before copying from the active set.
-		string normalizedSourceSet = CitySoundProfileRegistry.NormalizeSetId(sourceSetId);
-		string normalizedTargetSet = CitySoundProfileRegistry.NormalizeSetId(targetSetId);
-		if (string.Equals(normalizedSourceSet, s_CitySoundProfileRegistry.ActiveSetId, StringComparison.OrdinalIgnoreCase))
+		string normalizedTargetSet = EnsureSoundSetExists(targetSetId, targetSetId);
+		bool sourceIsModuleProfile = TryNormalizeModuleSoundSetProfileKey(sourceSetId, out string sourceModuleProfileKey);
+		string normalizedSourceSet = sourceIsModuleProfile
+			? sourceModuleProfileKey
+			: EnsureSoundSetExists(sourceSetId, sourceSetId);
+
+		// Ensure on-disk files are current before copying from an active local set.
+		if (!sourceIsModuleProfile &&
+			string.Equals(normalizedSourceSet, GetActiveSoundSetReferenceId(), StringComparison.OrdinalIgnoreCase))
 		{
 			SaveConfig();
 		}
@@ -956,11 +1208,11 @@ public sealed partial class SirenChangerMod
 	private static void DuplicateSirenSettingsFile(string sourceSetId, string targetSetId)
 	{
 		// Copy siren config file verbatim when present, otherwise seed with defaults.
-		string sourcePath = GetSoundSetSettingsPath(sourceSetId, SirenReplacementConfig.SettingsFileName, ensureDirectoryExists: false);
 		string targetPath = GetSoundSetSettingsPath(targetSetId, SirenReplacementConfig.SettingsFileName, ensureDirectoryExists: true);
 		try
 		{
-			if (File.Exists(sourcePath))
+			if (TryResolveSoundSetSettingsReadPath(sourceSetId, SirenReplacementConfig.SettingsFileName, out string sourcePath) &&
+				File.Exists(sourcePath))
 			{
 				File.Copy(sourcePath, targetPath, overwrite: true);
 			}
@@ -983,11 +1235,11 @@ public sealed partial class SirenChangerMod
 		string customFolderName)
 	{
 		// Copy one non-siren domain settings file with default fallback on failure.
-		string sourcePath = GetSoundSetSettingsPath(sourceSetId, settingsFileName, ensureDirectoryExists: false);
 		string targetPath = GetSoundSetSettingsPath(targetSetId, settingsFileName, ensureDirectoryExists: true);
 		try
 		{
-			if (File.Exists(sourcePath))
+			if (TryResolveSoundSetSettingsReadPath(sourceSetId, settingsFileName, out string sourcePath) &&
+				File.Exists(sourcePath))
 			{
 				File.Copy(sourcePath, targetPath, overwrite: true);
 			}
@@ -1012,6 +1264,11 @@ public sealed partial class SirenChangerMod
 	// Save current runtime configs into the specified set directory.
 	private static void SaveConfigSetFiles(string setId)
 	{
+		if (IsModuleSoundSetProfileSelection(setId))
+		{
+			return;
+		}
+
 		string normalizedSet = EnsureSoundSetExists(setId, setId);
 		string sirenSettingsPath = GetSoundSetSettingsPath(
 			normalizedSet,
@@ -1041,6 +1298,6 @@ public sealed partial class SirenChangerMod
 	// Expose currently active set ID for runtime systems that need set context.
 	internal static string GetActiveSoundSetId()
 	{
-		return s_CitySoundProfileRegistry.ActiveSetId;
+		return GetActiveSoundSetReferenceId();
 	}
 }
