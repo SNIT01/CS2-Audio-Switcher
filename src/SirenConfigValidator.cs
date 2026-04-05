@@ -24,6 +24,7 @@ internal static class SirenConfigValidator
 		SirenReplacementConfig sirenConfig,
 		AudioReplacementDomainConfig vehicleEngineConfig,
 		AudioReplacementDomainConfig ambientConfig,
+		AudioReplacementDomainConfig buildingConfig,
 		AudioReplacementDomainConfig transitAnnouncementConfig,
 		string settingsDirectory)
 	{
@@ -321,6 +322,7 @@ internal static class SirenConfigValidator
 
 		ValidateGenericDomain("Vehicle engine", DeveloperAudioDomain.VehicleEngine, vehicleEngineConfig);
 		ValidateGenericDomain("Ambient", DeveloperAudioDomain.Ambient, ambientConfig);
+		ValidateGenericDomain("Building", DeveloperAudioDomain.Building, buildingConfig);
 		ValidateGenericDomain("Transit announcement", DeveloperAudioDomain.TransitAnnouncement, transitAnnouncementConfig);
 
 		StringBuilder reportBuilder = new StringBuilder();

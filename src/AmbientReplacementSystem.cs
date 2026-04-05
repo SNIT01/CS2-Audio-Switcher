@@ -206,6 +206,13 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 			return;
 		}
 
+		if (config.MuteAllTargets)
+		{
+			int mutedCount = MuteAllTargets();
+			SirenChangerMod.Log.Info($"Ambient apply complete. Enabled={config.Enabled}, Muted={mutedCount}, Replaced=0.");
+			return;
+		}
+
 		Dictionary<string, SelectionLoadResult> selectionLoadCache = new Dictionary<string, SelectionLoadResult>(StringComparer.OrdinalIgnoreCase);
 		int appliedCount = 0;
 		List<string> targets = new List<string>(m_AmbientSfxByPrefab.Keys);
@@ -234,6 +241,23 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 		}
 
 		SirenChangerMod.Log.Info($"Ambient apply complete. Enabled={config.Enabled}, Replaced={appliedCount}.");
+	}
+
+	private int MuteAllTargets()
+	{
+		int mutedCount = 0;
+		foreach (SFX sfx in m_AmbientSfxByPrefab.Values)
+		{
+			if (sfx == null)
+			{
+				continue;
+			}
+
+			sfx.m_Volume = 0f;
+			mutedCount++;
+		}
+
+		return mutedCount;
 	}
 
 	private void RestoreAllTargetDefaults()

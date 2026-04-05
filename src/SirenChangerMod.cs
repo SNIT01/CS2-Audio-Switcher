@@ -40,23 +40,33 @@ public sealed partial class SirenChangerMod : IMod
 
 	internal const string AmbientSettingsFileName = "AmbientSettings.json";
 
+	internal const string BuildingSettingsFileName = "BuildingSettings.json";
+
 	internal const string VehicleEngineCustomFolderName = "Custom Engines";
 
 	internal const string AmbientCustomFolderName = "Custom Ambient";
+
+	internal const string BuildingCustomFolderName = "Custom Buildings";
 
 	internal static AudioReplacementDomainConfig VehicleEngineConfig { get; private set; } = AudioReplacementDomainConfig.CreateDefault(VehicleEngineCustomFolderName);
 
 	internal static AudioReplacementDomainConfig AmbientConfig { get; private set; } = AudioReplacementDomainConfig.CreateDefault(AmbientCustomFolderName);
 
+	internal static AudioReplacementDomainConfig BuildingConfig { get; private set; } = AudioReplacementDomainConfig.CreateDefault(BuildingCustomFolderName);
+
 	internal static SirenSfxProfile VehicleEngineProfileTemplate { get; private set; } = SirenSfxProfile.CreateFallback();
 
 	internal static SirenSfxProfile AmbientProfileTemplate { get; private set; } = SirenSfxProfile.CreateFallback();
+
+	internal static SirenSfxProfile BuildingProfileTemplate { get; private set; } = SirenSfxProfile.CreateFallback();
 
 	private static AudioClip? s_DefaultSirenPreviewClip;
 
 	private static AudioClip? s_DefaultVehicleEnginePreviewClip;
 
 	private static AudioClip? s_DefaultAmbientPreviewClip;
+
+	private static AudioClip? s_DefaultBuildingPreviewClip;
 
 	private static int s_DropdownCacheVersion = -1;
 
@@ -97,6 +107,14 @@ public sealed partial class SirenChangerMod : IMod
 
 	private static string s_LastAmbientTargetScanStatus = "No scan run yet. Click Rescan Ambient Targets in a loaded map/editor session.";
 
+	private static string[] s_DiscoveredBuildingTargets = Array.Empty<string>();
+
+	private static DropdownItem<string>[] s_BuildingTargetDropdown = Array.Empty<DropdownItem<string>>();
+
+	private static int s_BuildingTargetDropdownCacheVersion = -1;
+
+	private static string s_LastBuildingTargetScanStatus = "No scan run yet. Click Rescan Building Targets in a loaded map/editor session.";
+
 	private static int s_EngineDropdownCacheVersion = -1;
 
 	private static DropdownItem<string>[] s_EngineDropdownWithDefault = Array.Empty<DropdownItem<string>>();
@@ -108,6 +126,12 @@ public sealed partial class SirenChangerMod : IMod
 	private static DropdownItem<string>[] s_AmbientDropdownWithDefault = Array.Empty<DropdownItem<string>>();
 
 	private static DropdownItem<string>[] s_AmbientDropdownWithoutDefault = Array.Empty<DropdownItem<string>>();
+
+	private static int s_BuildingDropdownCacheVersion = -1;
+
+	private static DropdownItem<string>[] s_BuildingDropdownWithDefault = Array.Empty<DropdownItem<string>>();
+
+	private static DropdownItem<string>[] s_BuildingDropdownWithoutDefault = Array.Empty<DropdownItem<string>>();
 
 	private const string kOptionsPanelDisplayName = "Audio Switcher";
 
@@ -127,9 +151,11 @@ public sealed partial class SirenChangerMod : IMod
 		LoadKnownVehiclePrefabsFromConfig();
 		LoadKnownVehicleEnginePrefabsFromConfig();
 		LoadKnownAmbientTargetsFromConfig();
+		LoadKnownBuildingTargetsFromConfig();
 		SyncCustomSirenCatalog(saveIfChanged: true);
 		SyncCustomVehicleEngineCatalog(saveIfChanged: true);
 		SyncCustomAmbientCatalog(saveIfChanged: true);
+		SyncCustomBuildingCatalog(saveIfChanged: true);
 		SyncCustomTransitAnnouncementCatalog(saveIfChanged: true);
 
 		m_Settings = new SirenChangerSettings(this);
@@ -140,7 +166,9 @@ public sealed partial class SirenChangerMod : IMod
 		updateSystem.UpdateAfter<SirenReplacementSystem>(SystemUpdatePhase.GameSimulation);
 		updateSystem.UpdateAfter<VehicleEngineReplacementSystem>(SystemUpdatePhase.GameSimulation);
 		updateSystem.UpdateAfter<AmbientReplacementSystem>(SystemUpdatePhase.GameSimulation);
+		updateSystem.UpdateAfter<BuildingReplacementSystem>(SystemUpdatePhase.GameSimulation);
 		updateSystem.UpdateAfter<TransitAnnouncementSystem>(SystemUpdatePhase.GameSimulation);
+		updateSystem.UpdateAt<SirenChangerGuidanceUISystem>(SystemUpdatePhase.UIUpdate);
 
 		Log.Info($"Loaded. Mod path: {ModRootPath}");
 	}
@@ -161,6 +189,7 @@ public sealed partial class SirenChangerMod : IMod
 		s_DefaultSirenPreviewClip = null;
 		s_DefaultVehicleEnginePreviewClip = null;
 		s_DefaultAmbientPreviewClip = null;
+		s_DefaultBuildingPreviewClip = null;
 		TransitAnnouncementAudioPlayer.Release();
 		WaveClipLoader.ReleaseLoadedClips();
 	}
@@ -198,6 +227,17 @@ public sealed partial class SirenChangerMod : IMod
 		AmbientProfileTemplate = template.ClampCopy();
 	}
 
+	// Persist template for newly discovered custom building profiles.
+	internal static void SetBuildingProfileTemplate(SirenSfxProfile template)
+	{
+		if (template == null)
+		{
+			return;
+		}
+
+		BuildingProfileTemplate = template.ClampCopy();
+	}
+
 	// Store a representative built-in siren clip for default preview playback.
 	internal static void SetSirenDefaultPreviewClip(AudioClip? clip)
 	{
@@ -214,6 +254,12 @@ public sealed partial class SirenChangerMod : IMod
 	internal static void SetAmbientDefaultPreviewClip(AudioClip? clip)
 	{
 		s_DefaultAmbientPreviewClip = clip;
+	}
+
+	// Store a representative built-in building clip for default preview playback.
+	internal static void SetBuildingDefaultPreviewClip(AudioClip? clip)
+	{
+		s_DefaultBuildingPreviewClip = clip;
 	}
 
 	// Sync vehicle engine catalog with config profiles and optionally save changes.
@@ -271,6 +317,42 @@ public sealed partial class SirenChangerMod : IMod
 			AmbientConfig.CustomProfiles,
 			AmbientProfileTemplate);
 		bool scanMetadataChanged = UpdateDomainCatalogScanMetadata(AmbientConfig, result, forceStatusRefresh);
+		if (catalogChanged || implicitModuleProfilesChanged || scanMetadataChanged || moduleCatalogChanged)
+		{
+			if (saveIfChanged && (catalogChanged || implicitModuleProfilesChanged || scanMetadataChanged))
+			{
+				SaveConfig();
+			}
+
+			if (catalogChanged || implicitModuleProfilesChanged)
+			{
+				ConfigVersion++;
+			}
+
+			NotifyOptionsCatalogChanged();
+		}
+
+		return catalogChanged || implicitModuleProfilesChanged;
+	}
+
+	// Sync building catalog with config profiles and optionally save changes.
+	internal static bool SyncCustomBuildingCatalog(bool saveIfChanged, bool forceStatusRefresh = false)
+	{
+		bool moduleCatalogChanged = RefreshAudioModuleCatalog();
+		AudioDomainCatalogSyncResult result = AudioDomainCatalogSync.Synchronize(
+			BuildingConfig,
+			SettingsDirectory,
+			BuildingCustomFolderName,
+			BuildingProfileTemplate,
+			Log,
+			GetAudioModuleProfileKeys(DeveloperAudioDomain.Building),
+			key => TryGetAudioModuleProfileTemplate(DeveloperAudioDomain.Building, key, out SirenSfxProfile profile) ? profile : null);
+		bool catalogChanged = result.ConfigChanged;
+		bool implicitModuleProfilesChanged = RefreshImplicitModuleTemplateProfiles(
+			DeveloperAudioDomain.Building,
+			BuildingConfig.CustomProfiles,
+			BuildingProfileTemplate);
+		bool scanMetadataChanged = UpdateDomainCatalogScanMetadata(BuildingConfig, result, forceStatusRefresh);
 		if (catalogChanged || implicitModuleProfilesChanged || scanMetadataChanged || moduleCatalogChanged)
 		{
 			if (saveIfChanged && (catalogChanged || implicitModuleProfilesChanged || scanMetadataChanged))
@@ -370,6 +452,7 @@ public sealed partial class SirenChangerMod : IMod
 		Config.Normalize();
 		VehicleEngineConfig.Normalize(VehicleEngineCustomFolderName);
 		AmbientConfig.Normalize(AmbientCustomFolderName);
+		BuildingConfig.Normalize(BuildingCustomFolderName);
 		TransitAnnouncementConfig.Normalize(TransitAnnouncementCustomFolderName);
 		NormalizeTransitAnnouncementTargets();
 		NormalizeTransitAnnouncementSpeechSettings();
@@ -423,6 +506,20 @@ public sealed partial class SirenChangerMod : IMod
 		EnsureAmbientTargetDropdownCurrent();
 		return s_AmbientTargetDropdown;
 	}
+
+	// Build dropdown data used by building selectors.
+	internal static DropdownItem<string>[] BuildBuildingDropdownItems(bool includeDefault)
+	{
+		EnsureBuildingDropdownCacheCurrent();
+		return includeDefault ? s_BuildingDropdownWithDefault : s_BuildingDropdownWithoutDefault;
+	}
+
+	// Build dropdown data for discovered building target selectors.
+	internal static DropdownItem<string>[] BuildBuildingTargetDropdownItems()
+	{
+		EnsureBuildingTargetDropdownCurrent();
+		return s_BuildingTargetDropdown;
+	}
 // Returns true when at least one emergency vehicle prefab was mapped to a siren target.
 	internal static bool HasDiscoveredVehiclePrefabs()
 	{
@@ -439,6 +536,12 @@ public sealed partial class SirenChangerMod : IMod
 	internal static bool HasDiscoveredAmbientTargets()
 	{
 		return s_DiscoveredAmbientTargets.Length > 0;
+	}
+
+	// Returns true when at least one building target prefab was discovered.
+	internal static bool HasDiscoveredBuildingTargets()
+	{
+		return s_DiscoveredBuildingTargets.Length > 0;
 	}
 
 	// Update discovered engine vehicle prefab keys and synchronize related config fields.
@@ -522,6 +625,48 @@ public sealed partial class SirenChangerMod : IMod
 			OptionsVersion++;
 			s_AmbientTargetDropdownCacheVersion = -1;
 			s_AmbientTargetDropdown = Array.Empty<DropdownItem<string>>();
+		}
+	}
+
+	// Update discovered building target prefab keys and synchronize related config fields.
+	internal static void SetDiscoveredBuildingTargets(ICollection<string> targetNames)
+	{
+		List<string> normalized = new List<string>();
+		HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		if (targetNames != null)
+		{
+			foreach (string raw in targetNames)
+			{
+				string key = AudioReplacementDomainConfig.NormalizeTargetKey(raw);
+				if (string.IsNullOrWhiteSpace(key) || !seen.Add(key))
+				{
+					continue;
+				}
+
+				normalized.Add(key);
+			}
+		}
+
+		normalized.Sort(StringComparer.OrdinalIgnoreCase);
+		bool listChanged = !SequenceEqualsIgnoreCase(s_DiscoveredBuildingTargets, normalized);
+		if (listChanged)
+		{
+			s_DiscoveredBuildingTargets = normalized.ToArray();
+			s_LastBuildingTargetScanStatus = $"Detected {normalized.Count} building target prefab(s) from loaded prefabs.";
+		}
+
+		bool configChanged = BuildingConfig.SynchronizeTargets(normalized);
+		if (configChanged)
+		{
+			SaveConfig();
+			ConfigVersion++;
+		}
+
+		if (listChanged || configChanged)
+		{
+			OptionsVersion++;
+			s_BuildingTargetDropdownCacheVersion = -1;
+			s_BuildingTargetDropdown = Array.Empty<DropdownItem<string>>();
 		}
 	}
 // Update discovered vehicle prefab keys and synchronize related config fields.
@@ -667,6 +812,40 @@ public sealed partial class SirenChangerMod : IMod
 		s_AmbientTargetDropdownCacheVersion = -1;
 		s_AmbientTargetDropdown = Array.Empty<DropdownItem<string>>();
 	}
+
+	// Load previously discovered building target prefabs so options are populated in main menu.
+	private static void LoadKnownBuildingTargetsFromConfig()
+	{
+		List<string> known = BuildingConfig.KnownTargets ?? new List<string>();
+		if (known.Count == 0)
+		{
+			s_DiscoveredBuildingTargets = Array.Empty<string>();
+			s_LastBuildingTargetScanStatus = "No stored building targets yet. Click Rescan Building Targets in a loaded map/editor session.";
+			s_BuildingTargetDropdownCacheVersion = -1;
+			s_BuildingTargetDropdown = Array.Empty<DropdownItem<string>>();
+			return;
+		}
+
+		List<string> normalized = new List<string>(known.Count);
+		HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		for (int i = 0; i < known.Count; i++)
+		{
+			string key = AudioReplacementDomainConfig.NormalizeTargetKey(known[i]);
+			if (string.IsNullOrWhiteSpace(key) || !seen.Add(key))
+			{
+				continue;
+			}
+
+			normalized.Add(key);
+		}
+
+		normalized.Sort(StringComparer.OrdinalIgnoreCase);
+		s_DiscoveredBuildingTargets = normalized.ToArray();
+		BuildingConfig.SynchronizeTargets(normalized);
+		s_LastBuildingTargetScanStatus = $"Loaded {normalized.Count} known building target(s) from settings.";
+		s_BuildingTargetDropdownCacheVersion = -1;
+		s_BuildingTargetDropdown = Array.Empty<DropdownItem<string>>();
+	}
 	// Set the selected vehicle prefab used by options to edit per-vehicle overrides.
 	internal static void SetVehiclePrefabSelectionTargetFromOptions(string vehiclePrefabName)
 	{
@@ -763,6 +942,7 @@ public sealed partial class SirenChangerMod : IMod
 		Config.Normalize();
 		VehicleEngineConfig.Normalize(VehicleEngineCustomFolderName);
 		AmbientConfig.Normalize(AmbientCustomFolderName);
+		BuildingConfig.Normalize(BuildingCustomFolderName);
 		TransitAnnouncementConfig.Normalize(TransitAnnouncementCustomFolderName);
 		NormalizeTransitAnnouncementTargets();
 		NormalizeTransitAnnouncementSpeechSettings();
@@ -770,6 +950,7 @@ public sealed partial class SirenChangerMod : IMod
 			Config,
 			VehicleEngineConfig,
 			AmbientConfig,
+			BuildingConfig,
 			TransitAnnouncementConfig,
 			SettingsDirectory);
 		Config.LastValidationUtcTicks = DateTime.UtcNow.Ticks;
@@ -952,6 +1133,12 @@ public sealed partial class SirenChangerMod : IMod
 			ensureDirectoryExists: true);
 		AudioReplacementDomainConfig.Save(ambientSettingsPath, AmbientConfig, Log);
 
+		string buildingSettingsPath = GetSoundSetSettingsPath(
+			activeSet,
+			BuildingSettingsFileName,
+			ensureDirectoryExists: true);
+		AudioReplacementDomainConfig.Save(buildingSettingsPath, BuildingConfig, Log);
+
 		string transitAnnouncementSettingsPath = GetSoundSetSettingsPath(
 			activeSet,
 			TransitAnnouncementSettingsFileName,
@@ -1014,10 +1201,12 @@ public sealed partial class SirenChangerMod : IMod
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kSirensTab);
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kVehiclesTab);
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kAmbientTab);
+		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kBuildingsTab);
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kDeveloperTab);
 
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kGeneralGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kCitySoundSetGroup);
+		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kGuidanceGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kTransitAnnouncementGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kTransitAnnouncementLineGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kVehicleGroup);
@@ -1036,9 +1225,15 @@ public sealed partial class SirenChangerMod : IMod
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kAmbientFallbackGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kAmbientProfileGroup);
 
+		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kBuildingSetupGroup);
+		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kBuildingTargetGroup);
+		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kBuildingFallbackGroup);
+		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kBuildingProfileGroup);
+
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kDeveloperSirenGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kDeveloperEngineGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kDeveloperAmbientGroup);
+		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kDeveloperBuildingGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kDeveloperModuleGroup);
 
 		AddOptionGroupLocalization(entries, settings, "Siren Scan Actions");
@@ -1046,6 +1241,7 @@ public sealed partial class SirenChangerMod : IMod
 		AddOptionGroupLocalization(entries, settings, "Transit Setup Actions");
 		AddOptionGroupLocalization(entries, settings, "Engine Scan Actions");
 		AddOptionGroupLocalization(entries, settings, "Ambient Scan Actions");
+		AddOptionGroupLocalization(entries, settings, "Building Scan Actions");
 		AddOptionGroupLocalization(entries, settings, "Siren Include Actions");
 		AddOptionGroupLocalization(entries, settings, "Engine Include Actions");
 		AddOptionGroupLocalization(entries, settings, "Ambient Include Actions");
@@ -1127,10 +1323,15 @@ public sealed partial class SirenChangerMod : IMod
 		s_AmbientDropdownCacheVersion = -1;
 		s_AmbientDropdownWithDefault = Array.Empty<DropdownItem<string>>();
 		s_AmbientDropdownWithoutDefault = Array.Empty<DropdownItem<string>>();
+		s_BuildingDropdownCacheVersion = -1;
+		s_BuildingDropdownWithDefault = Array.Empty<DropdownItem<string>>();
+		s_BuildingDropdownWithoutDefault = Array.Empty<DropdownItem<string>>();
 		s_VehicleEnginePrefabDropdownCacheVersion = -1;
 		s_VehicleEnginePrefabDropdown = Array.Empty<DropdownItem<string>>();
 		s_AmbientTargetDropdownCacheVersion = -1;
 		s_AmbientTargetDropdown = Array.Empty<DropdownItem<string>>();
+		s_BuildingTargetDropdownCacheVersion = -1;
+		s_BuildingTargetDropdown = Array.Empty<DropdownItem<string>>();
 		s_TransitAnnouncementDropdownCacheVersion = -1;
 		s_TransitAnnouncementDropdownWithDefault = Array.Empty<DropdownItem<string>>();
 		s_TransitAnnouncementLineServiceDropdownCacheVersion = -1;

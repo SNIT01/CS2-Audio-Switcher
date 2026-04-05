@@ -215,7 +215,7 @@ public sealed partial class SirenChangerMod
 			: normalized;
 	}
 
-	// Load siren/engine/ambient/transit-announcement configs for one set and update active-selection metadata.
+	// Load siren/engine/ambient/building/transit-announcement configs for one set and update active-selection metadata.
 	private static void LoadSoundSetConfig(string setId)
 	{
 		if (TryNormalizeModuleSoundSetProfileKey(setId, out string moduleProfileKey))
@@ -244,6 +244,15 @@ public sealed partial class SirenChangerMod
 					Log);
 			}
 
+			AudioReplacementDomainConfig moduleBuildingConfig = AudioReplacementDomainConfig.CreateDefault(BuildingCustomFolderName);
+			if (TryResolveSoundSetSettingsReadPath(moduleProfileKey, BuildingSettingsFileName, out string moduleBuildingSettingsPath))
+			{
+				moduleBuildingConfig = AudioReplacementDomainConfig.LoadOrCreate(
+					moduleBuildingSettingsPath,
+					BuildingCustomFolderName,
+					Log);
+			}
+
 			AudioReplacementDomainConfig moduleTransitConfig = AudioReplacementDomainConfig.CreateDefault(TransitAnnouncementCustomFolderName);
 			if (TryResolveSoundSetSettingsReadPath(moduleProfileKey, TransitAnnouncementSettingsFileName, out string moduleTransitSettingsPath))
 			{
@@ -256,10 +265,12 @@ public sealed partial class SirenChangerMod
 			Config = moduleSirenConfig;
 			VehicleEngineConfig = moduleVehicleEngineConfig;
 			AmbientConfig = moduleAmbientConfig;
+			BuildingConfig = moduleBuildingConfig;
 			TransitAnnouncementConfig = moduleTransitConfig;
 			Config.Normalize();
 			VehicleEngineConfig.Normalize(VehicleEngineCustomFolderName);
 			AmbientConfig.Normalize(AmbientCustomFolderName);
+			BuildingConfig.Normalize(BuildingCustomFolderName);
 			TransitAnnouncementConfig.Normalize(TransitAnnouncementCustomFolderName);
 			NormalizeTransitAnnouncementTargets();
 			NormalizeTransitAnnouncementSpeechSettings();
@@ -282,39 +293,49 @@ public sealed partial class SirenChangerMod
 			ensureDirectoryExists: true);
 		Config = SirenReplacementConfig.LoadOrCreateFromPath(sirenSettingsPath, Log);
 
-		string engineSettingsPath = GetSoundSetSettingsPath(
-			normalizedSet,
-			VehicleEngineSettingsFileName,
-			ensureDirectoryExists: true);
-		VehicleEngineConfig = AudioReplacementDomainConfig.LoadOrCreate(
-			engineSettingsPath,
-			VehicleEngineCustomFolderName,
-			Log);
+			string engineSettingsPath = GetSoundSetSettingsPath(
+				normalizedSet,
+				VehicleEngineSettingsFileName,
+				ensureDirectoryExists: true);
+			VehicleEngineConfig = AudioReplacementDomainConfig.LoadOrCreate(
+				engineSettingsPath,
+				VehicleEngineCustomFolderName,
+				Log);
 
-		string ambientSettingsPath = GetSoundSetSettingsPath(
-			normalizedSet,
-			AmbientSettingsFileName,
-			ensureDirectoryExists: true);
-		AmbientConfig = AudioReplacementDomainConfig.LoadOrCreate(
-			ambientSettingsPath,
-			AmbientCustomFolderName,
-			Log);
+			string ambientSettingsPath = GetSoundSetSettingsPath(
+				normalizedSet,
+				AmbientSettingsFileName,
+				ensureDirectoryExists: true);
+			AmbientConfig = AudioReplacementDomainConfig.LoadOrCreate(
+				ambientSettingsPath,
+				AmbientCustomFolderName,
+				Log);
 
-		string transitAnnouncementSettingsPath = GetSoundSetSettingsPath(
-			normalizedSet,
-			TransitAnnouncementSettingsFileName,
-			ensureDirectoryExists: true);
-		TransitAnnouncementConfig = AudioReplacementDomainConfig.LoadOrCreate(
-			transitAnnouncementSettingsPath,
-			TransitAnnouncementCustomFolderName,
-			Log);
+			string buildingSettingsPath = GetSoundSetSettingsPath(
+				normalizedSet,
+				BuildingSettingsFileName,
+				ensureDirectoryExists: true);
+			BuildingConfig = AudioReplacementDomainConfig.LoadOrCreate(
+				buildingSettingsPath,
+				BuildingCustomFolderName,
+				Log);
 
-		Config.Normalize();
-		VehicleEngineConfig.Normalize(VehicleEngineCustomFolderName);
-		AmbientConfig.Normalize(AmbientCustomFolderName);
-		TransitAnnouncementConfig.Normalize(TransitAnnouncementCustomFolderName);
-		NormalizeTransitAnnouncementTargets();
-		NormalizeTransitAnnouncementSpeechSettings();
+			string transitAnnouncementSettingsPath = GetSoundSetSettingsPath(
+				normalizedSet,
+				TransitAnnouncementSettingsFileName,
+				ensureDirectoryExists: true);
+			TransitAnnouncementConfig = AudioReplacementDomainConfig.LoadOrCreate(
+				transitAnnouncementSettingsPath,
+				TransitAnnouncementCustomFolderName,
+				Log);
+
+			Config.Normalize();
+			VehicleEngineConfig.Normalize(VehicleEngineCustomFolderName);
+			AmbientConfig.Normalize(AmbientCustomFolderName);
+			BuildingConfig.Normalize(BuildingCustomFolderName);
+			TransitAnnouncementConfig.Normalize(TransitAnnouncementCustomFolderName);
+			NormalizeTransitAnnouncementTargets();
+			NormalizeTransitAnnouncementSpeechSettings();
 
 		s_CitySoundProfileRegistry.ActiveSetId = normalizedSet;
 		s_ActiveSoundSetSelectionId = normalizedSet;
@@ -339,15 +360,17 @@ public sealed partial class SirenChangerMod
 			return false;
 		}
 
-		LoadSoundSetConfig(normalizedSet);
-		LoadKnownVehiclePrefabsFromConfig();
-		LoadKnownVehicleEnginePrefabsFromConfig();
-		LoadKnownAmbientTargetsFromConfig();
+			LoadSoundSetConfig(normalizedSet);
+			LoadKnownVehiclePrefabsFromConfig();
+			LoadKnownVehicleEnginePrefabsFromConfig();
+			LoadKnownAmbientTargetsFromConfig();
+			LoadKnownBuildingTargetsFromConfig();
 
-		SyncCustomSirenCatalog(saveIfChanged: true);
-		SyncCustomVehicleEngineCatalog(saveIfChanged: true);
-		SyncCustomAmbientCatalog(saveIfChanged: true);
-		SyncCustomTransitAnnouncementCatalog(saveIfChanged: true);
+			SyncCustomSirenCatalog(saveIfChanged: true);
+			SyncCustomVehicleEngineCatalog(saveIfChanged: true);
+			SyncCustomAmbientCatalog(saveIfChanged: true);
+			SyncCustomBuildingCatalog(saveIfChanged: true);
+			SyncCustomTransitAnnouncementCatalog(saveIfChanged: true);
 
 		ConfigVersion++;
 		NotifyOptionsCatalogChanged();

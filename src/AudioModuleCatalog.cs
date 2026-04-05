@@ -28,6 +28,8 @@ internal static class AudioModuleCatalog
 
 	private static readonly Dictionary<string, ModuleAudioEntry> s_AmbientEntries = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 
+	private static readonly Dictionary<string, ModuleAudioEntry> s_BuildingEntries = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
+
 	private static readonly Dictionary<string, ModuleAudioEntry> s_TransitAnnouncementEntries = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 
 	private static readonly Dictionary<string, ModuleSoundSetProfileEntry> s_SoundSetProfileEntries = new Dictionary<string, ModuleSoundSetProfileEntry>(StringComparer.OrdinalIgnoreCase);
@@ -46,6 +48,7 @@ internal static class AudioModuleCatalog
 		Dictionary<string, ModuleAudioEntry> nextSirens = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 		Dictionary<string, ModuleAudioEntry> nextVehicleEngines = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 		Dictionary<string, ModuleAudioEntry> nextAmbient = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
+		Dictionary<string, ModuleAudioEntry> nextBuildings = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 		Dictionary<string, ModuleAudioEntry> nextTransitAnnouncements = new Dictionary<string, ModuleAudioEntry>(StringComparer.OrdinalIgnoreCase);
 		Dictionary<string, ModuleSoundSetProfileEntry> nextSoundSetProfiles = new Dictionary<string, ModuleSoundSetProfileEntry>(StringComparer.OrdinalIgnoreCase);
 		List<string> rootList = CollectCandidateRoots(currentModRootPath);
@@ -53,13 +56,14 @@ internal static class AudioModuleCatalog
 		for (int i = 0; i < rootList.Count; i++)
 		{
 			string rootPath = rootList[i];
-			TryLoadManifestFromRoot(rootPath, nextSirens, nextVehicleEngines, nextAmbient, nextTransitAnnouncements, nextSoundSetProfiles, log);
+			TryLoadManifestFromRoot(rootPath, nextSirens, nextVehicleEngines, nextAmbient, nextBuildings, nextTransitAnnouncements, nextSoundSetProfiles, log);
 		}
 
 		bool changed =
 			!DictionaryContentEquals(s_SirenEntries, nextSirens) ||
 			!DictionaryContentEquals(s_VehicleEngineEntries, nextVehicleEngines) ||
 			!DictionaryContentEquals(s_AmbientEntries, nextAmbient) ||
+			!DictionaryContentEquals(s_BuildingEntries, nextBuildings) ||
 			!DictionaryContentEquals(s_TransitAnnouncementEntries, nextTransitAnnouncements) ||
 			!SoundSetProfileDictionaryContentEquals(s_SoundSetProfileEntries, nextSoundSetProfiles) ||
 			!SequenceEqualsIgnoreCase(s_ModuleRoots, rootList);
@@ -71,11 +75,12 @@ internal static class AudioModuleCatalog
 		ReplaceEntries(s_SirenEntries, nextSirens);
 		ReplaceEntries(s_VehicleEngineEntries, nextVehicleEngines);
 		ReplaceEntries(s_AmbientEntries, nextAmbient);
+		ReplaceEntries(s_BuildingEntries, nextBuildings);
 		ReplaceEntries(s_TransitAnnouncementEntries, nextTransitAnnouncements);
 		ReplaceEntries(s_SoundSetProfileEntries, nextSoundSetProfiles);
 		s_ModuleRoots = rootList.ToArray();
 		log.Info(
-			$"Audio module scan complete. Roots: {s_ModuleRoots.Length}, Sirens: {s_SirenEntries.Count}, Engines: {s_VehicleEngineEntries.Count}, Ambient: {s_AmbientEntries.Count}, Transit: {s_TransitAnnouncementEntries.Count}, Sound Set Profiles: {s_SoundSetProfileEntries.Count}");
+			$"Audio module scan complete. Roots: {s_ModuleRoots.Length}, Sirens: {s_SirenEntries.Count}, Engines: {s_VehicleEngineEntries.Count}, Ambient: {s_AmbientEntries.Count}, Buildings: {s_BuildingEntries.Count}, Transit: {s_TransitAnnouncementEntries.Count}, Sound Set Profiles: {s_SoundSetProfileEntries.Count}");
 		return true;
 	}
 
@@ -613,6 +618,7 @@ internal static class AudioModuleCatalog
 		IDictionary<string, ModuleAudioEntry> sirens,
 		IDictionary<string, ModuleAudioEntry> vehicleEngines,
 		IDictionary<string, ModuleAudioEntry> ambient,
+		IDictionary<string, ModuleAudioEntry> buildings,
 		IDictionary<string, ModuleAudioEntry> transitAnnouncements,
 		IDictionary<string, ModuleSoundSetProfileEntry> soundSetProfiles,
 		ILog log)
@@ -654,12 +660,14 @@ internal static class AudioModuleCatalog
 		List<AudioModuleManifestEntry> sirenEntries = manifest.Sirens ?? new List<AudioModuleManifestEntry>();
 		List<AudioModuleManifestEntry> vehicleEngineEntries = manifest.VehicleEngines ?? new List<AudioModuleManifestEntry>();
 		List<AudioModuleManifestEntry> ambientEntries = manifest.Ambient ?? new List<AudioModuleManifestEntry>();
+		List<AudioModuleManifestEntry> buildingEntries = manifest.Buildings ?? new List<AudioModuleManifestEntry>();
 		List<AudioModuleManifestEntry> transitAnnouncementEntries = manifest.TransitAnnouncements ?? new List<AudioModuleManifestEntry>();
 		List<AudioModuleManifestSoundSetProfile> soundSetProfileEntries = manifest.SoundSetProfiles ?? new List<AudioModuleManifestSoundSetProfile>();
 
 		RegisterEntries(rootPath, moduleId, moduleDisplayName, DeveloperAudioDomain.Siren, sirenEntries, sirens, log);
 		RegisterEntries(rootPath, moduleId, moduleDisplayName, DeveloperAudioDomain.VehicleEngine, vehicleEngineEntries, vehicleEngines, log);
 		RegisterEntries(rootPath, moduleId, moduleDisplayName, DeveloperAudioDomain.Ambient, ambientEntries, ambient, log);
+		RegisterEntries(rootPath, moduleId, moduleDisplayName, DeveloperAudioDomain.Building, buildingEntries, buildings, log);
 		RegisterEntries(rootPath, moduleId, moduleDisplayName, DeveloperAudioDomain.TransitAnnouncement, transitAnnouncementEntries, transitAnnouncements, log);
 		RegisterSoundSetProfiles(rootPath, moduleId, moduleDisplayName, soundSetProfileEntries, soundSetProfiles, log);
 	}
@@ -1027,6 +1035,8 @@ internal static class AudioModuleCatalog
 				return "vehicle-engines";
 			case DeveloperAudioDomain.Ambient:
 				return "ambient";
+			case DeveloperAudioDomain.Building:
+				return "buildings";
 			case DeveloperAudioDomain.TransitAnnouncement:
 				return "transit-announcements";
 			default:
@@ -1052,6 +1062,11 @@ internal static class AudioModuleCatalog
 			return true;
 		}
 
+		if (s_BuildingEntries.TryGetValue(normalizedKey, out entry))
+		{
+			return true;
+		}
+
 		if (s_TransitAnnouncementEntries.TryGetValue(normalizedKey, out entry))
 		{
 			return true;
@@ -1070,6 +1085,8 @@ internal static class AudioModuleCatalog
 				return s_VehicleEngineEntries;
 			case DeveloperAudioDomain.Ambient:
 				return s_AmbientEntries;
+			case DeveloperAudioDomain.Building:
+				return s_BuildingEntries;
 			case DeveloperAudioDomain.TransitAnnouncement:
 				return s_TransitAnnouncementEntries;
 			default:
@@ -1209,10 +1226,13 @@ internal static class AudioModuleCatalog
 		[DataMember(Order = 6, Name = "ambient")]
 		public List<AudioModuleManifestEntry> Ambient { get; set; } = new List<AudioModuleManifestEntry>();
 
-		[DataMember(Order = 7, Name = "transitAnnouncements")]
+		[DataMember(Order = 7, Name = "buildings")]
+		public List<AudioModuleManifestEntry> Buildings { get; set; } = new List<AudioModuleManifestEntry>();
+
+		[DataMember(Order = 8, Name = "transitAnnouncements")]
 		public List<AudioModuleManifestEntry> TransitAnnouncements { get; set; } = new List<AudioModuleManifestEntry>();
 
-		[DataMember(Order = 8, Name = "soundSetProfiles")]
+		[DataMember(Order = 9, Name = "soundSetProfiles")]
 		public List<AudioModuleManifestSoundSetProfile> SoundSetProfiles { get; set; } = new List<AudioModuleManifestSoundSetProfile>();
 	}
 

@@ -13,12 +13,14 @@ using UnityEngine;
 
 namespace SirenChanger;
 
-// Engine and ambient options/scanning helpers split from the core mod file.
+// Engine, ambient, and building options/scanning helpers split from the core mod file.
 public sealed partial class SirenChangerMod
 {
 	private static string s_LastVehicleEnginePreviewStatus = "No vehicle engine preview has been played in this session.";
 
 	private static string s_LastAmbientPreviewStatus = "No ambient preview has been played in this session.";
+
+	private static string s_LastBuildingPreviewStatus = "No building preview has been played in this session.";
 
 	// Build vehicle-engine profile dropdown cache when options version changes.
 	private static void EnsureVehicleEngineDropdownCacheCurrent()
@@ -62,7 +64,28 @@ public sealed partial class SirenChangerMod
 		s_AmbientDropdownCacheVersion = OptionsVersion;
 	}
 
-	// Shared dropdown-item builder for engine/ambient custom file lists.
+	// Build building profile dropdown cache when options version changes.
+	private static void EnsureBuildingDropdownCacheCurrent()
+	{
+		if (s_BuildingDropdownCacheVersion == OptionsVersion &&
+			s_BuildingDropdownWithDefault.Length > 0 &&
+			s_BuildingDropdownWithoutDefault.Length > 0)
+		{
+			return;
+		}
+
+		List<string> keys = BuildingConfig.CustomProfiles.Keys
+			.OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+			.ToList();
+		BuildDomainDropdownCache(
+			keys,
+			"No custom building sounds found",
+			out s_BuildingDropdownWithDefault,
+			out s_BuildingDropdownWithoutDefault);
+		s_BuildingDropdownCacheVersion = OptionsVersion;
+	}
+
+	// Shared dropdown-item builder for engine/ambient/building custom file lists.
 	private static void BuildDomainDropdownCache(
 		List<string> keys,
 		string emptyMessage,
@@ -180,6 +203,44 @@ public sealed partial class SirenChangerMod
 
 		s_AmbientTargetDropdown = options.ToArray();
 		s_AmbientTargetDropdownCacheVersion = OptionsVersion;
+	}
+
+	// Rebuild discovered building-target dropdown cache when options version changes.
+	private static void EnsureBuildingTargetDropdownCurrent()
+	{
+		if (s_BuildingTargetDropdownCacheVersion == OptionsVersion && s_BuildingTargetDropdown.Length > 0)
+		{
+			return;
+		}
+
+		if (s_DiscoveredBuildingTargets.Length == 0)
+		{
+			s_BuildingTargetDropdown = new[]
+			{
+				new DropdownItem<string>
+				{
+					value = string.Empty,
+					displayName = "No building targets detected",
+					disabled = true
+				}
+			};
+			s_BuildingTargetDropdownCacheVersion = OptionsVersion;
+			return;
+		}
+
+		List<DropdownItem<string>> options = new List<DropdownItem<string>>(s_DiscoveredBuildingTargets.Length);
+		for (int i = 0; i < s_DiscoveredBuildingTargets.Length; i++)
+		{
+			string targetName = s_DiscoveredBuildingTargets[i];
+			options.Add(new DropdownItem<string>
+			{
+				value = targetName,
+				displayName = targetName
+			});
+		}
+
+		s_BuildingTargetDropdown = options.ToArray();
+		s_BuildingTargetDropdownCacheVersion = OptionsVersion;
 	}
 
 	// Set selected vehicle-engine target key in options UI.
@@ -304,6 +365,67 @@ public sealed partial class SirenChangerMod
 		return $"'{key}' override: {FormatSirenDisplayName(selection)}";
 	}
 
+	// Set selected building target key in options UI.
+	internal static void SetBuildingTargetSelectionTargetFromOptions(string targetName)
+	{
+		string previous = BuildingConfig.TargetSelectionTarget;
+		BuildingConfig.SetTargetSelectionTarget(targetName);
+		if (!string.Equals(previous, BuildingConfig.TargetSelectionTarget, StringComparison.Ordinal))
+		{
+			OptionsVersion++;
+		}
+	}
+
+	// Get selected building override for the currently selected target.
+	internal static string GetSelectedBuildingTargetSelectionForOptions()
+	{
+		string key = BuildingConfig.TargetSelectionTarget;
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return SirenReplacementConfig.DefaultSelectionToken;
+		}
+
+		return BuildingConfig.GetTargetSelection(key);
+	}
+
+	// Set building override for the currently selected target.
+	internal static void SetSelectedBuildingTargetSelectionFromOptions(string selection)
+	{
+		string key = BuildingConfig.TargetSelectionTarget;
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return;
+		}
+
+		if (BuildingConfig.SetTargetSelection(key, selection))
+		{
+			OptionsVersion++;
+		}
+	}
+
+	// Read-only status text for building override controls.
+	internal static string GetSelectedBuildingOverrideStatusText()
+	{
+		if (s_DiscoveredBuildingTargets.Length == 0)
+		{
+			return "No building targets detected yet. Click Rescan Building Targets in a loaded map/editor session.";
+		}
+
+		string key = BuildingConfig.TargetSelectionTarget;
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return "Select a building target to edit its sound override.";
+		}
+
+		string selection = BuildingConfig.GetTargetSelection(key);
+		if (AudioReplacementDomainConfig.IsDefaultSelection(selection))
+		{
+			return $"'{key}' uses the building default selection.";
+		}
+
+		return $"'{key}' override: {FormatSirenDisplayName(selection)}";
+	}
+
 	// Rescan custom engine files and refresh options state.
 	internal static void RefreshCustomVehicleEnginesFromOptions()
 	{
@@ -316,12 +438,23 @@ public sealed partial class SirenChangerMod
 		SyncCustomAmbientCatalog(saveIfChanged: true, forceStatusRefresh: true);
 	}
 
+	// Rescan custom building files and refresh options state.
+	internal static void RefreshCustomBuildingsFromOptions()
+	{
+		SyncCustomBuildingCatalog(saveIfChanged: true, forceStatusRefresh: true);
+	}
+
 	// Scan loaded prefabs for vehicle-engine targets and refresh per-vehicle options.
 	internal static void RefreshVehicleEnginePrefabsFromOptions()
 	{
 		if (!TryScanVehicleEnginePrefabs(out List<string> discovered, out string status))
 		{
 			s_LastVehicleEnginePrefabScanStatus = status;
+			if (UpdateDomainTargetScanMetadata(VehicleEngineConfig, s_LastVehicleEnginePrefabScanStatus, forceTimestampRefresh: true))
+			{
+				SaveConfig();
+			}
+
 			OptionsVersion++;
 			return;
 		}
@@ -330,6 +463,11 @@ public sealed partial class SirenChangerMod
 		s_LastVehicleEnginePrefabScanStatus = discovered.Count > 0
 			? $"{status}\nDetected: {discovered.Count} prefab(s)."
 			: $"{status}\nNo vehicle engine prefabs were found in the active world.";
+		if (UpdateDomainTargetScanMetadata(VehicleEngineConfig, s_LastVehicleEnginePrefabScanStatus, forceTimestampRefresh: true))
+		{
+			SaveConfig();
+		}
+
 		OptionsVersion++;
 	}
 
@@ -339,6 +477,11 @@ public sealed partial class SirenChangerMod
 		if (!TryScanAmbientTargets(out List<string> discovered, out string status))
 		{
 			s_LastAmbientTargetScanStatus = status;
+			if (UpdateDomainTargetScanMetadata(AmbientConfig, s_LastAmbientTargetScanStatus, forceTimestampRefresh: true))
+			{
+				SaveConfig();
+			}
+
 			OptionsVersion++;
 			return;
 		}
@@ -347,6 +490,38 @@ public sealed partial class SirenChangerMod
 		s_LastAmbientTargetScanStatus = discovered.Count > 0
 			? $"{status}\nDetected: {discovered.Count} target(s)."
 			: $"{status}\nNo ambient targets were found in the active world.";
+		if (UpdateDomainTargetScanMetadata(AmbientConfig, s_LastAmbientTargetScanStatus, forceTimestampRefresh: true))
+		{
+			SaveConfig();
+		}
+
+		OptionsVersion++;
+	}
+
+	// Scan loaded prefabs for building targets and refresh per-target options.
+	internal static void RefreshBuildingTargetsFromOptions()
+	{
+		if (!TryScanBuildingTargets(out List<string> discovered, out string status))
+		{
+			s_LastBuildingTargetScanStatus = status;
+			if (UpdateDomainTargetScanMetadata(BuildingConfig, s_LastBuildingTargetScanStatus, forceTimestampRefresh: true))
+			{
+				SaveConfig();
+			}
+
+			OptionsVersion++;
+			return;
+		}
+
+		SetDiscoveredBuildingTargets(discovered);
+		s_LastBuildingTargetScanStatus = discovered.Count > 0
+			? $"{status}\nDetected: {discovered.Count} target(s)."
+			: $"{status}\nNo building targets were found in the active world.";
+		if (UpdateDomainTargetScanMetadata(BuildingConfig, s_LastBuildingTargetScanStatus, forceTimestampRefresh: true))
+		{
+			SaveConfig();
+		}
+
 		OptionsVersion++;
 	}
 
@@ -362,6 +537,12 @@ public sealed partial class SirenChangerMod
 		return s_LastAmbientTargetScanStatus;
 	}
 
+	// Status text for building target scans.
+	internal static string GetBuildingTargetScanStatusText()
+	{
+		return s_LastBuildingTargetScanStatus;
+	}
+
 	// Status text for vehicle-engine custom file scans.
 	internal static string GetVehicleEngineCatalogScanStatusText()
 	{
@@ -374,6 +555,12 @@ public sealed partial class SirenChangerMod
 		return BuildDomainCatalogScanStatusText(AmbientConfig, "Rescan Custom Ambient Files");
 	}
 
+	// Status text for building custom file scans.
+	internal static string GetBuildingCatalogScanStatusText()
+	{
+		return BuildDomainCatalogScanStatusText(BuildingConfig, "Rescan Custom Building Files");
+	}
+
 	// Preview status text for vehicle-engine profile preview action.
 	internal static string GetVehicleEnginePreviewStatusText()
 	{
@@ -384,6 +571,12 @@ public sealed partial class SirenChangerMod
 	internal static string GetAmbientPreviewStatusText()
 	{
 		return s_LastAmbientPreviewStatus;
+	}
+
+	// Preview status text for building profile preview action.
+	internal static string GetBuildingPreviewStatusText()
+	{
+		return s_LastBuildingPreviewStatus;
 	}
 
 	// Play the currently selected vehicle-engine profile once.
@@ -410,6 +603,19 @@ public sealed partial class SirenChangerMod
 			s_DefaultAmbientPreviewClip,
 			AmbientProfileTemplate,
 			ref s_LastAmbientPreviewStatus);
+	}
+
+	// Play the currently selected building profile once.
+	internal static void PreviewSelectedBuildingProfileFromOptions()
+	{
+		PreviewDomainProfileFromOptions(
+			DeveloperAudioDomain.Building,
+			BuildingConfig,
+			BuildingConfig.CustomFolderName,
+			"building",
+			s_DefaultBuildingPreviewClip,
+			BuildingProfileTemplate,
+			ref s_LastBuildingPreviewStatus);
 	}
 
 	// Shared preview player for non-siren profile editors.
@@ -542,6 +748,24 @@ public sealed partial class SirenChangerMod
 		}
 
 		return builder.ToString();
+	}
+
+	// Update per-domain target-scan telemetry stored in config.
+	private static bool UpdateDomainTargetScanMetadata(
+		AudioReplacementDomainConfig config,
+		string statusText,
+		bool forceTimestampRefresh)
+	{
+		string normalizedStatus = statusText ?? string.Empty;
+		bool contentChanged = !string.Equals(config.LastTargetScanStatus, normalizedStatus, StringComparison.Ordinal);
+		if (!contentChanged && !forceTimestampRefresh)
+		{
+			return false;
+		}
+
+		config.LastTargetScanStatus = normalizedStatus;
+		config.LastTargetScanUtcTicks = DateTime.UtcNow.Ticks;
+		return true;
 	}
 
 	// Scan all loaded worlds for vehicle prefabs that reference engine SFX effect prefabs.
@@ -802,6 +1026,141 @@ public sealed partial class SirenChangerMod
 			ContainsTextToken(prefabName, "birds") ||
 			ContainsTextToken(prefabName, "seagull") ||
 			ContainsTextToken(prefabName, "nature");
+	}
+
+	// Scan all loaded worlds for building SFX prefabs.
+	private static bool TryScanBuildingTargets(out List<string> discovered, out string status)
+	{
+		discovered = new List<string>();
+		status = string.Empty;
+
+		HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		int scannedWorldCount = 0;
+		int scannedPrefabCount = 0;
+
+		var worlds = World.All;
+		for (int i = 0; i < worlds.Count; i++)
+		{
+			World world = worlds[i];
+			if (world == null || !world.IsCreated)
+			{
+				continue;
+			}
+
+			if (TryScanBuildingTargetsFromWorld(world, seen, discovered, out int worldPrefabCount))
+			{
+				scannedWorldCount++;
+				scannedPrefabCount += worldPrefabCount;
+			}
+		}
+
+		if (scannedWorldCount == 0)
+		{
+			status = "No world with prefab data is currently available. Open a map or fully loaded editor session and retry.";
+			return false;
+		}
+
+		discovered.Sort(StringComparer.OrdinalIgnoreCase);
+		status = $"Last scan: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\nScanned worlds: {scannedWorldCount}, prefabs: {scannedPrefabCount}";
+		return true;
+	}
+
+	// Scan one ECS world for building-target SFX prefabs.
+	private static bool TryScanBuildingTargetsFromWorld(
+		World world,
+		HashSet<string> seen,
+		List<string> discovered,
+		out int scannedPrefabCount)
+	{
+		scannedPrefabCount = 0;
+
+		try
+		{
+			PrefabSystem? prefabSystem = world.GetExistingSystemManaged<PrefabSystem>();
+			if (prefabSystem == null)
+			{
+				return false;
+			}
+
+			using (EntityQuery query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<PrefabData>()))
+			{
+				if (query.IsEmptyIgnoreFilter)
+				{
+					return false;
+				}
+
+				using (NativeArray<Entity> prefabEntities = query.ToEntityArray(Allocator.Temp))
+				{
+					scannedPrefabCount = prefabEntities.Length;
+					for (int i = 0; i < prefabEntities.Length; i++)
+					{
+						if (!TryGetPrefabSafe(prefabSystem, prefabEntities[i], out PrefabBase prefab))
+						{
+							continue;
+						}
+
+						string prefabName = AudioReplacementDomainConfig.NormalizeTargetKey(prefab.name ?? string.Empty);
+						if (string.IsNullOrWhiteSpace(prefabName))
+						{
+							continue;
+						}
+
+						SFX sfx = prefab.GetComponent<SFX>();
+						if (!IsBuildingTargetForScan(prefab, sfx) || !seen.Add(prefabName))
+						{
+							continue;
+						}
+
+						discovered.Add(prefabName);
+					}
+				}
+			}
+
+			return true;
+		}
+		catch (Exception ex)
+		{
+			Log.Warn($"Building target scan skipped world '{world.Name}': {ex.Message}");
+			return false;
+		}
+	}
+
+	// Building-target identification used by runtime and options scanners.
+	private static bool IsBuildingTargetForScan(PrefabBase prefab, SFX sfx)
+	{
+		if (prefab == null ||
+			(prefab is not BuildingPrefab && prefab is not BuildingExtensionPrefab))
+		{
+			return false;
+		}
+
+		if (sfx != null && sfx.m_AudioClip != null)
+		{
+			return true;
+		}
+
+		EffectSource effectSource = prefab.GetComponent<EffectSource>();
+		if (effectSource == null || effectSource.m_Effects == null || effectSource.m_Effects.Count == 0)
+		{
+			return false;
+		}
+
+		for (int i = 0; i < effectSource.m_Effects.Count; i++)
+		{
+			EffectSource.EffectSettings effect = effectSource.m_Effects[i];
+			if (effect == null || effect.m_Effect == null)
+			{
+				continue;
+			}
+
+			SFX effectSfx = effect.m_Effect.GetComponent<SFX>();
+			if (effectSfx != null && effectSfx.m_AudioClip != null)
+			{
+				return true;
+			}
+		}
+
+		return false;
 	}
 }
 

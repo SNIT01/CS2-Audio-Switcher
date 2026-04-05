@@ -106,6 +106,10 @@ internal sealed class AudioReplacementDomainConfig
 	[DataMember(Order = 28)]
 	public List<string> TransitAnnouncementKnownStationLines { get; set; } = new List<string>();
 
+	// Optional domain-level hard mute toggle for all discovered targets.
+	[DataMember(Order = 29)]
+	public bool MuteAllTargets { get; set; }
+
 	[DataMember(Order = 30)]
 	public long LastTargetScanUtcTicks { get; set; }
 

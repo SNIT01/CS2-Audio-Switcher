@@ -8,8 +8,8 @@ using UnityEngine.Scripting;
 
 namespace SirenChanger;
 
-[SettingsUITabOrder(kGeneralTab, kPublicTransportTab, kSirensTab, kVehiclesTab, kAmbientTab, kDeveloperTab)]
-[SettingsUIGroupOrder(kGeneralGroup, kCitySoundSetGroup, kTransitAnnouncementGroup, kTransitAnnouncementLineGroup, kVehicleGroup, kVehicleOverrideGroup, kFallbackGroup, kProfileGroup, kDiagnosticsGroup, kVehicleSetupGroup, kVehicleOverrideTargetGroup, kVehicleFallbackGroup, kVehicleProfileGroup, kAmbientSetupGroup, kAmbientTargetGroup, kAmbientFallbackGroup, kAmbientProfileGroup, kDeveloperSirenGroup, kDeveloperEngineGroup, kDeveloperAmbientGroup, kDeveloperModuleGroup)]
+[SettingsUITabOrder(kGeneralTab, kPublicTransportTab, kSirensTab, kVehiclesTab, kAmbientTab, kBuildingsTab, kDeveloperTab)]
+[SettingsUIGroupOrder(kGeneralGroup, kCitySoundSetGroup, kGuidanceGroup, kTransitAnnouncementGroup, kTransitAnnouncementLineGroup, kVehicleGroup, kVehicleOverrideGroup, kFallbackGroup, kProfileGroup, kDiagnosticsGroup, kVehicleSetupGroup, kVehicleOverrideTargetGroup, kVehicleFallbackGroup, kVehicleProfileGroup, kAmbientSetupGroup, kAmbientTargetGroup, kAmbientFallbackGroup, kAmbientProfileGroup, kBuildingSetupGroup, kBuildingTargetGroup, kBuildingFallbackGroup, kBuildingProfileGroup, kDeveloperSirenGroup, kDeveloperEngineGroup, kDeveloperAmbientGroup, kDeveloperBuildingGroup, kDeveloperModuleGroup)]
 [SettingsUIShowGroupName]
 // Options UI binding surface for all configurable siren changer behavior.
 public sealed partial class SirenChangerSettings : ModSetting
@@ -24,9 +24,13 @@ public sealed partial class SirenChangerSettings : ModSetting
 
 	public const string kAmbientTab = "Ambient Sounds";
 
+	public const string kBuildingsTab = "Buildings";
+
 	public const string kGeneralGroup = "Siren Setup";
 
 	public const string kCitySoundSetGroup = "City Sound Sets";
+
+	public const string kGuidanceGroup = "Help & Guidance";
 
 	public const string kTransitAnnouncementGroup = "Global Announcement Settings";
 
@@ -237,6 +241,24 @@ public sealed partial class SirenChangerSettings : ModSetting
 	[SettingsUIDisplayName(overrideValue: "City Sound Set Status")]
 	[SettingsUIDescription(overrideValue: "Shows active set, detected city identity, and binding status.")]
 	public string CitySoundSetStatus => SirenChangerMod.GetCitySoundSetStatusText();
+
+	[SettingsUISection(kGeneralTab, kGuidanceGroup)]
+	[SettingsUIButton]
+	[SettingsUIDisplayName(overrideValue: "Open Quick Start Guide")]
+	[SettingsUIDescription(overrideValue: "Show the first-run Audio Switcher tutorial panel.")]
+	public bool OpenQuickStartGuide
+	{
+		set => SirenChangerMod.OpenGuidanceTutorialFromOptions();
+	}
+
+	[SettingsUISection(kGeneralTab, kGuidanceGroup)]
+	[SettingsUIButton]
+	[SettingsUIDisplayName(overrideValue: "Open What's New")]
+	[SettingsUIDescription(overrideValue: "Show the latest Audio Switcher release changelog panel.")]
+	public bool OpenWhatsNewPanel
+	{
+		set => SirenChangerMod.OpenGuidanceChangelogFromOptions();
+	}
 
 	// Per-vehicle, per-region siren selection dropdowns.
 	[SettingsUISection(kSirensTab, kVehicleGroup)]

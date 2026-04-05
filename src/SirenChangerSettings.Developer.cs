@@ -17,6 +17,8 @@ public sealed partial class SirenChangerSettings
 
 	public const string kDeveloperAmbientGroup = "Detected Ambient Sounds";
 
+	public const string kDeveloperBuildingGroup = "Detected Building Sounds";
+
 	public const string kDeveloperModuleGroup = "Module Creation & Upload";
 
 	private const string kDeveloperModuleSirenButtonGroup = "Sirens";
@@ -24,6 +26,8 @@ public sealed partial class SirenChangerSettings
 	private const string kDeveloperModuleEngineButtonGroup = "Engines";
 
 	private const string kDeveloperModuleAmbientButtonGroup = "Ambient";
+
+	private const string kDeveloperModuleBuildingButtonGroup = "Buildings";
 
 	private const string kDeveloperModuleTransitButtonGroup = "Transit";
 
@@ -133,6 +137,39 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDisplayName(overrideValue: "SFX Parameters (Read-only)")]
 	[SettingsUIDescription(overrideValue: "Displays SFX values captured from the selected detected ambient source.")]
 	public string DeveloperAmbientSfxParameters => SirenChangerMod.GetDeveloperSfxParametersText(DeveloperAudioDomain.Ambient);
+
+	[SettingsUISection(kDeveloperTab, kDeveloperBuildingGroup)]
+	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowDeveloperBuildingWarning))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetDetectedBuildingSoundOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Detected Building Sound")]
+	[SettingsUIDescription(overrideValue: "Select a detected in-game building sound source.")]
+	public string DeveloperBuildingSelection
+	{
+		get => SirenChangerMod.GetDeveloperSelection(DeveloperAudioDomain.Building);
+		set => SirenChangerMod.SetDeveloperSelection(DeveloperAudioDomain.Building, value);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperBuildingGroup)]
+	[SettingsUIButton]
+	[SettingsUIDisplayName(overrideValue: "Preview Selected Building")]
+	[SettingsUIDescription(overrideValue: "Play the currently selected detected building sound.")]
+	public bool PreviewDetectedBuilding
+	{
+		set => SirenChangerMod.PreviewDeveloperSelection(DeveloperAudioDomain.Building);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperBuildingGroup)]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Last Action Result")]
+	[SettingsUIDescription(overrideValue: "Shows the result of the last preview action for detected building sounds.")]
+	public string DeveloperBuildingActionStatus => SirenChangerMod.GetDeveloperActionStatusText(DeveloperAudioDomain.Building);
+
+	[SettingsUISection(kDeveloperTab, kDeveloperBuildingGroup)]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "SFX Parameters (Read-only)")]
+	[SettingsUIDescription(overrideValue: "Displays SFX values captured from the selected detected building source.")]
+	public string DeveloperBuildingSfxParameters => SirenChangerMod.GetDeveloperSfxParametersText(DeveloperAudioDomain.Building);
 
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUITextInput]
@@ -275,6 +312,37 @@ public sealed partial class SirenChangerSettings
 	public bool ExcludeSelectedModuleAmbient
 	{
 		set => SirenChangerMod.ExcludeSelectedLocalAudioFromModule(DeveloperAudioDomain.Ambient);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetModuleBuilderLocalBuildingOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Local Building File")]
+	[SettingsUIDescription(overrideValue: "Choose a local building file to add or remove from this package.")]
+	public string DeveloperModuleLocalBuildingSelection
+	{
+		get => SirenChangerMod.GetDeveloperModuleLocalAudioSelection(DeveloperAudioDomain.Building);
+		set => SirenChangerMod.SetDeveloperModuleLocalAudioSelection(DeveloperAudioDomain.Building, value);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kDeveloperModuleBuildingButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Add Selected Building")]
+	[SettingsUIDescription(overrideValue: "Add the selected local building file to this package.")]
+	public bool IncludeSelectedModuleBuilding
+	{
+		set => SirenChangerMod.IncludeSelectedLocalAudioInModule(DeveloperAudioDomain.Building);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kDeveloperModuleBuildingButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Remove Selected Building")]
+	[SettingsUIDescription(overrideValue: "Remove the selected local building file from this package.")]
+	public bool ExcludeSelectedModuleBuilding
+	{
+		set => SirenChangerMod.ExcludeSelectedLocalAudioFromModule(DeveloperAudioDomain.Building);
 	}
 
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
@@ -583,6 +651,12 @@ public sealed partial class SirenChangerSettings
 		return !SirenChangerMod.HasDetectedDeveloperAudio(DeveloperAudioDomain.Ambient);
 	}
 
+	// Warn when the building domain has no detected runtime SFX entries yet.
+	public bool ShowDeveloperBuildingWarning()
+	{
+		return !SirenChangerMod.HasDetectedDeveloperAudio(DeveloperAudioDomain.Building);
+	}
+
 	public bool IsDeveloperModuleExistingPublishedIdDisabled()
 	{
 		return !SirenChangerMod.IsDeveloperModuleUploadUpdateExistingEnabled() ||
@@ -613,6 +687,12 @@ public sealed partial class SirenChangerSettings
 	}
 
 	[Preserve]
+	public static DropdownItem<string>[] GetDetectedBuildingSoundOptions()
+	{
+		return SirenChangerMod.BuildDeveloperDetectedDropdown(DeveloperAudioDomain.Building);
+	}
+
+	[Preserve]
 	public static DropdownItem<string>[] GetModuleBuilderLocalSirenOptions()
 	{
 		return SirenChangerMod.BuildDeveloperModuleLocalAudioDropdown(DeveloperAudioDomain.Siren);
@@ -628,6 +708,12 @@ public sealed partial class SirenChangerSettings
 	public static DropdownItem<string>[] GetModuleBuilderLocalAmbientOptions()
 	{
 		return SirenChangerMod.BuildDeveloperModuleLocalAudioDropdown(DeveloperAudioDomain.Ambient);
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetModuleBuilderLocalBuildingOptions()
+	{
+		return SirenChangerMod.BuildDeveloperModuleLocalAudioDropdown(DeveloperAudioDomain.Building);
 	}
 
 	[Preserve]

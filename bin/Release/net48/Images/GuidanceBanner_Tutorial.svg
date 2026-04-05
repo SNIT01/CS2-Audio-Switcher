@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 320" preserveAspectRatio="none">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#140a34"/>
+      <stop offset="42%" stop-color="#272189"/>
+      <stop offset="100%" stop-color="#1f89ff"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#b040ff" stop-opacity="0.08"/>
+      <stop offset="50%" stop-color="#8030f0" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#30b8ff" stop-opacity="0.10"/>
+    </linearGradient>
+    <linearGradient id="layer1" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#b040ff" stop-opacity="0.36"/>
+      <stop offset="100%" stop-color="#30b8ff" stop-opacity="0.36"/>
+    </linearGradient>
+    <linearGradient id="layer2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#8030f0" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#2878ff" stop-opacity="0.30"/>
+    </linearGradient>
+    <linearGradient id="layer3" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#d058ff" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#30b0ff" stop-opacity="0.24"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="320" fill="url(#bg)"/>
+  <rect width="1600" height="320" fill="url(#glow)"/>
+
+  <g stroke="#d9e7ff" stroke-opacity="0.08" stroke-width="1">
+    <path d="M0 48 H1600"/>
+    <path d="M0 96 H1600"/>
+    <path d="M0 144 H1600"/>
+    <path d="M0 192 H1600"/>
+    <path d="M0 240 H1600"/>
+    <path d="M160 0 V320"/>
+    <path d="M480 0 V320"/>
+    <path d="M800 0 V320"/>
+    <path d="M1120 0 V320"/>
+    <path d="M1440 0 V320"/>
+  </g>
+
+  <path d="M0,156 C120,112 240,206 370,146 C510,84 650,238 800,154 C938,78 1070,226 1210,148 C1348,70 1474,196 1600,154 L1600,178 C1474,220 1348,94 1210,172 C1070,250 938,102 800,178 C650,262 510,108 370,170 C240,230 120,136 0,180 Z" fill="url(#layer1)"/>
+  <path d="M0,166 C142,132 262,194 402,162 C540,130 662,198 804,164 C950,128 1072,196 1222,162 C1358,132 1482,192 1600,166 L1600,182 C1482,208 1358,148 1222,178 C1072,212 950,144 804,180 C662,214 540,146 402,178 C262,210 142,148 0,184 Z" fill="url(#layer2)"/>
+  <path d="M0,170 C130,152 250,186 380,170 C518,150 654,192 792,170 C938,144 1068,194 1208,170 C1344,148 1470,186 1600,170 L1600,180 C1470,196 1344,160 1208,180 C1068,204 938,154 792,180 C654,202 518,160 380,180 C250,198 130,166 0,182 Z" fill="url(#layer3)"/>
+
+  <path d="M0,166 C120,126 240,206 370,154 C510,96 650,226 800,162 C938,90 1070,220 1210,154 C1348,82 1474,198 1600,166" fill="none" stroke="#d058ff" stroke-opacity="0.65" stroke-width="2.4"/>
+  <path d="M0,174 C142,140 262,194 402,168 C540,140 662,202 804,170 C950,136 1072,198 1222,168 C1358,142 1482,196 1600,174" fill="none" stroke="#30b8ff" stroke-opacity="0.74" stroke-width="2.6"/>
+  <path d="M0,160 C100,124 204,212 320,152 C446,88 580,236 724,152 C868,68 1006,236 1152,154 C1296,86 1428,204 1600,150" fill="none" stroke="#f4e2ff" stroke-opacity="0.28" stroke-width="1.8"/>
+
+  <circle cx="1408" cy="70" r="180" fill="#b040ff" fill-opacity="0.08"/>
+  <circle cx="1518" cy="34" r="132" fill="#30b8ff" fill-opacity="0.10"/>
+</svg>

@@ -1,0 +1,16 @@
+{
+  "name": "cs2-audio-switcher-ui-dev",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Official-style UI pipeline for CS2 Audio Switcher",
+  "scripts": {
+    "build": "webpack --config ui/webpack.config.js --mode production",
+    "dev": "webpack --config ui/webpack.config.js --watch --mode development",
+    "dev:once": "webpack --config ui/webpack.config.js --mode development"
+  },
+  "devDependencies": {
+    "copy-webpack-plugin": "^12.0.2",
+    "webpack": "^5.102.1",
+    "webpack-cli": "^5.1.4"
+  }
+}

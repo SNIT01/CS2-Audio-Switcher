@@ -7,7 +7,7 @@ using UnityEngine.Scripting;
 
 namespace SirenChanger;
 
-// Vehicles and ambient tabs, options, and profile editing helpers.
+// Vehicles, ambient, and building tabs with options and profile editing helpers.
 public sealed partial class SirenChangerSettings
 {
 	public const string kVehicleSetupGroup = "Engine Setup";
@@ -25,6 +25,14 @@ public sealed partial class SirenChangerSettings
 	public const string kAmbientProfileGroup = "Ambient Profile Editor";
 
 	private const string kAmbientRescanButtonGroup = "Ambient Scan Actions";
+
+	public const string kBuildingSetupGroup = "Building Setup";
+	public const string kBuildingDefaultsGroup = "Building Defaults";
+	public const string kBuildingTargetGroup = "Specific Building Overrides";
+	public const string kBuildingFallbackGroup = "Missing Building Sound Behavior";
+	public const string kBuildingProfileGroup = "Building Profile Editor";
+
+	private const string kBuildingRescanButtonGroup = "Building Scan Actions";
 
 	[SettingsUISection(kVehiclesTab, kVehicleSetupGroup)]
 	[SettingsUIDisplayName(overrideValue: "Enable Vehicle Engine Replacement")]
@@ -342,6 +350,15 @@ public sealed partial class SirenChangerSettings
 	}
 
 	[SettingsUISection(kAmbientTab, kAmbientSetupGroup)]
+	[SettingsUIDisplayName(overrideValue: "Mute Ambient Targets")]
+	[SettingsUIDescription(overrideValue: "Mute all detected ambient targets while keeping assignments intact.")]
+	public bool AmbientMuteAllTargets
+	{
+		get => SirenChangerMod.AmbientConfig.MuteAllTargets;
+		set => SirenChangerMod.AmbientConfig.MuteAllTargets = value;
+	}
+
+	[SettingsUISection(kAmbientTab, kAmbientSetupGroup)]
 	[SettingsUIButton]
 	[SettingsUIButtonGroup(kAmbientRescanButtonGroup)]
 	[SettingsUIDisplayName(overrideValue: "Rescan Custom Ambient Files")]
@@ -638,6 +655,323 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowAmbientCatalogWarning))]
 	public string AmbientCatalogScanStatus => SirenChangerMod.GetAmbientCatalogScanStatusText();
 
+	[SettingsUISection(kBuildingsTab, kBuildingSetupGroup)]
+	[SettingsUIDisplayName(overrideValue: "Enable Building Replacement")]
+	[SettingsUIDescription(overrideValue: "Enable or disable custom building sound replacement.")]
+	public bool BuildingEnabled
+	{
+		get => SirenChangerMod.BuildingConfig.Enabled;
+		set => SirenChangerMod.BuildingConfig.Enabled = value;
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingSetupGroup)]
+	[SettingsUIDisplayName(overrideValue: "Mute Building Targets")]
+	[SettingsUIDescription(overrideValue: "Mute all detected building targets while keeping assignments intact.")]
+	public bool BuildingMuteAllTargets
+	{
+		get => SirenChangerMod.BuildingConfig.MuteAllTargets;
+		set => SirenChangerMod.BuildingConfig.MuteAllTargets = value;
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingSetupGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kBuildingRescanButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Rescan Custom Building Files")]
+	[SettingsUIDescription(overrideValue: "Rescan the Custom Buildings folder and refresh dropdowns.")]
+	public bool UpdateCustomBuildings
+	{
+		set => SirenChangerMod.RefreshCustomBuildingsFromOptions();
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingSetupGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kBuildingRescanButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Rescan Building Targets")]
+	[SettingsUIDescription(overrideValue: "Scan currently loaded prefabs and refresh building override targets.")]
+	public bool UpdateBuildingTargets
+	{
+		set => SirenChangerMod.RefreshBuildingTargetsFromOptions();
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingSetupGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Building Target Prefab Scan Status")]
+	[SettingsUIDescription(overrideValue: "Shows the last building target scan result.")]
+	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowBuildingTargetScanWarning))]
+	public string BuildingTargetScanStatus => SirenChangerMod.GetBuildingTargetScanStatusText();
+
+	[SettingsUISection(kBuildingsTab, kBuildingTargetGroup)]
+	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowBuildingOverrideWarning))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetBuildingTargetOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Building Target Prefab")]
+	[SettingsUIDescription(overrideValue: "Choose a specific building prefab to override.")]
+	public string BuildingOverrideTarget
+	{
+		get => SirenChangerMod.BuildingConfig.TargetSelectionTarget;
+		set => SirenChangerMod.SetBuildingTargetSelectionTargetFromOptions(value);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingTargetGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsBuildingOverrideDisabled))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetBuildingSelectionOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Override Building Sound")]
+	[SettingsUIDescription(overrideValue: "Default means this building uses the building default selection.")]
+	public string BuildingOverrideSelection
+	{
+		get => SirenChangerMod.GetSelectedBuildingTargetSelectionForOptions();
+		set => SirenChangerMod.SetSelectedBuildingTargetSelectionFromOptions(value);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingTargetGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Building Override Status")]
+	[SettingsUIDescription(overrideValue: "Shows whether the selected building target has an override.")]
+	public string BuildingOverrideStatus => SirenChangerMod.GetSelectedBuildingOverrideStatusText();
+
+	[SettingsUISection(kBuildingsTab, kBuildingFallbackGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetFallbackBehaviorOptions))]
+	[SettingsUIDisplayName(overrideValue: "If Selected Building Sound Is Missing")]
+	[SettingsUIDescription(overrideValue: "Fallback behavior when the selected building sound cannot be loaded.")]
+	public int MissingBuildingFallbackBehavior
+	{
+		get => (int)SirenChangerMod.BuildingConfig.MissingSelectionFallbackBehavior;
+		set => SirenChangerMod.BuildingConfig.MissingSelectionFallbackBehavior =
+			Enum.IsDefined(typeof(SirenFallbackBehavior), value)
+				? (SirenFallbackBehavior)value
+				: SirenFallbackBehavior.Default;
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingFallbackGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsBuildingAlternateFallbackSelectionDisabled))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetBuildingSelectionOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Alternate Building Sound")]
+	[SettingsUIDescription(overrideValue: "Used only when fallback behavior is set to Alternate Custom Sound File.")]
+	public string AlternateBuildingFallbackSelection
+	{
+		get => SirenChangerMod.BuildingConfig.AlternateFallbackSelection;
+		set => SirenChangerMod.BuildingConfig.AlternateFallbackSelection = NormalizeDomainSelection(value);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetBuildingPreviewableProfileOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Building Profile To Edit")]
+	[SettingsUIDescription(overrideValue: "Select a custom building profile to edit, or choose Default to preview the built-in game building sample.")]
+	public string EditBuildingProfile
+	{
+		get => SirenChangerMod.BuildingConfig.EditProfileSelection;
+		set => SirenChangerMod.BuildingConfig.EditProfileSelection = AudioReplacementDomainConfig.NormalizeProfileKey(value);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIButton]
+	[SettingsUIDisplayName(overrideValue: "Preview Selected Building Sound")]
+	[SettingsUIDescription(overrideValue: "Play the selected custom building profile, or the built-in default sample when Default is selected.")]
+	public bool PreviewSelectedBuildingProfile
+	{
+		set => SirenChangerMod.PreviewSelectedBuildingProfileFromOptions();
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Preview Status")]
+	[SettingsUIDescription(overrideValue: "Shows the last building-profile preview result.")]
+	public string BuildingPreviewStatus => SirenChangerMod.GetBuildingPreviewStatusText();
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoBuildingEditableProfile))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetBuildingCopySourceOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Copy Settings From Building Profile")]
+	[SettingsUIDescription(overrideValue: "Choose a source profile from custom building sounds.")]
+	public string CopyFromBuildingProfile
+	{
+		get => SirenChangerMod.BuildingConfig.CopyFromProfileSelection;
+		set => SirenChangerMod.BuildingConfig.CopyFromProfileSelection = AudioReplacementDomainConfig.NormalizeProfileKey(value);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsBuildingCopyProfileDisabled))]
+	[SettingsUIButton]
+	[SettingsUIDisplayName(overrideValue: "Copy Source Into Current Building Profile")]
+	[SettingsUIDescription(overrideValue: "Copy SFX parameters from source profile into the currently edited profile.")]
+	public bool CopyBuildingProfileIntoEditable
+	{
+		set
+		{
+			if (TryGetBuildingEditableProfile(out SirenSfxProfile target) &&
+				TryGetBuildingCopySourceProfile(out SirenSfxProfile source))
+			{
+				CopyProfileValues(target, source);
+				SirenChangerMod.NotifyRuntimeConfigChanged(saveToDisk: true);
+			}
+		}
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIButton]
+	[SettingsUIDisplayName(overrideValue: "Reset Current Building Profile To Template")]
+	[SettingsUIDescription(overrideValue: "Reset the selected profile to template values captured from detected building SFX.")]
+	public bool ResetEditableBuildingProfileToTemplate
+	{
+		set
+		{
+			if (TryGetBuildingEditableProfile(out SirenSfxProfile target))
+			{
+				CopyProfileValues(target, SirenChangerMod.BuildingProfileTemplate);
+				SirenChangerMod.NotifyRuntimeConfigChanged(saveToDisk: true);
+			}
+		}
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoBuildingEditableProfile))]
+	[SettingsUISlider(min = 0f, max = 100f, step = 1f, unit = "percentageSingleFraction", scalarMultiplier = 100f, updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Volume")]
+	[SettingsUIDescription(overrideValue: "Building profile volume.")]
+	public float BuildingProfileVolume
+	{
+		get => GetBuildingEditableProfile().Volume;
+		set => SetBuildingProfileValue(profile => profile.Volume = value, clamp: true);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoBuildingEditableProfile))]
+	[SettingsUISlider(min = -3f, max = 3f, step = 0.05f, unit = "floatSingleFraction", updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Pitch")]
+	[SettingsUIDescription(overrideValue: "Building profile pitch.")]
+	public float BuildingProfilePitch
+	{
+		get => GetBuildingEditableProfile().Pitch;
+		set => SetBuildingProfileValue(profile => profile.Pitch = value, clamp: true);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoBuildingEditableProfile))]
+	[SettingsUISlider(min = 0f, max = 100f, step = 1f, unit = "percentageSingleFraction", scalarMultiplier = 100f, updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Spatial Blend")]
+	[SettingsUIDescription(overrideValue: "Building profile spatial blend.")]
+	public float BuildingProfileSpatialBlend
+	{
+		get => GetBuildingEditableProfile().SpatialBlend;
+		set => SetBuildingProfileValue(profile => profile.SpatialBlend = value, clamp: true);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoBuildingEditableProfile))]
+	[SettingsUISlider(min = 0f, max = 100f, step = 1f, unit = "percentageSingleFraction", scalarMultiplier = 100f, updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Doppler Level")]
+	[SettingsUIDescription(overrideValue: "Controls doppler effect intensity for moving building sources.")]
+	public float BuildingProfileDoppler
+	{
+		get => GetBuildingEditableProfile().Doppler;
+		set => SetBuildingProfileValue(profile => profile.Doppler = value, clamp: true);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoBuildingEditableProfile))]
+	[SettingsUISlider(min = 0f, max = 360f, step = 1f, unit = "integer", updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Stereo Spread")]
+	[SettingsUIDescription(overrideValue: "Sets how widely stereo channels are spread in 3D space.")]
+	public float BuildingProfileSpread
+	{
+		get => GetBuildingEditableProfile().Spread;
+		set => SetBuildingProfileValue(profile => profile.Spread = value, clamp: true);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoBuildingEditableProfile))]
+	[SettingsUISlider(min = 0f, max = 100f, step = 0.5f, unit = "floatSingleFraction", updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Min Distance")]
+	[SettingsUIDescription(overrideValue: "Distance where volume starts attenuating based on rolloff mode.")]
+	public float BuildingProfileMinDistance
+	{
+		get => GetBuildingEditableProfile().MinDistance;
+		set => SetBuildingProfileValue(profile => profile.MinDistance = value, clamp: true);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoBuildingEditableProfile))]
+	[SettingsUISlider(min = 1f, max = 500f, step = 1f, unit = "floatSingleFraction", updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Max Distance")]
+	[SettingsUIDescription(overrideValue: "Distance where the building sound reaches minimum audible level.")]
+	public float BuildingProfileMaxDistance
+	{
+		get => GetBuildingEditableProfile().MaxDistance;
+		set => SetBuildingProfileValue(profile => profile.MaxDistance = value, clamp: true);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoBuildingEditableProfile))]
+	[SettingsUIDisplayName(overrideValue: "Loop")]
+	[SettingsUIDescription(overrideValue: "When enabled, this building profile loops.")]
+	public bool BuildingProfileLoop
+	{
+		get => GetBuildingEditableProfile().Loop;
+		set => SetBuildingProfileValue(profile => profile.Loop = value, clamp: false);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoBuildingEditableProfile))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetRolloffModeOptions))]
+	[SettingsUIDisplayName(overrideValue: "Rolloff Mode")]
+	[SettingsUIDescription(overrideValue: "Selects how volume attenuates over distance.")]
+	public int BuildingProfileRolloffMode
+	{
+		get => (int)GetBuildingEditableProfile().RolloffMode;
+		set => SetBuildingProfileValue(
+			profile => profile.RolloffMode = Enum.IsDefined(typeof(AudioRolloffMode), value)
+				? (AudioRolloffMode)value
+				: AudioRolloffMode.Linear,
+			clamp: false);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoBuildingEditableProfile))]
+	[SettingsUIDisplayName(overrideValue: "Random Start Time")]
+	[SettingsUIDescription(overrideValue: "Start playback from a random clip position to reduce repetitive sync.")]
+	public bool BuildingProfileRandomStartTime
+	{
+		get => GetBuildingEditableProfile().RandomStartTime;
+		set => SetBuildingProfileValue(profile => profile.RandomStartTime = value, clamp: false);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoBuildingEditableProfile))]
+	[SettingsUISlider(min = 0f, max = 10f, step = 0.05f, unit = "floatSingleFraction", updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Fade In Seconds")]
+	[SettingsUIDescription(overrideValue: "Time to ramp from silence to full volume when playback starts.")]
+	public float BuildingProfileFadeInSeconds
+	{
+		get => GetBuildingEditableProfile().FadeInSeconds;
+		set => SetBuildingProfileValue(profile => profile.FadeInSeconds = value, clamp: true);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoBuildingEditableProfile))]
+	[SettingsUISlider(min = 0f, max = 10f, step = 0.05f, unit = "floatSingleFraction", updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Fade Out Seconds")]
+	[SettingsUIDescription(overrideValue: "Time to ramp from current volume to silence when playback stops.")]
+	public float BuildingProfileFadeOutSeconds
+	{
+		get => GetBuildingEditableProfile().FadeOutSeconds;
+		set => SetBuildingProfileValue(profile => profile.FadeOutSeconds = value, clamp: true);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingSetupGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Custom Building File Scan Status")]
+	[SettingsUIDescription(overrideValue: "Shows the latest custom building folder scan summary and changed files.")]
+	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowBuildingCatalogWarning))]
+	public string BuildingCatalogScanStatus => SirenChangerMod.GetBuildingCatalogScanStatusText();
+
 	// Disable vehicle-target override controls until targets are discovered and selected.
 	public bool IsVehicleEngineOverrideDisabled()
 	{
@@ -662,6 +996,19 @@ public sealed partial class SirenChangerSettings
 	public bool IsAmbientAlternateFallbackSelectionDisabled()
 	{
 		return SirenChangerMod.AmbientConfig.MissingSelectionFallbackBehavior != SirenFallbackBehavior.AlternateCustomSiren;
+	}
+
+	// Disable building-target override controls until targets are discovered and selected.
+	public bool IsBuildingOverrideDisabled()
+	{
+		return !SirenChangerMod.HasDiscoveredBuildingTargets() ||
+			string.IsNullOrWhiteSpace(SirenChangerMod.BuildingConfig.TargetSelectionTarget);
+	}
+
+	// Alternate fallback dropdown is only active when the corresponding policy is selected.
+	public bool IsBuildingAlternateFallbackSelectionDisabled()
+	{
+		return SirenChangerMod.BuildingConfig.MissingSelectionFallbackBehavior != SirenFallbackBehavior.AlternateCustomSiren;
 	}
 
 	// Editable profile controls require a concrete custom profile selection.
@@ -703,6 +1050,25 @@ public sealed partial class SirenChangerSettings
 			StringComparison.OrdinalIgnoreCase);
 	}
 
+	public bool NoBuildingEditableProfile()
+	{
+		return !TryGetBuildingEditableProfile(out _);
+	}
+
+	// Copy is disabled when source/target are unavailable or identical.
+	public bool IsBuildingCopyProfileDisabled()
+	{
+		if (!TryGetBuildingEditableProfile(out _) || !TryGetBuildingCopySourceProfile(out _))
+		{
+			return true;
+		}
+
+		return string.Equals(
+			SirenChangerMod.BuildingConfig.CopyFromProfileSelection,
+			SirenChangerMod.BuildingConfig.EditProfileSelection,
+			StringComparison.OrdinalIgnoreCase);
+	}
+
 	// Warning helper: indicate that engine target scans have not produced targets yet.
 	public bool ShowVehicleEngineScanWarning()
 	{
@@ -737,6 +1103,24 @@ public sealed partial class SirenChangerSettings
 	public bool ShowAmbientCatalogWarning()
 	{
 		return SirenChangerMod.AmbientConfig.CustomProfiles.Count == 0;
+	}
+
+	// Warning helper: indicate that building target scans have not produced targets yet.
+	public bool ShowBuildingTargetScanWarning()
+	{
+		return !SirenChangerMod.HasDiscoveredBuildingTargets();
+	}
+
+	// Warning helper: indicate that building override selection is incomplete.
+	public bool ShowBuildingOverrideWarning()
+	{
+		return IsBuildingOverrideDisabled();
+	}
+
+	// Warning helper: indicate that no custom building profiles are currently available.
+	public bool ShowBuildingCatalogWarning()
+	{
+		return SirenChangerMod.BuildingConfig.CustomProfiles.Count == 0;
 	}
 
 	// Centralized labels/descriptions for key actions to simplify localization.
@@ -775,6 +1159,24 @@ public sealed partial class SirenChangerSettings
 
 	[Preserve]
 	public static string GetAmbientTargetPrefabScanStatusDescription() => "Shows the last ambient target scan result.";
+
+	[Preserve]
+	public static string GetRescanCustomBuildingFilesLabel() => "Rescan Custom Building Files";
+
+	[Preserve]
+	public static string GetRescanCustomBuildingFilesDescription() => "Rescan the Custom Buildings folder and refresh dropdowns.";
+
+	[Preserve]
+	public static string GetRescanBuildingTargetsLabel() => "Rescan Building Targets";
+
+	[Preserve]
+	public static string GetRescanBuildingTargetsDescription() => "Scan currently loaded prefabs and refresh building override targets.";
+
+	[Preserve]
+	public static string GetBuildingTargetPrefabScanStatusLabel() => "Building Target Prefab Scan Status";
+
+	[Preserve]
+	public static string GetBuildingTargetPrefabScanStatusDescription() => "Shows the last building target scan result.";
 
 	[Preserve]
 	public static DropdownItem<string>[] GetVehicleEngineSelectionOptions()
@@ -838,11 +1240,45 @@ public sealed partial class SirenChangerSettings
 		return SirenChangerMod.BuildAmbientTargetDropdownItems();
 	}
 
+	[Preserve]
+	public static DropdownItem<string>[] GetBuildingSelectionOptions()
+	{
+		return SirenChangerMod.BuildBuildingDropdownItems(includeDefault: true);
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetBuildingPreviewableProfileOptions()
+	{
+		return SirenChangerMod.BuildBuildingDropdownItems(includeDefault: true);
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetBuildingEditableProfileOptions()
+	{
+		return SirenChangerMod.BuildBuildingDropdownItems(includeDefault: false);
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetBuildingCopySourceOptions()
+	{
+		return BuildCopySourceOptions(
+			"Default (Detected Building Template)",
+			SirenChangerMod.BuildBuildingDropdownItems(includeDefault: false),
+			Array.Empty<DropdownItem<string>>());
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetBuildingTargetOptions()
+	{
+		return SirenChangerMod.BuildBuildingTargetDropdownItems();
+	}
+
 	// Reset all non-siren domain settings when options are reset to defaults.
 	private static void ResetExtendedDomainDefaults()
 	{
 		ResetVehicleEngineDefaults();
 		ResetAmbientDefaults();
+		ResetBuildingDefaults();
 		ResetTransitAnnouncementDefaults();
 	}
 
@@ -855,12 +1291,13 @@ public sealed partial class SirenChangerSettings
 		config.DefaultSelection = SirenReplacementConfig.DefaultSelectionToken;
 		config.EditProfileSelection = string.Empty;
 		config.CopyFromProfileSelection = string.Empty;
-		config.CustomProfiles.Clear();
-		config.TargetSelections.Clear();
-		config.TargetSelectionTarget = string.Empty;
-		config.KnownTargets.Clear();
-		config.MissingSelectionFallbackBehavior = SirenFallbackBehavior.Default;
-		config.AlternateFallbackSelection = SirenReplacementConfig.DefaultSelectionToken;
+			config.CustomProfiles.Clear();
+			config.TargetSelections.Clear();
+			config.TargetSelectionTarget = string.Empty;
+			config.KnownTargets.Clear();
+			config.MuteAllTargets = false;
+			config.MissingSelectionFallbackBehavior = SirenFallbackBehavior.Default;
+			config.AlternateFallbackSelection = SirenReplacementConfig.DefaultSelectionToken;
 		config.LastCatalogScanUtcTicks = 0;
 		config.LastCatalogScanFileCount = 0;
 		config.LastCatalogScanAddedCount = 0;
@@ -892,12 +1329,13 @@ public sealed partial class SirenChangerSettings
 		config.DefaultSelection = SirenReplacementConfig.DefaultSelectionToken;
 		config.EditProfileSelection = string.Empty;
 		config.CopyFromProfileSelection = string.Empty;
-		config.CustomProfiles.Clear();
-		config.TargetSelections.Clear();
-		config.TargetSelectionTarget = string.Empty;
-		config.KnownTargets.Clear();
-		config.MissingSelectionFallbackBehavior = SirenFallbackBehavior.Default;
-		config.AlternateFallbackSelection = SirenReplacementConfig.DefaultSelectionToken;
+			config.CustomProfiles.Clear();
+			config.TargetSelections.Clear();
+			config.TargetSelectionTarget = string.Empty;
+			config.KnownTargets.Clear();
+			config.MuteAllTargets = false;
+			config.MissingSelectionFallbackBehavior = SirenFallbackBehavior.Default;
+			config.AlternateFallbackSelection = SirenReplacementConfig.DefaultSelectionToken;
 		config.LastCatalogScanUtcTicks = 0;
 		config.LastCatalogScanFileCount = 0;
 		config.LastCatalogScanAddedCount = 0;
@@ -918,6 +1356,44 @@ public sealed partial class SirenChangerSettings
 
 		config.EnsureSelectionsValid(new HashSet<string>(config.CustomProfiles.Keys, StringComparer.OrdinalIgnoreCase));
 		config.Normalize(SirenChangerMod.AmbientCustomFolderName);
+	}
+
+	// Restore building-domain configuration and re-seed profile values from the detected template.
+	private static void ResetBuildingDefaults()
+	{
+		AudioReplacementDomainConfig config = SirenChangerMod.BuildingConfig;
+		config.Enabled = true;
+		config.CustomFolderName = SirenChangerMod.BuildingCustomFolderName;
+		config.DefaultSelection = SirenReplacementConfig.DefaultSelectionToken;
+		config.EditProfileSelection = string.Empty;
+		config.CopyFromProfileSelection = string.Empty;
+		config.CustomProfiles.Clear();
+		config.TargetSelections.Clear();
+		config.TargetSelectionTarget = string.Empty;
+		config.KnownTargets.Clear();
+		config.MuteAllTargets = false;
+		config.MissingSelectionFallbackBehavior = SirenFallbackBehavior.Default;
+		config.AlternateFallbackSelection = SirenReplacementConfig.DefaultSelectionToken;
+		config.LastCatalogScanUtcTicks = 0;
+		config.LastCatalogScanFileCount = 0;
+		config.LastCatalogScanAddedCount = 0;
+		config.LastCatalogScanRemovedCount = 0;
+		config.LastCatalogScanChangedFiles.Clear();
+		config.LastTargetScanUtcTicks = 0;
+		config.LastTargetScanStatus = string.Empty;
+		config.LastValidationUtcTicks = 0;
+		config.LastValidationReport = string.Empty;
+
+		SirenChangerMod.SyncCustomBuildingCatalog(saveIfChanged: false);
+		SirenSfxProfile seed = SirenChangerMod.BuildingProfileTemplate.ClampCopy();
+		List<string> profileKeys = new List<string>(config.CustomProfiles.Keys);
+		for (int i = 0; i < profileKeys.Count; i++)
+		{
+			config.CustomProfiles[profileKeys[i]] = seed.ClampCopy();
+		}
+
+		config.EnsureSelectionsValid(new HashSet<string>(config.CustomProfiles.Keys, StringComparer.OrdinalIgnoreCase));
+		config.Normalize(SirenChangerMod.BuildingCustomFolderName);
 	}
 
 	// Normalize user dropdown value, mapping empty/default back to canonical token.
@@ -1049,6 +1525,64 @@ public sealed partial class SirenChangerSettings
 	private static void SetAmbientProfileValue(Action<SirenSfxProfile> updater, bool clamp)
 	{
 		if (!TryGetAmbientEditableProfile(out SirenSfxProfile profile))
+		{
+			return;
+		}
+
+		updater(profile);
+		if (clamp)
+		{
+			profile.ClampInPlace();
+		}
+	}
+
+	// Resolve current editable building profile or fallback to template when none is selected.
+	private static SirenSfxProfile GetBuildingEditableProfile()
+	{
+		if (TryGetBuildingEditableProfile(out SirenSfxProfile profile))
+		{
+			return profile;
+		}
+
+		return SirenChangerMod.BuildingProfileTemplate;
+	}
+
+	// Try resolve current editable building profile from custom profile map.
+	private static bool TryGetBuildingEditableProfile(out SirenSfxProfile profile)
+	{
+		profile = null!;
+		string key = SirenChangerMod.BuildingConfig.EditProfileSelection;
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return false;
+		}
+
+		return SirenChangerMod.BuildingConfig.TryGetProfile(key, out profile);
+	}
+
+	// Resolve copy-source profile for building editor from default or custom entries.
+	private static bool TryGetBuildingCopySourceProfile(out SirenSfxProfile profile)
+	{
+		profile = null!;
+		string key = SirenChangerMod.BuildingConfig.CopyFromProfileSelection;
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return false;
+		}
+
+		if (AudioReplacementDomainConfig.IsDefaultSelection(key))
+		{
+			profile = SirenChangerMod.BuildingProfileTemplate;
+			return true;
+		}
+
+		return SirenChangerMod.BuildingConfig.TryGetProfile(key, out profile);
+	}
+
+	// Apply an update action to the current editable building profile.
+	private static void SetBuildingProfileValue(Action<SirenSfxProfile> updater, bool clamp)
+	{
+		if (!TryGetBuildingEditableProfile(out SirenSfxProfile profile))
 		{
 			return;
 		}
