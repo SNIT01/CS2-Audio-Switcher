@@ -34,5 +34,20 @@ C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net
 C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\Images\Screen_PT.jpg
 C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\Images\Screen_Siren.jpg
 C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\Images\Screen_Siren2.jpg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\Images\UI_Banner.jpeg
 C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\Images\GuidanceBanner_Changelog.svg
 C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\Images\GuidanceBanner_Tutorial.svg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\SirenChanger\Images\Audio Switcher Logo.jpg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\SirenChanger\Images\GuidanceBanner_Changelog.svg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\SirenChanger\Images\GuidanceBanner_Tutorial.svg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\SirenChanger\Images\Screen_Ambient.jpg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\SirenChanger\Images\Screen_Dev.jpg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\SirenChanger\Images\Screen_Dev2.jpg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\SirenChanger\Images\Screen_Dev3.jpg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\SirenChanger\Images\Screen_Engine.jpg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\SirenChanger\Images\Screen_Gen.jpg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\SirenChanger\Images\Screen_Prof.jpg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\SirenChanger\Images\Screen_PT.jpg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\SirenChanger\Images\Screen_Siren.jpg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\SirenChanger\Images\Screen_Siren2.jpg
+C:\Users\snitt\Documents\CitiesSkylines2 Mods\CS2-Audio-Switcher\bin\Release\net48\SirenChanger\Images\UI_Banner.jpeg

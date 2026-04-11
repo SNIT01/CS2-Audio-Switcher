@@ -44,6 +44,10 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 
 	private ComponentLookup<PublicTransportVehicleData> m_PublicTransportVehicleData = default;
 
+	private ComponentLookup<Game.Vehicles.PublicTransport> m_PublicTransportData = default;
+
+	private ComponentLookup<PrefabRef> m_PrefabRefData = default;
+
 	private ComponentLookup<Controller> m_ControllerData = default;
 
 	private ComponentLookup<CurrentRoute> m_CurrentRouteData = default;
@@ -62,6 +66,8 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 
 	private bool m_WasLoading = true;
 
+	private bool m_SessionStateActive;
+
 	private readonly Dictionary<Entity, VehicleAnnouncementState> m_StateByVehicle = new Dictionary<Entity, VehicleAnnouncementState>();
 
 	private readonly HashSet<Entity> m_SeenVehicles = new HashSet<Entity>();
@@ -70,9 +76,17 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 
 	private readonly Dictionary<TransitAnnouncementSlot, AnnouncementErrorState> m_LastErrorBySlot = new Dictionary<TransitAnnouncementSlot, AnnouncementErrorState>();
 
-	private readonly Dictionary<PendingAnnouncementQueueKey, List<DeferredAnnouncementRequest>> m_PendingAnnouncementsByQueueKey = new Dictionary<PendingAnnouncementQueueKey, List<DeferredAnnouncementRequest>>();
+	private readonly Dictionary<PendingAnnouncementQueueKey, DeferredAnnouncementQueue> m_PendingAnnouncementsByQueueKey = new Dictionary<PendingAnnouncementQueueKey, DeferredAnnouncementQueue>();
+
+	private readonly Dictionary<TransitAnnouncementSlot, int> m_PendingAnnouncementCountBySlot = new Dictionary<TransitAnnouncementSlot, int>();
 
 	private readonly List<PendingAnnouncementQueueKey> m_PendingAnnouncementKeysScratch = new List<PendingAnnouncementQueueKey>();
+
+	private readonly Dictionary<Entity, string> m_EntityDisplayNameCache = new Dictionary<Entity, string>();
+
+	private readonly Dictionary<Entity, RouteDescriptorCacheEntry> m_RouteDescriptorCache = new Dictionary<Entity, RouteDescriptorCacheEntry>();
+
+	private readonly Dictionary<Entity, StationDescriptorCacheEntry> m_StationDescriptorCache = new Dictionary<Entity, StationDescriptorCacheEntry>();
 
 	// Per-vehicle transition memory used to detect clean edge transitions.
 	private struct VehicleAnnouncementState
@@ -102,6 +116,99 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		public Vector3 WorldPosition;
 
 		public float RequestedRealtime;
+	}
+
+	// Per-frame cache entry for route descriptor/name resolution.
+	private readonly struct RouteDescriptorCacheEntry
+	{
+		public RouteDescriptorCacheEntry(bool resolved, string stableLineId, string displayName)
+		{
+			Resolved = resolved;
+			StableLineId = stableLineId;
+			DisplayName = displayName;
+		}
+
+		public bool Resolved { get; }
+
+		public string StableLineId { get; }
+
+		public string DisplayName { get; }
+	}
+
+	// Per-frame cache entry for station descriptor/name resolution.
+	private readonly struct StationDescriptorCacheEntry
+	{
+		public StationDescriptorCacheEntry(bool resolved, string stableStationId, string displayName)
+		{
+			Resolved = resolved;
+			StableStationId = stableStationId;
+			DisplayName = displayName;
+		}
+
+		public bool Resolved { get; }
+
+		public string StableStationId { get; }
+
+		public string DisplayName { get; }
+	}
+
+	// Allocation-light FIFO wrapper backed by a list + head index to avoid RemoveAt(0) churn.
+	private sealed class DeferredAnnouncementQueue
+	{
+		private const int kCompactionThreshold = 32;
+
+		private readonly List<DeferredAnnouncementRequest> m_Items = new List<DeferredAnnouncementRequest>(kMaxDeferredAnnouncementsPerSlot);
+
+		private int m_HeadIndex;
+
+		public int Count => m_Items.Count - m_HeadIndex;
+
+		public void Enqueue(DeferredAnnouncementRequest request)
+		{
+			m_Items.Add(request);
+		}
+
+		public DeferredAnnouncementRequest Peek()
+		{
+			return m_Items[m_HeadIndex];
+		}
+
+		public bool TryDequeue(out DeferredAnnouncementRequest request)
+		{
+			if (Count <= 0)
+			{
+				request = default;
+				return false;
+			}
+
+			request = m_Items[m_HeadIndex];
+			m_HeadIndex++;
+			CompactIfNeeded();
+			return true;
+		}
+
+		private void CompactIfNeeded()
+		{
+			if (m_HeadIndex <= 0)
+			{
+				return;
+			}
+
+			if (m_HeadIndex >= m_Items.Count)
+			{
+				m_Items.Clear();
+				m_HeadIndex = 0;
+				return;
+			}
+
+			if (m_HeadIndex < kCompactionThreshold)
+			{
+				return;
+			}
+
+			m_Items.RemoveRange(0, m_HeadIndex);
+			m_HeadIndex = 0;
+		}
 	}
 
 	// Queue key for pending announcement loads. Isolation is per slot + line identity.
@@ -158,6 +265,8 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		m_TransformData = GetComponentLookup<Game.Objects.Transform>(isReadOnly: true);
 		m_OwnerData = GetComponentLookup<Owner>(isReadOnly: true);
 		m_PublicTransportVehicleData = GetComponentLookup<PublicTransportVehicleData>(isReadOnly: true);
+		m_PublicTransportData = GetComponentLookup<Game.Vehicles.PublicTransport>(isReadOnly: true);
+		m_PrefabRefData = GetComponentLookup<PrefabRef>(isReadOnly: true);
 		m_ControllerData = GetComponentLookup<Controller>(isReadOnly: true);
 		m_CurrentRouteData = GetComponentLookup<CurrentRoute>(isReadOnly: true);
 		m_RouteNumberData = GetComponentLookup<RouteNumber>(isReadOnly: true);
@@ -186,17 +295,18 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		if (GameManager.instance.gameMode != GameMode.Game)
 		{
 			SirenChangerMod.PersistTransitObservationMetadataNow();
-			ResetSessionState();
+			ResetSessionStateIfActive();
 			return;
 		}
 
 		if (m_PublicTransportQuery.IsEmptyIgnoreFilter)
 		{
 			SirenChangerMod.FlushTransitObservationAutosaveIfDue();
-			ResetSessionState();
+			ResetSessionStateIfActive();
 			return;
 		}
 
+		m_SessionStateActive = true;
 		WaveClipLoader.PollAsyncLoads();
 		TransitAnnouncementAudioPlayer.UpdateActiveSequences();
 		m_NameSystem ??= World.GetExistingSystemManaged<NameSystem>();
@@ -206,12 +316,15 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		m_TransformData.Update(this);
 		m_OwnerData.Update(this);
 		m_PublicTransportVehicleData.Update(this);
+		m_PublicTransportData.Update(this);
+		m_PrefabRefData.Update(this);
 		m_ControllerData.Update(this);
 		m_CurrentRouteData.Update(this);
 		m_RouteNumberData.Update(this);
 		m_TransportStopData.Update(this);
 		m_RouteWaypointBufferData.Update(this);
 		m_ConnectedRouteBufferData.Update(this);
+		ClearResolveCaches();
 
 		float now = UnityEngine.Time.unscaledTime;
 		SirenChangerMod.FlushTransitObservationAutosaveIfDue();
@@ -220,13 +333,17 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		m_SeenVehicles.Clear();
 
 		using (NativeArray<Entity> entities = m_PublicTransportQuery.ToEntityArray(Allocator.Temp))
-		using (NativeArray<Game.Vehicles.PublicTransport> transports = m_PublicTransportQuery.ToComponentDataArray<Game.Vehicles.PublicTransport>(Allocator.Temp))
-		using (NativeArray<PrefabRef> prefabs = m_PublicTransportQuery.ToComponentDataArray<PrefabRef>(Allocator.Temp))
 		{
 			for (int i = 0; i < entities.Length; i++)
 			{
 				Entity vehicle = entities[i];
 				m_SeenVehicles.Add(vehicle);
+
+				if (!m_PublicTransportData.TryGetComponent(vehicle, out Game.Vehicles.PublicTransport transport) ||
+					!m_PrefabRefData.TryGetComponent(vehicle, out PrefabRef prefabRef))
+				{
+					continue;
+				}
 
 				// Ignore child cars/carriages to avoid duplicate announcements per vehicle set.
 				if (m_ControllerData.TryGetComponent(vehicle, out Controller controller) &&
@@ -236,7 +353,7 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 					continue;
 				}
 
-				if (!m_PublicTransportVehicleData.TryGetComponent(prefabs[i].m_Prefab, out PublicTransportVehicleData vehicleData))
+				if (!m_PublicTransportVehicleData.TryGetComponent(prefabRef.m_Prefab, out PublicTransportVehicleData vehicleData))
 				{
 					continue;
 				}
@@ -250,7 +367,6 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 					continue;
 				}
 
-				Game.Vehicles.PublicTransport transport = transports[i];
 				bool hasExistingState = m_StateByVehicle.TryGetValue(vehicle, out VehicleAnnouncementState state);
 
 				bool wasArriving = (state.LastFlags & PublicTransportFlags.Arriving) != 0;
@@ -358,6 +474,8 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 
 		m_NameSystem ??= World.GetExistingSystemManaged<NameSystem>();
 		m_PublicTransportVehicleData.Update(this);
+		m_PublicTransportData.Update(this);
+		m_PrefabRefData.Update(this);
 		m_ControllerData.Update(this);
 		m_CurrentRouteData.Update(this);
 		m_RouteNumberData.Update(this);
@@ -369,19 +487,24 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		m_TransportStopData.Update(this);
 		m_RouteWaypointBufferData.Update(this);
 		m_ConnectedRouteBufferData.Update(this);
+		ClearResolveCaches();
 
 		HashSet<string> seenLines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		HashSet<string> seenStations = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		HashSet<string> seenStationLines = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		using (NativeArray<Entity> routeEntities = m_TransportLineQuery.ToEntityArray(Allocator.Temp))
-		using (NativeArray<PrefabRef> routePrefabs = m_TransportLineQuery.ToComponentDataArray<PrefabRef>(Allocator.Temp))
 		{
 			scannedRouteCount = routeEntities.Length;
 			for (int i = 0; i < routeEntities.Length; i++)
 			{
 				Entity routeEntity = routeEntities[i];
+				if (!m_PrefabRefData.TryGetComponent(routeEntity, out PrefabRef routePrefabRef))
+				{
+					continue;
+				}
+
 				if (routeEntity == Entity.Null ||
-					!m_TransportLineData.TryGetComponent(routePrefabs[i].m_Prefab, out TransportLineData lineData) ||
+					!m_TransportLineData.TryGetComponent(routePrefabRef.m_Prefab, out TransportLineData lineData) ||
 					!lineData.m_PassengerTransport ||
 					!TryMapTransportType(
 						lineData.m_TransportType,
@@ -409,12 +532,16 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		}
 
 		using (NativeArray<Entity> entities = m_PublicTransportQuery.ToEntityArray(Allocator.Temp))
-		using (NativeArray<PrefabRef> prefabs = m_PublicTransportQuery.ToComponentDataArray<PrefabRef>(Allocator.Temp))
 		{
 			scannedVehicleCount = entities.Length;
 			for (int i = 0; i < entities.Length; i++)
 			{
 				Entity vehicle = entities[i];
+				if (!m_PrefabRefData.TryGetComponent(vehicle, out PrefabRef vehiclePrefabRef))
+				{
+					continue;
+				}
+
 				if (m_ControllerData.TryGetComponent(vehicle, out Controller controller) &&
 					controller.m_Controller != Entity.Null &&
 					controller.m_Controller != vehicle)
@@ -422,7 +549,7 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 					continue;
 				}
 
-				if (!m_PublicTransportVehicleData.TryGetComponent(prefabs[i].m_Prefab, out PublicTransportVehicleData vehicleData))
+				if (!m_PublicTransportVehicleData.TryGetComponent(vehiclePrefabRef.m_Prefab, out PublicTransportVehicleData vehicleData))
 				{
 					continue;
 				}
@@ -460,6 +587,7 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		observedStationCount = seenStations.Count;
 		observedStationLineCount = seenStationLines.Count;
 		status = $"Scanned routes: {scannedRouteCount}\nScanned vehicles: {scannedVehicleCount}\nObserved lines: {observedLineCount}\nObserved stations: {observedStationCount}\nObserved station-line pairs: {observedStationLineCount}";
+		ClearResolveCaches();
 		return true;
 	}
 
@@ -467,13 +595,31 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 	private void ResetSessionState()
 	{
 		SirenChangerMod.PersistTransitObservationMetadataNow();
+		m_SessionStateActive = false;
 		m_StateByVehicle.Clear();
 		m_SeenVehicles.Clear();
 		m_StaleVehicles.Clear();
 		m_LastErrorBySlot.Clear();
 		m_PendingAnnouncementsByQueueKey.Clear();
+		m_PendingAnnouncementCountBySlot.Clear();
 		m_PendingAnnouncementKeysScratch.Clear();
+		ClearResolveCaches();
 		SirenChangerMod.ResetTransitLineObservationSession();
+	}
+
+	private void ResetSessionStateIfActive()
+	{
+		if (m_SessionStateActive)
+		{
+			ResetSessionState();
+		}
+	}
+
+	private void ClearResolveCaches()
+	{
+		m_EntityDisplayNameCache.Clear();
+		m_RouteDescriptorCache.Clear();
+		m_StationDescriptorCache.Clear();
 	}
 
 	// Resolve route waypoints into station-line observations so scan can discover full line coverage.
@@ -752,24 +898,66 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 			}
 			else
 			{
-				m_PendingAnnouncementsByQueueKey.Remove(queueKey);
+				RemovePendingAnnouncementQueue(queueKey);
 			}
 			return;
 		}
 
 		if (loadStatus == TransitAnnouncementLoadStatus.Failure)
 		{
-			m_PendingAnnouncementsByQueueKey.Remove(queueKey);
+			RemovePendingAnnouncementQueue(queueKey);
 			LogSlotError(slot, statusMessage, now);
 			return;
 		}
 
-		m_PendingAnnouncementsByQueueKey.Remove(queueKey);
+		RemovePendingAnnouncementQueue(queueKey);
 		Vector3 position = new Vector3(worldPosition.x, worldPosition.y, worldPosition.z);
 		if (!TransitAnnouncementAudioPlayer.TryPlaySequence(segments, position, out string playError))
 		{
 			LogSlotError(slot, $"Playback failed: {playError}", now);
 		}
+	}
+
+	private int GetPendingAnnouncementCountForSlot(TransitAnnouncementSlot slot)
+	{
+		return m_PendingAnnouncementCountBySlot.TryGetValue(slot, out int count)
+			? count
+			: 0;
+	}
+
+	private void IncrementPendingAnnouncementCountForSlot(TransitAnnouncementSlot slot)
+	{
+		m_PendingAnnouncementCountBySlot[slot] = GetPendingAnnouncementCountForSlot(slot) + 1;
+	}
+
+	private void DecrementPendingAnnouncementCountForSlot(TransitAnnouncementSlot slot, int amount = 1)
+	{
+		if (amount <= 0)
+		{
+			return;
+		}
+
+		int next = GetPendingAnnouncementCountForSlot(slot) - amount;
+		if (next > 0)
+		{
+			m_PendingAnnouncementCountBySlot[slot] = next;
+		}
+		else
+		{
+			m_PendingAnnouncementCountBySlot.Remove(slot);
+		}
+	}
+
+	private void RemovePendingAnnouncementQueue(PendingAnnouncementQueueKey queueKey)
+	{
+		if (!m_PendingAnnouncementsByQueueKey.TryGetValue(queueKey, out DeferredAnnouncementQueue? requests) ||
+			requests == null)
+		{
+			return;
+		}
+
+		DecrementPendingAnnouncementCountForSlot(queueKey.Slot, requests.Count);
+		m_PendingAnnouncementsByQueueKey.Remove(queueKey);
 	}
 
 	// Queue one deferred request while limiting total backlog size per slot across all lines.
@@ -783,32 +971,24 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 			return false;
 		}
 
-		int pendingCountForSlot = 0;
-		foreach (KeyValuePair<PendingAnnouncementQueueKey, List<DeferredAnnouncementRequest>> pair in m_PendingAnnouncementsByQueueKey)
+		int pendingCountForSlot = GetPendingAnnouncementCountForSlot(queueKey.Slot);
+		if (pendingCountForSlot >= kMaxDeferredAnnouncementsPerSlot)
 		{
-			if (pair.Key.Slot != queueKey.Slot || pair.Value == null)
-			{
-				continue;
-			}
-
-			pendingCountForSlot += pair.Value.Count;
-			if (pendingCountForSlot >= kMaxDeferredAnnouncementsPerSlot)
-			{
-				return false;
-			}
+			return false;
 		}
 
-		if (!m_PendingAnnouncementsByQueueKey.TryGetValue(queueKey, out List<DeferredAnnouncementRequest>? requests) || requests == null)
+		if (!m_PendingAnnouncementsByQueueKey.TryGetValue(queueKey, out DeferredAnnouncementQueue? requests) || requests == null)
 		{
-			requests = new List<DeferredAnnouncementRequest>(kMaxDeferredAnnouncementsPerSlot);
+			requests = new DeferredAnnouncementQueue();
 			m_PendingAnnouncementsByQueueKey[queueKey] = requests;
 		}
 
-		requests.Add(new DeferredAnnouncementRequest
+		requests.Enqueue(new DeferredAnnouncementRequest
 		{
 			WorldPosition = worldPosition,
 			RequestedRealtime = requestedRealtime
 		});
+		IncrementPendingAnnouncementCountForSlot(queueKey.Slot);
 		return true;
 	}
 
@@ -821,7 +1001,7 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		}
 
 		m_PendingAnnouncementKeysScratch.Clear();
-		foreach (KeyValuePair<PendingAnnouncementQueueKey, List<DeferredAnnouncementRequest>> pair in m_PendingAnnouncementsByQueueKey)
+		foreach (KeyValuePair<PendingAnnouncementQueueKey, DeferredAnnouncementQueue> pair in m_PendingAnnouncementsByQueueKey)
 		{
 			m_PendingAnnouncementKeysScratch.Add(pair.Key);
 		}
@@ -829,30 +1009,31 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		for (int i = 0; i < m_PendingAnnouncementKeysScratch.Count; i++)
 		{
 			PendingAnnouncementQueueKey queueKey = m_PendingAnnouncementKeysScratch[i];
-			if (!m_PendingAnnouncementsByQueueKey.TryGetValue(queueKey, out List<DeferredAnnouncementRequest>? requests) ||
+			if (!m_PendingAnnouncementsByQueueKey.TryGetValue(queueKey, out DeferredAnnouncementQueue? requests) ||
 				requests == null ||
 				requests.Count == 0)
 			{
-				m_PendingAnnouncementsByQueueKey.Remove(queueKey);
+				RemovePendingAnnouncementQueue(queueKey);
 				continue;
 			}
 
 			// Drop stale requests from queue front to preserve strict FIFO for remaining items.
 			while (requests.Count > 0 &&
-				now - requests[0].RequestedRealtime > kDeferredAnnouncementTimeoutSeconds)
+				now - requests.Peek().RequestedRealtime > kDeferredAnnouncementTimeoutSeconds)
 			{
-				requests.RemoveAt(0);
+				requests.TryDequeue(out _);
+				DecrementPendingAnnouncementCountForSlot(queueKey.Slot);
 			}
 
 			if (requests.Count == 0)
 			{
-				m_PendingAnnouncementsByQueueKey.Remove(queueKey);
+				RemovePendingAnnouncementQueue(queueKey);
 				continue;
 			}
 
 			while (requests.Count > 0)
 			{
-				DeferredAnnouncementRequest request = requests[0];
+				DeferredAnnouncementRequest request = requests.Peek();
 				TransitAnnouncementLoadStatus loadStatus = SirenChangerMod.TryBuildTransitAnnouncementSequence(
 					queueKey.Slot,
 					queueKey.StationKey,
@@ -877,12 +1058,13 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 					LogSlotError(queueKey.Slot, message, now);
 				}
 
-				requests.RemoveAt(0);
+				requests.TryDequeue(out _);
+				DecrementPendingAnnouncementCountForSlot(queueKey.Slot);
 			}
 
 			if (requests.Count == 0)
 			{
-				m_PendingAnnouncementsByQueueKey.Remove(queueKey);
+				RemovePendingAnnouncementQueue(queueKey);
 			}
 		}
 
@@ -940,6 +1122,18 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 			return false;
 		}
 
+		if (m_StationDescriptorCache.TryGetValue(stopEntity, out StationDescriptorCacheEntry cachedStation))
+		{
+			if (!cachedStation.Resolved)
+			{
+				return false;
+			}
+
+			stableStationId = cachedStation.StableStationId;
+			displayName = cachedStation.DisplayName;
+			return true;
+		}
+
 		Entity anchor = stopEntity;
 		Entity current = stopEntity;
 		string anchorDisplayName = string.Empty;
@@ -981,6 +1175,10 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 			displayName = string.IsNullOrWhiteSpace(normalizedLabel)
 				? $"Station ({gridX}, {gridZ})"
 				: normalizedLabel;
+			m_StationDescriptorCache[stopEntity] = new StationDescriptorCacheEntry(
+				resolved: true,
+				stableStationId: stableStationId,
+				displayName: displayName);
 			return true;
 		}
 
@@ -988,11 +1186,19 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		{
 			stableStationId = $"name:{normalizedLabel}";
 			displayName = normalizedLabel;
+			m_StationDescriptorCache[stopEntity] = new StationDescriptorCacheEntry(
+				resolved: true,
+				stableStationId: stableStationId,
+				displayName: displayName);
 			return true;
 		}
 
 		stableStationId = $"entity:{anchor.Index}:{anchor.Version}";
 		displayName = $"Stop {anchor.Index}";
+		m_StationDescriptorCache[stopEntity] = new StationDescriptorCacheEntry(
+			resolved: true,
+			stableStationId: stableStationId,
+			displayName: displayName);
 		return true;
 	}
 
@@ -1075,6 +1281,18 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 			return false;
 		}
 
+		if (m_RouteDescriptorCache.TryGetValue(routeEntity, out RouteDescriptorCacheEntry cachedRoute))
+		{
+			if (!cachedRoute.Resolved)
+			{
+				return false;
+			}
+
+			stableLineId = cachedRoute.StableLineId;
+			displayName = cachedRoute.DisplayName;
+			return true;
+		}
+
 		bool hasRouteNumber = TryGetRouteNumberWithOwnerFallback(routeEntity, out int routeNumber);
 		int normalizedRouteNumber = hasRouteNumber && routeNumber > 0
 			? routeNumber
@@ -1096,6 +1314,10 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 		}
 
 		displayName = routeLabel;
+		m_RouteDescriptorCache[routeEntity] = new RouteDescriptorCacheEntry(
+			resolved: true,
+			stableLineId: stableLineId,
+			displayName: displayName);
 		return !string.IsNullOrWhiteSpace(stableLineId);
 	}
 
@@ -1107,19 +1329,28 @@ public sealed partial class TransitAnnouncementSystem : GameSystemBase
 			return string.Empty;
 		}
 
+		if (m_EntityDisplayNameCache.TryGetValue(entity, out string cachedLabel))
+		{
+			return cachedLabel;
+		}
+
 		NameSystem? nameSystem = m_NameSystem ?? World.GetExistingSystemManaged<NameSystem>();
 		if (nameSystem == null)
 		{
+			m_EntityDisplayNameCache[entity] = string.Empty;
 			return string.Empty;
 		}
 
 		try
 		{
 			m_NameSystem = nameSystem;
-			return AudioReplacementDomainConfig.NormalizeTransitDisplayText(nameSystem.GetRenderedLabelName(entity));
+			string label = AudioReplacementDomainConfig.NormalizeTransitDisplayText(nameSystem.GetRenderedLabelName(entity));
+			m_EntityDisplayNameCache[entity] = label;
+			return label;
 		}
 		catch
 		{
+			m_EntityDisplayNameCache[entity] = string.Empty;
 			return string.Empty;
 		}
 	}
@@ -1273,6 +1504,8 @@ internal static class TransitAnnouncementAudioPlayer
 
 	private static readonly List<QueuedSequence> s_PendingSequences = new List<QueuedSequence>(kMaxPendingSequenceQueue);
 
+	private static int s_PendingSequenceHeadIndex;
+
 	// Stop and destroy all pooled audio sources on mod unload.
 	internal static void Release()
 	{
@@ -1289,6 +1522,7 @@ internal static class TransitAnnouncementAudioPlayer
 		s_MixerResolveAttempts = 0;
 		s_ActiveSequences.Clear();
 		s_PendingSequences.Clear();
+		s_PendingSequenceHeadIndex = 0;
 	}
 
 	// Play one clip in world space using clamped SFX profile parameters.
@@ -1361,19 +1595,66 @@ internal static class TransitAnnouncementAudioPlayer
 
 		EnsureAudioSourcePool();
 		TryResolveOutputMixerGroup();
-		if (s_PendingSequences.Count >= kMaxPendingSequenceQueue)
+		if (GetPendingSequenceCount() >= kMaxPendingSequenceQueue)
 		{
 			error = "Announcement playback queue is full.";
 			return false;
 		}
 
-		s_PendingSequences.Add(new QueuedSequence
+		EnqueuePendingSequence(new QueuedSequence
 		{
 			Segments = timeline,
 			Position = position
 		});
 		DispatchQueuedSequences();
 		return true;
+	}
+
+	private static int GetPendingSequenceCount()
+	{
+		return s_PendingSequences.Count - s_PendingSequenceHeadIndex;
+	}
+
+	private static void EnqueuePendingSequence(QueuedSequence sequence)
+	{
+		s_PendingSequences.Add(sequence);
+	}
+
+	private static bool TryDequeuePendingSequence(out QueuedSequence sequence)
+	{
+		if (GetPendingSequenceCount() <= 0)
+		{
+			sequence = null!;
+			return false;
+		}
+
+		sequence = s_PendingSequences[s_PendingSequenceHeadIndex];
+		s_PendingSequenceHeadIndex++;
+		CompactPendingSequenceQueueIfNeeded();
+		return true;
+	}
+
+	private static void CompactPendingSequenceQueueIfNeeded()
+	{
+		if (s_PendingSequenceHeadIndex <= 0)
+		{
+			return;
+		}
+
+		if (s_PendingSequenceHeadIndex >= s_PendingSequences.Count)
+		{
+			s_PendingSequences.Clear();
+			s_PendingSequenceHeadIndex = 0;
+			return;
+		}
+
+		if (s_PendingSequenceHeadIndex < kMaxPendingSequenceQueue)
+		{
+			return;
+		}
+
+		s_PendingSequences.RemoveRange(0, s_PendingSequenceHeadIndex);
+		s_PendingSequenceHeadIndex = 0;
 	}
 
 	// Create a small reusable pool to avoid allocating GameObjects per event.
@@ -1431,10 +1712,13 @@ internal static class TransitAnnouncementAudioPlayer
 	// Drain queued sequences into currently idle sources.
 	private static void DispatchQueuedSequences()
 	{
-		while (s_PendingSequences.Count > 0 && TryGetIdleAudioSource(out AudioSource source))
+		while (GetPendingSequenceCount() > 0 && TryGetIdleAudioSource(out AudioSource source))
 		{
-			QueuedSequence queued = s_PendingSequences[0];
-			s_PendingSequences.RemoveAt(0);
+			if (!TryDequeuePendingSequence(out QueuedSequence queued))
+			{
+				break;
+			}
+
 			StartQueuedSequence(source, queued);
 		}
 	}

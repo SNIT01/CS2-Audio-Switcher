@@ -44,12 +44,12 @@
   <Screenshot Value="Images/Screen_Dev2.jpg" />
   <Screenshot Value="Images/Screen_Dev3.jpg" />
   <!--CHANGE LOG-->
-	<ChangeLog Value="New Buildings tab with building SFX, Profiles are now supported in modules, Public transport announcements now work on a per-station and per-line basis, New guide UI, Other quality of life improvements" />
+	<ChangeLog Value="Fixed broken UI images, Fixed 'don't show again', Major performance pass" />
   <Tag Value="" />
   <!--Link to the forum post where the mod can be discussed-->
   <ForumLink Value="https://forum.paradoxplaza.com/forum/threads/audio-switcher.1903848/" />
   <!--Version of the mod-->
-  <ModVersion Value="2.5" />
+  <ModVersion Value="2.5.2" />
   <!--Recommended version of the base game to use the mod-->
   <GameVersion Value="1.5.6f1" />
   <!--Dependency for the mod, can be set multiple times-->

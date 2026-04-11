@@ -25,7 +25,7 @@ internal sealed partial class SirenChangerGuidanceUISystem : UISystemBase
 
 	private const string kChangelogTitlePrefix = "What's New in Audio Switcher";
 
-	private static readonly string s_CurrentReleaseVersion = "2.5.0";
+	private static readonly string s_CurrentReleaseVersion = "2.5.2";
 
 	private static readonly GuidanceTutorialPage[] s_TutorialPages = BuildTutorialPages();
 
@@ -118,7 +118,8 @@ internal sealed partial class SirenChangerGuidanceUISystem : UISystemBase
 		AddBinding(m_ChangelogVersionBinding = new ValueBinding<string>(kGroup, "changelogVersion", s_CurrentReleaseVersion));
 		AddBinding(m_ChangelogBodyBinding = new ValueBinding<string>(kGroup, "changelogBody", s_ChangelogBody));
 		AddBinding(m_ChangelogReleasesBinding = new ValueBinding<string>(kGroup, "changelogReleases", s_ChangelogReleasesJson));
-		AddBinding(new TriggerBinding<bool>(kGroup, "closeTutorial", CloseTutorial));
+		AddBinding(new TriggerBinding(kGroup, "closeTutorial", CloseTutorial));
+		AddBinding(new TriggerBinding(kGroup, "closeTutorialDontShowAgain", CloseTutorialDontShowAgain));
 		AddBinding(new TriggerBinding(kGroup, "closeChangelog", CloseChangelog));
 		AddBinding(new TriggerBinding(kGroup, "openTutorial", OpenTutorial));
 		AddBinding(new TriggerBinding(kGroup, "openChangelog", OpenChangelog));
@@ -149,7 +150,17 @@ internal sealed partial class SirenChangerGuidanceUISystem : UISystemBase
 		OpenChangelogInternal();
 	}
 
-	private void CloseTutorial(bool dontShowAgain)
+	private void CloseTutorial()
+	{
+		CloseTutorialInternal(dontShowAgain: false);
+	}
+
+	private void CloseTutorialDontShowAgain()
+	{
+		CloseTutorialInternal(dontShowAgain: true);
+	}
+
+	private void CloseTutorialInternal(bool dontShowAgain)
 	{
 		bool changed = false;
 		bool wasSeenBefore = m_State.HasSeenTutorial;
@@ -563,6 +574,16 @@ internal sealed partial class SirenChangerGuidanceUISystem : UISystemBase
 		{
 			new GuidanceReleaseEntry
 			{
+				Version = "2.5.2",
+				Title = "Released 2026-04-09",
+				Body = string.Join(
+					"\n",
+					"- Fixed broken UI images.",
+					"- Fixed \"Don't show again\" tick box.",
+					"- Performance pass.")
+			},
+			new GuidanceReleaseEntry
+			{
 				Version = "2.5.0",
 				Title = "Released 2026-04-05",
 				Body = string.Join(
@@ -590,16 +611,6 @@ internal sealed partial class SirenChangerGuidanceUISystem : UISystemBase
 				Title = "Released 2026-03-29",
 				Body = string.Join(
 					"\n",
-					"- Bug fixes.")
-			},
-			new GuidanceReleaseEntry
-			{
-				Version = "2.0.0",
-				Title = "Released 2026-03-29",
-				Body = string.Join(
-					"\n",
-					"- Improved public transport announcements for transport lines.",
-					"- Modules 2.0.",
 					"- Bug fixes.")
 			}
 		};

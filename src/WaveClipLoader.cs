@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -23,7 +22,11 @@ internal static class WaveClipLoader
 
 	private static readonly Dictionary<string, FailedOggLoad> s_FailedOggLoads = new Dictionary<string, FailedOggLoad>(StringComparer.OrdinalIgnoreCase);
 
+	private static readonly List<string> s_PendingOggKeysScratch = new List<string>();
+
 	private static int s_AsyncCompletionVersion = 1;
+
+	private static int s_LastAsyncPollFrame = -1;
 
 	// Cached decoded clip metadata for hot reload safety.
 	private sealed class CachedClip
@@ -117,6 +120,8 @@ internal static class WaveClipLoader
 
 		s_PendingOggLoads.Clear();
 		s_FailedOggLoads.Clear();
+		s_PendingOggKeysScratch.Clear();
+		s_LastAsyncPollFrame = -1;
 
 		foreach (KeyValuePair<string, CachedClip> item in s_ClipCache)
 		{
@@ -132,15 +137,27 @@ internal static class WaveClipLoader
 	// Drive async OGG request completion from runtime update loop.
 	public static void PollAsyncLoads()
 	{
+		int frame = Time.frameCount;
+		if (s_LastAsyncPollFrame == frame)
+		{
+			return;
+		}
+
+		s_LastAsyncPollFrame = frame;
 		if (s_PendingOggLoads.Count == 0)
 		{
 			return;
 		}
 
-		List<string> keys = s_PendingOggLoads.Keys.ToList();
-		for (int i = 0; i < keys.Count; i++)
+		s_PendingOggKeysScratch.Clear();
+		foreach (string key in s_PendingOggLoads.Keys)
 		{
-			string path = keys[i];
+			s_PendingOggKeysScratch.Add(key);
+		}
+
+		for (int i = 0; i < s_PendingOggKeysScratch.Count; i++)
+		{
+			string path = s_PendingOggKeysScratch[i];
 			if (!s_PendingOggLoads.TryGetValue(path, out PendingOggLoad? pending) || pending == null)
 			{
 				continue;
@@ -148,6 +165,8 @@ internal static class WaveClipLoader
 
 			TryFinalizePendingOgg(path, pending, out _, out _);
 		}
+
+		s_PendingOggKeysScratch.Clear();
 	}
 
 	// Return a cache hit only if file metadata still matches.
@@ -203,21 +222,38 @@ internal static class WaveClipLoader
 		}
 
 		int removeCount = s_ClipCache.Count - kMaxCachedClips;
-		List<string> evictionKeys = s_ClipCache
-			.OrderBy(static pair => pair.Value.LastAccessUtcTicks)
-			.Take(removeCount)
-			.Select(static pair => pair.Key)
-			.ToList();
-
-		for (int i = 0; i < evictionKeys.Count; i++)
+		for (int i = 0; i < removeCount; i++)
 		{
-			string key = evictionKeys[i];
-			if (s_ClipCache.TryGetValue(key, out CachedClip entry) && entry?.Clip != null)
+			string oldestKey = string.Empty;
+			long oldestTicks = long.MaxValue;
+			foreach (KeyValuePair<string, CachedClip> pair in s_ClipCache)
+			{
+				CachedClip? candidate = pair.Value;
+				if (candidate == null)
+				{
+					continue;
+				}
+
+				if (candidate.LastAccessUtcTicks >= oldestTicks)
+				{
+					continue;
+				}
+
+				oldestTicks = candidate.LastAccessUtcTicks;
+				oldestKey = pair.Key;
+			}
+
+			if (string.IsNullOrWhiteSpace(oldestKey))
+			{
+				break;
+			}
+
+			if (s_ClipCache.TryGetValue(oldestKey, out CachedClip entry) && entry?.Clip != null)
 			{
 				UnityEngine.Object.Destroy(entry.Clip);
 			}
 
-			s_ClipCache.Remove(key);
+			s_ClipCache.Remove(oldestKey);
 		}
 	}
 

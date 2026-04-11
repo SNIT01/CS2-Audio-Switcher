@@ -18,6 +18,7 @@
     <TargetFramework>net48</TargetFramework>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>disable</ImplicitUsings>
+    <TargetNameLower>$([System.String]::Copy('$(TargetName)').ToLowerInvariant())</TargetNameLower>
   </PropertyGroup>
 
   <ItemGroup>
@@ -107,6 +108,18 @@
     <None Update="Images\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="Images\UI_Banner.jpeg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <!-- Legacy/cached UI bundles may request coui://ui-mods/SirenChanger/Images/... -->
+    <None Include="Images\**\*">
+      <Link>$(TargetName)\Images\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Images\**\*">
+      <Link>$(TargetNameLower)\Images\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>
@@ -123,4 +136,5 @@
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
     </EmbeddedResource>
   </ItemGroup>
+
 </Project>

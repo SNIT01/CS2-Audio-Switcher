@@ -15,7 +15,6 @@ const ui = window["cs2/ui"];
 const GROUP = "sirenChangerGuidance";
 const STYLE_ID = "siren-changer-guidance-style";
 const PORTAL_HOST_ID = "siren-changer-guidance-portal-host";
-const MOD_ID = "SirenChanger";
 
 const tutorialVisibleBinding = api.bindValue(GROUP, "tutorialVisible", false);
 const changelogVisibleBinding = api.bindValue(GROUP, "changelogVisible", false);
@@ -29,8 +28,17 @@ const changelogReleasesBinding = api.bindValue(GROUP, "changelogReleases", "");
 
 function resolveModuleBaseFromImportMeta() {
 	try {
-		const metaUrl = String(import.meta && import.meta.url ? import.meta.url : "");
+		const metaUrl = getImportMetaUrl();
 		return resolveBaseUrl(metaUrl);
+	}
+	catch {
+		return "";
+	}
+}
+
+function getImportMetaUrl() {
+	try {
+		return String(import.meta && import.meta.url ? import.meta.url : "");
 	}
 	catch {
 		return "";
@@ -69,17 +77,31 @@ function resolveModuleBaseFromScriptTag() {
 	}
 
 	try {
+		const scriptUrl = resolveModuleScriptUrlFromScriptTag();
+		return resolveBaseUrl(scriptUrl);
+	}
+	catch {
+		return "";
+	}
+}
+
+function resolveModuleScriptUrlFromScriptTag() {
+	if (typeof document === "undefined") {
+		return "";
+	}
+
+	try {
 		const scripts = document.getElementsByTagName("script");
 		for (let i = scripts.length - 1; i >= 0; i--) {
 			const src = String(scripts[i] && scripts[i].src ? scripts[i].src : "");
-			if (src.includes("SirenChanger.Guidance")) {
-				return resolveBaseUrl(src);
+			if (src.includes(".Guidance") || src.includes("Guidance.mjs")) {
+				return src;
 			}
 		}
 
 		const currentScriptSrc = String(document.currentScript && document.currentScript.src ? document.currentScript.src : "");
 		if (currentScriptSrc.length > 0) {
-			return resolveBaseUrl(currentScriptSrc);
+			return currentScriptSrc;
 		}
 	}
 	catch {
@@ -87,6 +109,82 @@ function resolveModuleBaseFromScriptTag() {
 	}
 
 	return "";
+}
+
+function normalizeTrailingSlash(url) {
+	const candidate = String(url || "").trim();
+	if (!candidate) {
+		return "";
+	}
+
+	return candidate.endsWith("/") ? candidate : (candidate + "/");
+}
+
+function addBaseCandidate(baseCandidates, baseUrl) {
+	const normalized = normalizeTrailingSlash(baseUrl);
+	if (!normalized) {
+		return;
+	}
+
+	addUniqueUrl(baseCandidates, normalized);
+}
+
+function addBaseCandidateWithParents(baseCandidates, baseUrl) {
+	const normalized = normalizeTrailingSlash(baseUrl);
+	if (!normalized) {
+		return;
+	}
+
+	addBaseCandidate(baseCandidates, normalized);
+	try {
+		addBaseCandidate(baseCandidates, new URL("../", normalized).href);
+	}
+	catch {
+		// Ignore invalid parent path.
+	}
+
+	try {
+		addBaseCandidate(baseCandidates, new URL("../../", normalized).href);
+	}
+	catch {
+		// Ignore invalid grandparent path.
+	}
+}
+
+function extractUiModRootHint(moduleUrl) {
+	const clean = String(moduleUrl || "").trim();
+	if (!clean) {
+		return "";
+	}
+
+	const marker = "coui://ui-mods/";
+	const markerIdx = clean.toLowerCase().indexOf(marker);
+	if (markerIdx < 0) {
+		return "";
+	}
+
+	const remainder = clean.substring(markerIdx + marker.length).split(/[?#]/)[0];
+	if (!remainder) {
+		return "";
+	}
+
+	const firstSlash = remainder.indexOf("/");
+	if (firstSlash > 0) {
+		return remainder.substring(0, firstSlash).trim();
+	}
+
+	const fileName = remainder.trim();
+	if (!fileName.toLowerCase().endsWith(".mjs")) {
+		return "";
+	}
+
+	const stem = fileName.substring(0, fileName.length - 4);
+	const firstDot = stem.indexOf(".");
+	if (firstDot > 0) {
+		return stem.substring(0, firstDot).trim();
+	}
+
+	return stem;
 }
 
 function addUniqueUrl(urls, url) {
@@ -105,6 +203,58 @@ function addUniqueUrl(urls, url) {
 	}
 }
 
+function mergeUniqueCandidates(...lists) {
+	const merged = [];
+	for (const list of lists) {
+		if (!Array.isArray(list)) {
+			continue;
+		}
+
+		for (const value of list) {
+			const candidate = String(value || "").trim();
+			if (candidate.length > 0 && !merged.includes(candidate)) {
+				merged.push(candidate);
+			}
+		}
+	}
+
+	return merged;
+}
+
+const preloadedImageSources = new Set();
+const resolvedImageSourceByCandidateKey = Object.create(null);
+
+function buildCandidateKey(candidates) {
+	if (!Array.isArray(candidates) || candidates.length === 0) {
+		return "";
+	}
+
+	return candidates.join("|");
+}
+
+function preloadImageSourcesIfNeeded(sources) {
+	if (typeof Image === "undefined" || !Array.isArray(sources)) {
+		return;
+	}
+
+	for (const source of sources) {
+		const normalized = String(source || "").trim();
+		if (!normalized || preloadedImageSources.has(normalized)) {
+			continue;
+		}
+
+		preloadedImageSources.add(normalized);
+		try {
+			const image = new Image();
+			image.decoding = "async";
+			image.src = normalized;
+		}
+		catch {
+			// Ignore preloading failures; regular render fallback will handle them.
+		}
+	}
+}
+
 function buildAssetUrlCandidates(relativePath) {
 	const cleaned = String(relativePath || "").replace(/\\/g, "/").replace(/^\/+/, "");
 	if (!cleaned) {
@@ -119,54 +269,42 @@ function buildAssetUrlCandidates(relativePath) {
 		pathVariants.push("Images/" + cleaned.substring("images/".length));
 	}
 
+	const importMetaBase = resolveModuleBaseFromImportMeta();
+	const scriptBase = resolveModuleBaseFromScriptTag();
+	const importMetaUrl = getImportMetaUrl();
+	const scriptModuleUrl = resolveModuleScriptUrlFromScriptTag();
+	const baseCandidates = [];
+	addBaseCandidateWithParents(baseCandidates, importMetaBase);
+	addBaseCandidateWithParents(baseCandidates, scriptBase);
+
+	const modRootHints = [];
+	const addRootHint = (value) => {
+		const normalized = String(value || "").trim();
+		if (!normalized || modRootHints.includes(normalized)) {
+			return;
+		}
+		modRootHints.push(normalized);
+	};
+
+	addRootHint(extractUiModRootHint(importMetaUrl));
+	addRootHint(extractUiModRootHint(scriptModuleUrl));
+
+	for (const rootHint of modRootHints) {
+		addBaseCandidate(baseCandidates, "coui://ui-mods/" + rootHint + "/");
+		addBaseCandidate(baseCandidates, "coui://ui-mods/" + rootHint.toLowerCase() + "/");
+	}
+
+	addBaseCandidate(baseCandidates, "coui://ui-mods/");
+
 	const urls = [];
 	for (const pathVariant of pathVariants) {
-		try {
-			addUniqueUrl(urls, new URL(pathVariant, "coui://ui-mods/" + MOD_ID + "/").href);
-		}
-		catch {
-			// Ignore invalid candidate.
-		}
-
-		try {
-			addUniqueUrl(urls, new URL(pathVariant, "coui://ui-mods/" + MOD_ID.toLowerCase() + "/").href);
-		}
-		catch {
-			// Ignore invalid candidate.
-		}
-
-		try {
-			addUniqueUrl(urls, new URL(pathVariant, "coui://ui-mods/").href);
-		}
-		catch {
-			// Ignore invalid candidate.
-		}
-
-		try {
-			addUniqueUrl(urls, new URL(pathVariant, "coui://ui-mods/" + MOD_ID + ".Guidance/").href);
-		}
-		catch {
-			// Ignore invalid candidate.
-		}
-
-		try {
-			const importMetaBase = resolveModuleBaseFromImportMeta();
-			if (importMetaBase) {
-				addUniqueUrl(urls, new URL(pathVariant, importMetaBase).href);
+		for (const base of baseCandidates) {
+			try {
+				addUniqueUrl(urls, new URL(pathVariant, base).href);
 			}
-		}
-		catch {
-			// Ignore and keep evaluating additional URL candidates.
-		}
-
-		try {
-			const scriptBase = resolveModuleBaseFromScriptTag();
-			if (scriptBase) {
-				addUniqueUrl(urls, new URL(pathVariant, scriptBase).href);
+			catch {
+				// Ignore invalid candidate.
 			}
-		}
-		catch {
-			// Ignore and keep evaluating additional URL candidates.
 		}
 
 		addUniqueUrl(urls, pathVariant);
@@ -191,33 +329,66 @@ function FallbackImage(props) {
 		}
 		return normalized;
 	}, [srcCandidates]);
-	const [activeIndex, setActiveIndex] = React.useState(0);
+	const candidateKey = React.useMemo(() => buildCandidateKey(normalizedCandidates), [normalizedCandidates]);
+	const cachedSourceIndex = React.useMemo(() => {
+		if (!candidateKey) {
+			return 0;
+		}
+
+		const cachedSource = String(resolvedImageSourceByCandidateKey[candidateKey] || "").trim();
+		if (!cachedSource) {
+			return 0;
+		}
+
+		const index = normalizedCandidates.indexOf(cachedSource);
+		return index >= 0 ? index : 0;
+	}, [candidateKey, normalizedCandidates]);
+	const [activeIndex, setActiveIndex] = React.useState(cachedSourceIndex);
 
 	React.useEffect(() => {
-		setActiveIndex(0);
-	}, [normalizedCandidates.join("|")]);
+		setActiveIndex(cachedSourceIndex);
+	}, [cachedSourceIndex, candidateKey]);
+
+	React.useEffect(() => {
+		preloadImageSourcesIfNeeded(normalizedCandidates);
+	}, [candidateKey, normalizedCandidates]);
 
 	if (normalizedCandidates.length === 0 || activeIndex >= normalizedCandidates.length) {
 		return fallback || null;
 	}
 
+	const activeSource = normalizedCandidates[activeIndex];
 	const onError = () => {
 		setActiveIndex((index) => index + 1);
+	};
+	const onLoad = () => {
+		if (candidateKey && activeSource) {
+			resolvedImageSourceByCandidateKey[candidateKey] = activeSource;
+		}
 	};
 
 	return React.createElement("img", {
 		className,
-		src: normalizedCandidates[activeIndex],
+		src: activeSource,
 		alt: alt || "",
 		loading: "eager",
-		onError
+		decoding: "async",
+		onError,
+		onLoad
 	});
 }
 
-const LOGO_IMAGE_CANDIDATES = buildAssetUrlCandidates("Images/Audio Switcher Logo.jpg");
-const TUTORIAL_HEADER_BANNER_IMAGE_CANDIDATES = buildAssetUrlCandidates("Images/GuidanceBanner_Tutorial.svg");
-const CHANGELOG_HEADER_BANNER_IMAGE_CANDIDATES = buildAssetUrlCandidates("Images/GuidanceBanner_Changelog.svg");
-const DEFAULT_TUTORIAL_IMAGE_CANDIDATES = buildAssetUrlCandidates("Images/Screen_Gen.jpg");
+const SHARED_HEADER_BANNER_IMAGE_CANDIDATES = mergeUniqueCandidates(
+	buildAssetUrlCandidates("Images/UI_Banner.jpeg"),
+	buildAssetUrlCandidates("Images/GuidanceBanner_Tutorial.svg"),
+	buildAssetUrlCandidates("Images/GuidanceBanner_Changelog.svg")
+);
+const TUTORIAL_HEADER_BANNER_IMAGE_CANDIDATES = SHARED_HEADER_BANNER_IMAGE_CANDIDATES;
+const CHANGELOG_HEADER_BANNER_IMAGE_CANDIDATES = SHARED_HEADER_BANNER_IMAGE_CANDIDATES;
+const DEFAULT_TUTORIAL_IMAGE_CANDIDATES = mergeUniqueCandidates(
+	buildAssetUrlCandidates("Images/Screen_Gen.jpg"),
+	buildAssetUrlCandidates("Images/Audio Switcher Logo.jpg")
+);
 
 const TUTORIAL_TOPIC_ORDER = [
 	"What Audio Switcher Covers",
@@ -457,32 +628,6 @@ function ensureStyles() {
 			align-items: center;
 			gap: 22rem;
 			min-width: 0;
-		}
-
-		.sc-guidance-logo {
-			width: 74rem;
-			height: 74rem;
-			border-radius: 12rem;
-			object-fit: cover;
-			border: 1rem solid rgba(215, 239, 255, 0.45);
-			background: rgba(255, 255, 255, 0.15);
-			box-shadow: 0 4rem 12rem rgba(18, 28, 70, 0.26);
-			margin-right: 4rem;
-		}
-
-		.sc-guidance-logo-fallback {
-			width: 74rem;
-			height: 74rem;
-			border-radius: 12rem;
-			border: 1rem solid rgba(215, 239, 255, 0.45);
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			font-size: 26rem;
-			font-weight: 700;
-			color: #f5f9ff;
-			background: linear-gradient(160deg, rgba(64, 115, 210, 0.9), rgba(84, 62, 190, 0.9));
-			margin-right: 4rem;
 		}
 
 		.sc-guidance-title-wrap {
@@ -1002,6 +1147,13 @@ function ensureStyles() {
 			display: inline-flex;
 			align-items: center;
 			gap: 10rem;
+			padding: 0;
+			margin: 0;
+			border: 0;
+			background: transparent;
+			appearance: none;
+			-webkit-appearance: none;
+			cursor: pointer;
 			font-size: 18rem;
 			line-height: 1.28;
 			color: #e8f0fa;
@@ -1009,34 +1161,36 @@ function ensureStyles() {
 			white-space: nowrap;
 		}
 
-		.sc-guidance-toggle input {
+		.sc-guidance-toggle:focus-visible {
+			outline: 2rem solid rgba(98, 228, 255, 0.68);
+			outline-offset: 2rem;
+			border-radius: 6rem;
+		}
+
+		.sc-guidance-toggle-label {
+			display: inline-block;
+		}
+
+		.sc-guidance-toggle-check {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
 			width: 20rem;
 			height: 20rem;
-			margin: 0;
-			appearance: none;
-			-webkit-appearance: none;
 			border-radius: 5rem;
 			border: 1rem solid rgba(151, 186, 247, 0.78);
 			background: rgba(18, 34, 83, 0.88);
-			position: relative;
+			color: rgba(9, 28, 67, 0);
+			font-size: 14rem;
+			font-weight: 800;
+			line-height: 1;
 			box-shadow: inset 0 0 0 1rem rgba(10, 18, 47, 0.5);
 		}
 
-		.sc-guidance-toggle input:checked {
+		.sc-guidance-toggle-check.checked {
 			border-color: rgba(123, 238, 255, 0.95);
 			background: linear-gradient(180deg, rgba(83, 217, 255, 0.98), rgba(54, 151, 237, 0.98));
-		}
-
-		.sc-guidance-toggle input:checked::after {
-			content: "";
-			position: absolute;
-			left: 6rem;
-			top: 2rem;
-			width: 4rem;
-			height: 10rem;
-			border: solid rgba(9, 28, 67, 0.98);
-			border-width: 0 2rem 2rem 0;
-			transform: rotate(45deg);
+			color: rgba(9, 28, 67, 0.98);
 		}
 
 		.sc-guidance-dot {
@@ -1137,19 +1291,6 @@ function ensureStyles() {
 
 			.sc-guidance-toggle {
 				font-size: 16rem;
-			}
-
-			.sc-guidance-logo {
-				width: 58rem;
-				height: 58rem;
-				margin-right: 2rem;
-			}
-
-			.sc-guidance-logo-fallback {
-				width: 58rem;
-				height: 58rem;
-				font-size: 20rem;
-				margin-right: 2rem;
 			}
 
 			.sc-guidance-release-toggle {
@@ -1431,7 +1572,7 @@ function renderBodyNodes(text) {
 }
 
 function GuidanceShell(props) {
-	const { title, subtitle, onClose, content, footer, bannerImageCandidates, logoImageUrl, showLogo } = props;
+	const { title, subtitle, onClose, content, footer, bannerImageCandidates } = props;
 
 	return React.createElement(
 		"div",
@@ -1455,24 +1596,16 @@ function GuidanceShell(props) {
 						}),
 						React.createElement("div", { className: "sc-guidance-header-banner-overlay" })
 					),
-					React.createElement(
-						"div",
-						{ className: "sc-guidance-header-content" },
 						React.createElement(
 							"div",
-							{ className: "sc-guidance-header-main" },
-							showLogo && Array.isArray(logoImageUrl) && logoImageUrl.length > 0
-								? React.createElement(FallbackImage, {
-									className: "sc-guidance-logo",
-									srcCandidates: logoImageUrl,
-									alt: "Audio Switcher logo",
-									fallback: React.createElement("div", { className: "sc-guidance-logo-fallback" }, "AS")
-								})
-								: null,
+							{ className: "sc-guidance-header-content" },
 							React.createElement(
 								"div",
-								{ className: "sc-guidance-title-wrap" },
-								React.createElement("h2", { className: "sc-guidance-title" }, title),
+								{ className: "sc-guidance-header-main" },
+								React.createElement(
+									"div",
+									{ className: "sc-guidance-title-wrap" },
+									React.createElement("h2", { className: "sc-guidance-title" }, title),
 								subtitle ? React.createElement("p", { className: "sc-guidance-subtitle" }, subtitle) : null
 							)
 						),
@@ -1509,6 +1642,38 @@ function GuidanceRoot() {
 		() => normalizeChangelogReleases(changelogReleasesJson, changelogVersion, changelogBody),
 		[changelogReleasesJson, changelogVersion, changelogBody]
 	);
+
+	React.useEffect(() => {
+		if (!tutorialVisible) {
+			return;
+		}
+
+		const preloadSources = [];
+		if (Array.isArray(TUTORIAL_HEADER_BANNER_IMAGE_CANDIDATES) && TUTORIAL_HEADER_BANNER_IMAGE_CANDIDATES.length > 0) {
+			preloadSources.push(TUTORIAL_HEADER_BANNER_IMAGE_CANDIDATES[0]);
+		}
+
+		for (const page of tutorialPages) {
+			const pageCandidates = Array.isArray(page && page.imageCandidates) && page.imageCandidates.length > 0
+				? page.imageCandidates
+				: DEFAULT_TUTORIAL_IMAGE_CANDIDATES;
+			if (Array.isArray(pageCandidates) && pageCandidates.length > 0) {
+				preloadSources.push(pageCandidates[0]);
+			}
+		}
+
+		preloadImageSourcesIfNeeded(preloadSources);
+	}, [tutorialVisible, tutorialPages]);
+
+	React.useEffect(() => {
+		if (!changelogVisible) {
+			return;
+		}
+
+		if (Array.isArray(CHANGELOG_HEADER_BANNER_IMAGE_CANDIDATES) && CHANGELOG_HEADER_BANNER_IMAGE_CANDIDATES.length > 0) {
+			preloadImageSourcesIfNeeded([CHANGELOG_HEADER_BANNER_IMAGE_CANDIDATES[0]]);
+		}
+	}, [changelogVisible]);
 
 	const [dontShowAgain, setDontShowAgain] = React.useState(false);
 	const [tutorialPageIndex, setTutorialPageIndex] = React.useState(0);
@@ -1570,7 +1735,8 @@ function GuidanceRoot() {
 	}
 
 	const closeTutorial = () => {
-		api.trigger(GROUP, "closeTutorial", Boolean(dontShowAgain));
+		const suppressTutorial = Boolean(dontShowAgain);
+		api.trigger(GROUP, suppressTutorial ? "closeTutorialDontShowAgain" : "closeTutorial");
 	};
 
 	const closeChangelog = () => {
@@ -1723,16 +1889,18 @@ function GuidanceRoot() {
 				"div",
 				{ className: "sc-guidance-footer-left" },
 				React.createElement(
-					"label",
-					{ className: "sc-guidance-toggle" },
-					"Don't show again",
-					React.createElement("input", {
-						type: "checkbox",
-						checked: dontShowAgain,
-						onChange: (event) => setDontShowAgain(Boolean(event && event.target && event.target.checked))
-					})
+					"button",
+					{
+						type: "button",
+						className: "sc-guidance-toggle",
+						role: "checkbox",
+						"aria-checked": dontShowAgain ? "true" : "false",
+						onClick: () => setDontShowAgain((current) => !current)
+					},
+					React.createElement("span", { className: "sc-guidance-toggle-label" }, "Don't show again"),
+					React.createElement("span", { className: "sc-guidance-toggle-check" + (dontShowAgain ? " checked" : "") }, dontShowAgain ? "✓" : "")
 				)
-			),
+				),
 			React.createElement(
 				"div",
 				{ className: "sc-guidance-footer-mid" },
@@ -1753,15 +1921,13 @@ function GuidanceRoot() {
 			React.createElement(GuidanceShell, {
 				title: tutorialTitle,
 				subtitle: "Shown once on first load, then available from General > Help & Guidance.",
-				onClose: closeTutorial,
-				content,
-				footer,
-				bannerImageCandidates: TUTORIAL_HEADER_BANNER_IMAGE_CANDIDATES,
-				logoImageUrl: LOGO_IMAGE_CANDIDATES,
-				showLogo: true
-			})
-		);
-	}
+					onClose: closeTutorial,
+					content,
+					footer,
+					bannerImageCandidates: TUTORIAL_HEADER_BANNER_IMAGE_CANDIDATES
+				})
+			);
+		}
 
 	const firstVersion = changelogReleases.length > 0 && changelogReleases[0].version
 		? changelogReleases[0].version
@@ -1837,15 +2003,13 @@ function GuidanceRoot() {
 		React.createElement(GuidanceShell, {
 			title: changelogTitle,
 			subtitle,
-			onClose: closeChangelog,
-			content: releasesContent,
-			footer: changelogFooter,
-			bannerImageCandidates: CHANGELOG_HEADER_BANNER_IMAGE_CANDIDATES,
-			logoImageUrl: LOGO_IMAGE_CANDIDATES,
-			showLogo: true
-		})
-	);
-}
+				onClose: closeChangelog,
+				content: releasesContent,
+				footer: changelogFooter,
+				bannerImageCandidates: CHANGELOG_HEADER_BANNER_IMAGE_CANDIDATES
+			})
+		);
+	}
 
 const register = (moduleRegistry) => {
 	moduleRegistry.append("Game", GuidanceRoot);

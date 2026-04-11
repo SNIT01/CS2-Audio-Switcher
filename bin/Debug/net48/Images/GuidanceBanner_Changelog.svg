@@ -1,53 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 320" preserveAspectRatio="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 360" preserveAspectRatio="xMidYMid slice">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0f0b2b"/>
-      <stop offset="38%" stop-color="#211e73"/>
-      <stop offset="100%" stop-color="#2568dd"/>
+      <stop offset="0%" stop-color="#4f7fdf"/>
+      <stop offset="100%" stop-color="#4c44bf"/>
     </linearGradient>
-    <linearGradient id="gridGlow" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#b040ff" stop-opacity="0.20"/>
-      <stop offset="50%" stop-color="#8030f0" stop-opacity="0.15"/>
-      <stop offset="100%" stop-color="#30b8ff" stop-opacity="0.24"/>
-    </linearGradient>
-    <linearGradient id="ampFillA" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#b040ff" stop-opacity="0.24"/>
-      <stop offset="100%" stop-color="#30b8ff" stop-opacity="0.30"/>
-    </linearGradient>
-    <linearGradient id="ampFillB" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#8030f0" stop-opacity="0.24"/>
-      <stop offset="100%" stop-color="#2878ff" stop-opacity="0.28"/>
+    <linearGradient id="overlay" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0e1b47" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#261a5b" stop-opacity="0.42"/>
     </linearGradient>
   </defs>
-  <rect width="1600" height="320" fill="url(#bg)"/>
-  <rect width="1600" height="320" fill="#091329" fill-opacity="0.25"/>
-
-  <g stroke="url(#gridGlow)" stroke-width="1.1" stroke-opacity="0.42">
-    <path d="M0 52 H1600"/>
-    <path d="M0 88 H1600"/>
-    <path d="M0 124 H1600"/>
-    <path d="M0 160 H1600"/>
-    <path d="M0 196 H1600"/>
-    <path d="M0 232 H1600"/>
-    <path d="M0 268 H1600"/>
-    <path d="M114 0 V320"/>
-    <path d="M342 0 V320"/>
-    <path d="M570 0 V320"/>
-    <path d="M798 0 V320"/>
-    <path d="M1026 0 V320"/>
-    <path d="M1254 0 V320"/>
-    <path d="M1482 0 V320"/>
-  </g>
-
-  <path d="M0,165 C104,118 198,214 304,155 C412,92 506,232 614,158 C726,84 820,236 930,152 C1046,66 1144,228 1260,146 C1386,56 1490,196 1600,150 L1600,173 C1490,219 1386,79 1260,169 C1144,251 1046,89 930,175 C820,259 726,107 614,181 C506,255 412,115 304,178 C198,237 104,141 0,188 Z" fill="url(#ampFillA)"/>
-  <path d="M0,174 C94,146 186,192 292,168 C402,142 492,192 606,168 C724,142 816,196 932,166 C1050,138 1142,196 1260,166 C1378,140 1486,196 1600,172 L1600,186 C1486,210 1378,156 1260,182 C1142,212 1050,156 932,184 C816,214 724,160 606,186 C492,210 402,160 292,186 C186,212 94,164 0,188 Z" fill="url(#ampFillB)"/>
-
-  <g fill="none" stroke-linecap="round">
-    <path d="M0,170 C104,126 198,210 304,160 C412,102 506,224 614,164 C726,98 820,230 930,158 C1046,80 1144,220 1260,154 C1386,72 1490,194 1600,156" stroke="#b040ff" stroke-opacity="0.72" stroke-width="2.2"/>
-    <path d="M0,176 C94,150 186,190 292,170 C402,146 492,190 606,170 C724,146 816,194 932,168 C1050,144 1142,194 1260,168 C1378,146 1486,194 1600,176" stroke="#30b8ff" stroke-opacity="0.80" stroke-width="2.4"/>
-    <path d="M0,160 C74,120 142,202 226,158 C312,112 380,222 466,162 C560,100 638,236 730,156 C826,74 900,236 1004,152 C1116,62 1202,216 1314,148 C1428,82 1512,186 1600,146" stroke="#ece4ff" stroke-opacity="0.26" stroke-width="1.6"/>
-  </g>
-
-  <circle cx="1328" cy="58" r="178" fill="#8030f0" fill-opacity="0.08"/>
-  <circle cx="1452" cy="34" r="124" fill="#30b8ff" fill-opacity="0.10"/>
+  <rect width="1920" height="360" fill="url(#bg)"/>
+  <image href="UI_Banner.jpeg" x="0" y="0" width="1920" height="360" preserveAspectRatio="xMidYMid slice" opacity="0.9"/>
+  <rect width="1920" height="360" fill="url(#overlay)"/>
 </svg>
