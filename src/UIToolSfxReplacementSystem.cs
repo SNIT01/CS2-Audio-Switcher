@@ -1,8 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Game;
 using Game.Common;
-using Game.Effects;
 using Game.Prefabs;
 using Game.Prefabs.Effects;
 using Game.SceneFlow;
@@ -12,19 +11,19 @@ using UnityEngine;
 
 namespace SirenChanger;
 
-// Runtime ECS system that applies configured custom ambient audio selections.
-public sealed partial class AmbientReplacementSystem : GameSystemBase
+// Runtime ECS system that applies configured custom UI/tool sound selections.
+public sealed partial class UIToolSfxReplacementSystem : GameSystemBase
 {
-	// Prefab index and runtime lookup cache for ambient-capable SFX prefabs.
+	// Prefab index and runtime lookup cache for UI/tool SFX targets.
 	private PrefabSystem m_PrefabSystem = null!;
 
-	private EntityQuery m_PrefabQuery = default;
+	private EntityQuery m_ToolSoundQuery = default;
 
-	private readonly Dictionary<string, SFX> m_AmbientSfxByPrefab = new Dictionary<string, SFX>(StringComparer.OrdinalIgnoreCase);
+	private readonly Dictionary<string, SFX> m_UIToolSfxByTarget = new Dictionary<string, SFX>(StringComparer.OrdinalIgnoreCase);
 
-	private readonly Dictionary<string, SirenSfxSnapshot> m_DefaultAmbientSfxByPrefab = new Dictionary<string, SirenSfxSnapshot>(StringComparer.OrdinalIgnoreCase);
+	private readonly Dictionary<string, SirenSfxSnapshot> m_DefaultUIToolSfxByTarget = new Dictionary<string, SirenSfxSnapshot>(StringComparer.OrdinalIgnoreCase);
 
-	private readonly List<string> m_SortedAmbientTargets = new List<string>();
+	private readonly List<string> m_SortedUIToolTargets = new List<string>();
 
 	private bool m_TargetsBuilt;
 
@@ -40,7 +39,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 	{
 		base.OnCreate();
 		m_PrefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
-		m_PrefabQuery = GetEntityQuery(ComponentType.ReadOnly<PrefabData>());
+		m_ToolSoundQuery = GetEntityQuery(ComponentType.ReadOnly<ToolUXSoundSettingsData>());
 	}
 
 	protected override void OnUpdate()
@@ -58,11 +57,6 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 			m_WasLoading = false;
 		}
 
-		if (m_PrefabQuery.IsEmptyIgnoreFilter)
-		{
-			return;
-		}
-
 		if (!m_TargetsBuilt)
 		{
 			BuildTargetCache();
@@ -75,7 +69,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 
 		WaveClipLoader.PollAsyncLoads();
 		int currentAudioLoadVersion = WaveClipLoader.AsyncCompletionVersion;
-		int currentConfigVersion = SirenChangerMod.GetAudioDomainConfigVersion(DeveloperAudioDomain.Ambient);
+		int currentConfigVersion = SirenChangerMod.GetAudioDomainConfigVersion(DeveloperAudioDomain.UITool);
 		// Re-apply only when config values changed or async clip loading finished.
 		if (m_LastAppliedConfigVersion == currentConfigVersion)
 		{
@@ -91,7 +85,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 			}
 		}
 
-		ApplyConfiguredAmbient();
+		ApplyConfiguredUITool();
 		m_LastAppliedConfigVersion = currentConfigVersion;
 		m_LastAppliedAudioLoadVersion = currentAudioLoadVersion;
 	}
@@ -100,10 +94,10 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 	{
 		// Keep prefab references valid across map/editor transitions.
 		m_TargetsBuilt = false;
-		SirenChangerMod.ResetDetectedAudioDomain(DeveloperAudioDomain.Ambient);
-		m_AmbientSfxByPrefab.Clear();
-		m_DefaultAmbientSfxByPrefab.Clear();
-		m_SortedAmbientTargets.Clear();
+		SirenChangerMod.ResetDetectedAudioDomain(DeveloperAudioDomain.UITool);
+		m_UIToolSfxByTarget.Clear();
+		m_DefaultUIToolSfxByTarget.Clear();
+		m_SortedUIToolTargets.Clear();
 		m_LastAppliedConfigVersion = -1;
 		m_LastAppliedAudioLoadVersion = -1;
 		m_HasPendingAudioLoads = false;
@@ -111,132 +105,119 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 
 	private void BuildTargetCache()
 	{
-		// Build one deterministic list of ambient targets and snapshots for default restore.
-		m_AmbientSfxByPrefab.Clear();
-		m_DefaultAmbientSfxByPrefab.Clear();
-		m_SortedAmbientTargets.Clear();
-		SirenChangerMod.BeginDetectedAudioCollection(DeveloperAudioDomain.Ambient);
+		// Build one deterministic list of UI/tool targets and snapshots for default restore.
+		m_UIToolSfxByTarget.Clear();
+		m_DefaultUIToolSfxByTarget.Clear();
+		m_SortedUIToolTargets.Clear();
+		SirenChangerMod.BeginDetectedAudioCollection(DeveloperAudioDomain.UITool);
 
 		SirenSfxProfile template = SirenSfxProfile.CreateFallback();
 		bool templateSet = false;
 		AudioClip? defaultPreviewClip = null;
 		HashSet<string> discoveredTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		int skippedInvalidPrefabEntities = 0;
 
-		using (NativeArray<Entity> prefabEntities = m_PrefabQuery.ToEntityArray(Allocator.Temp))
+		if (!m_ToolSoundQuery.IsEmptyIgnoreFilter)
 		{
-			for (int i = 0; i < prefabEntities.Length; i++)
+			using (NativeArray<ToolUXSoundSettingsData> soundSettingsArray =
+				m_ToolSoundQuery.ToComponentDataArray<ToolUXSoundSettingsData>(Allocator.Temp))
 			{
-				if (!TryGetPrefab(prefabEntities[i], out PrefabBase prefab))
+				for (int settingsIndex = 0; settingsIndex < soundSettingsArray.Length; settingsIndex++)
 				{
-					skippedInvalidPrefabEntities++;
-					continue;
-				}
+					ToolUXSoundSettingsData soundSettings = soundSettingsArray[settingsIndex];
+					for (int i = 0; i < UIToolSoundSettingsFields.EntityFields.Length; i++)
+					{
+						var field = UIToolSoundSettingsFields.EntityFields[i];
+						object? rawValue = field.GetValue(soundSettings);
+						if (!(rawValue is Entity soundEntity) || soundEntity == Entity.Null)
+						{
+							continue;
+						}
 
-				string prefabName = prefab.name ?? string.Empty;
-				SFX sfx = prefab.GetComponent<SFX>();
-				if (sfx == null || sfx.m_AudioClip == null || !IsAmbientTarget(prefabName, sfx))
-				{
-					continue;
-				}
-				SirenChangerMod.RegisterDetectedAudioEntry(DeveloperAudioDomain.Ambient, prefabName, sfx);
+						if (!TryGetPrefab(soundEntity, out PrefabBase prefab))
+						{
+							continue;
+						}
 
-				m_AmbientSfxByPrefab[prefabName] = sfx;
-				discoveredTargets.Add(prefabName);
-				if (!m_DefaultAmbientSfxByPrefab.ContainsKey(prefabName))
-				{
-					m_DefaultAmbientSfxByPrefab[prefabName] = SirenSfxSnapshot.FromSfx(sfx);
-				}
+						SFX sfx = prefab.GetComponent<SFX>();
+						if (sfx == null || sfx.m_AudioClip == null)
+						{
+							continue;
+						}
 
-				if (defaultPreviewClip == null)
-				{
-					defaultPreviewClip = sfx.m_AudioClip;
-				}
+						string targetKey = BuildUIToolTargetKey(field.Name, prefab.name);
+						if (string.IsNullOrWhiteSpace(targetKey))
+						{
+							continue;
+						}
 
-				if (!templateSet)
-				{
-					template = SirenSfxProfile.FromSfx(sfx);
-					templateSet = true;
+						SirenChangerMod.RegisterDetectedAudioEntry(DeveloperAudioDomain.UITool, targetKey, sfx);
+						m_UIToolSfxByTarget[targetKey] = sfx;
+						discoveredTargets.Add(targetKey);
+						if (!m_DefaultUIToolSfxByTarget.ContainsKey(targetKey))
+						{
+							m_DefaultUIToolSfxByTarget[targetKey] = SirenSfxSnapshot.FromSfx(sfx);
+						}
+
+						if (defaultPreviewClip == null)
+						{
+							defaultPreviewClip = sfx.m_AudioClip;
+						}
+
+						if (!templateSet)
+						{
+							template = SirenSfxProfile.FromSfx(sfx);
+							templateSet = true;
+						}
+					}
 				}
 			}
 		}
 
-		if (skippedInvalidPrefabEntities > 0)
-		{
-			SirenChangerMod.Log.Warn(
-				$"Skipped {skippedInvalidPrefabEntities} prefab entities while building ambient cache because PrefabData was invalid.");
-		}
-
-		if (m_AmbientSfxByPrefab.Count == 0)
-		{
-			SirenChangerMod.CompleteDetectedAudioCollection(DeveloperAudioDomain.Ambient);
-			SirenChangerMod.SetAmbientDefaultPreviewClip(null);
-			SirenChangerMod.Log.Warn("No ambient SFX prefabs were found in loaded prefabs.");
-			return;
-		}
-
 		List<string> discovered = new List<string>(discoveredTargets);
 		discovered.Sort(StringComparer.OrdinalIgnoreCase);
-		m_SortedAmbientTargets.AddRange(discovered);
-		SirenChangerMod.SetDiscoveredAmbientTargets(discovered);
-		SirenChangerMod.SetAmbientProfileTemplate(template);
-		SirenChangerMod.SetAmbientDefaultPreviewClip(defaultPreviewClip);
-		SirenChangerMod.CompleteDetectedAudioCollection(DeveloperAudioDomain.Ambient);
-		SirenChangerMod.SyncCustomAmbientCatalog(saveIfChanged: true);
+		m_SortedUIToolTargets.AddRange(discovered);
+		SirenChangerMod.SetDiscoveredUIToolTargets(discovered);
+		SirenChangerMod.SetUIToolProfileTemplate(template);
+		SirenChangerMod.SetUIToolDefaultPreviewClip(defaultPreviewClip);
+		SirenChangerMod.CompleteDetectedAudioCollection(DeveloperAudioDomain.UITool);
+		SirenChangerMod.SyncCustomUIToolCatalog(saveIfChanged: true);
+
+		if (discovered.Count == 0)
+		{
+			SirenChangerMod.Log.Warn("No UI/tool SFX targets were found in loaded Tool UX sound settings.");
+		}
+
+		// Mark built even when empty to avoid rescanning and logging every frame.
 		m_TargetsBuilt = true;
 	}
-	private static bool IsAmbientTarget(string prefabName, SFX sfx)
+
+	private void ApplyConfiguredUITool()
 	{
-		// Prefer explicit mixer groups, then fallback to name-based heuristics.
-		if (sfx.m_MixerGroup == MixerGroup.Ambient ||
-			sfx.m_MixerGroup == MixerGroup.AudioGroups ||
-			sfx.m_MixerGroup == MixerGroup.Disasters)
-		{
-			return true;
-		}
-
-		if (string.IsNullOrWhiteSpace(prefabName))
-		{
-			return false;
-		}
-
-		return prefabName.IndexOf("ambient", StringComparison.OrdinalIgnoreCase) >= 0 ||
-			prefabName.IndexOf("rain", StringComparison.OrdinalIgnoreCase) >= 0 ||
-			prefabName.IndexOf("water", StringComparison.OrdinalIgnoreCase) >= 0 ||
-			prefabName.IndexOf("forest", StringComparison.OrdinalIgnoreCase) >= 0 ||
-			prefabName.IndexOf("wind", StringComparison.OrdinalIgnoreCase) >= 0 ||
-			prefabName.IndexOf("birds", StringComparison.OrdinalIgnoreCase) >= 0 ||
-			prefabName.IndexOf("seagull", StringComparison.OrdinalIgnoreCase) >= 0 ||
-			prefabName.IndexOf("nature", StringComparison.OrdinalIgnoreCase) >= 0;
-	}
-
-	private void ApplyConfiguredAmbient()
-	{
-		AudioReplacementDomainConfig config = SirenChangerMod.AmbientConfig;
-		config.Normalize(SirenChangerMod.AmbientCustomFolderName);
+		AudioReplacementDomainConfig config = SirenChangerMod.UIToolConfig;
+		config.Normalize(SirenChangerMod.UIToolCustomFolderName);
 		m_HasPendingAudioLoads = false;
 
 		// Always restore defaults first so toggles/fallbacks never stack stale overrides.
 		RestoreAllTargetDefaults();
 		if (!config.Enabled)
 		{
-			SirenChangerMod.Log.Info("Ambient apply skipped because ambient replacement is disabled.");
+			SirenChangerMod.Log.Info("UI/tool apply skipped because UI/tool replacement is disabled.");
 			return;
 		}
 
 		if (config.MuteAllTargets)
 		{
 			int mutedCount = MuteAllTargets();
-			SirenChangerMod.Log.Info($"Ambient apply complete. Enabled={config.Enabled}, Muted={mutedCount}, Replaced=0.");
+			SirenChangerMod.Log.Info($"UI/tool apply complete. Enabled={config.Enabled}, Muted={mutedCount}, Replaced=0.");
 			return;
 		}
 
 		Dictionary<string, SelectionLoadResult> selectionLoadCache = new Dictionary<string, SelectionLoadResult>(StringComparer.OrdinalIgnoreCase);
 		int appliedCount = 0;
-		for (int i = 0; i < m_SortedAmbientTargets.Count; i++)
+		for (int i = 0; i < m_SortedUIToolTargets.Count; i++)
 		{
-			string target = m_SortedAmbientTargets[i];
-			if (!m_AmbientSfxByPrefab.TryGetValue(target, out SFX sfx) || sfx == null)
+			string target = m_SortedUIToolTargets[i];
+			if (!m_UIToolSfxByTarget.TryGetValue(target, out SFX sfx) || sfx == null)
 			{
 				continue;
 			}
@@ -247,7 +228,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 				selection = config.DefaultSelection;
 			}
 
-			ResolvedSelection resolved = ResolveSelection(selection, config, selectionLoadCache, $"AmbientTarget:{target}");
+			ResolvedSelection resolved = ResolveSelection(selection, config, selectionLoadCache, $"UIToolTarget:{target}");
 			if (!ApplyResolvedSelectionToSfx(sfx, resolved))
 			{
 				continue;
@@ -256,13 +237,13 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 			appliedCount++;
 		}
 
-		SirenChangerMod.Log.Info($"Ambient apply complete. Enabled={config.Enabled}, Replaced={appliedCount}.");
+		SirenChangerMod.Log.Info($"UI/tool apply complete. Enabled={config.Enabled}, Replaced={appliedCount}.");
 	}
 
 	private int MuteAllTargets()
 	{
 		int mutedCount = 0;
-		foreach (SFX sfx in m_AmbientSfxByPrefab.Values)
+		foreach (SFX sfx in m_UIToolSfxByTarget.Values)
 		{
 			if (sfx == null)
 			{
@@ -278,10 +259,10 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 
 	private void RestoreAllTargetDefaults()
 	{
-		// Restore captured startup SFX state for every detected ambient target.
-		foreach (KeyValuePair<string, SirenSfxSnapshot> pair in m_DefaultAmbientSfxByPrefab)
+		// Restore captured startup SFX state for every detected UI/tool target.
+		foreach (KeyValuePair<string, SirenSfxSnapshot> pair in m_DefaultUIToolSfxByTarget)
 		{
-			if (m_AmbientSfxByPrefab.TryGetValue(pair.Key, out SFX sfx) && sfx != null)
+			if (m_UIToolSfxByTarget.TryGetValue(pair.Key, out SFX sfx) && sfx != null)
 			{
 				pair.Value.Restore(sfx);
 			}
@@ -328,7 +309,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 			return ResolvedSelection.Default();
 		}
 
-		SirenChangerMod.Log.Warn($"Primary ambient selection failed for {contextLabel}: '{selectionKey}'. {primaryResult.Error}");
+		SirenChangerMod.Log.Warn($"Primary UI/tool selection failed for {contextLabel}: '{selectionKey}'. {primaryResult.Error}");
 		switch (config.MissingSelectionFallbackBehavior)
 		{
 			case SirenFallbackBehavior.Mute:
@@ -346,17 +327,17 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 		Dictionary<string, SelectionLoadResult> selectionLoadCache,
 		string contextLabel)
 	{
-		// Guard against invalid fallback loops before attempting alternate load.
+		// Guard against invalid fallback loops before loading alternate audio.
 		string alternateSelection = config.AlternateFallbackSelection;
 		if (AudioReplacementDomainConfig.IsDefaultSelection(alternateSelection))
 		{
-			SirenChangerMod.Log.Warn($"Alternate ambient fallback is configured for {contextLabel}, but Alternate is set to Default.");
+			SirenChangerMod.Log.Warn($"Alternate UI/tool fallback is configured for {contextLabel}, but Alternate is set to Default.");
 			return ResolvedSelection.Default();
 		}
 
 		if (string.Equals(alternateSelection, failedSelectionKey, StringComparison.OrdinalIgnoreCase))
 		{
-			SirenChangerMod.Log.Warn($"Alternate ambient fallback for {contextLabel} points to same selection '{alternateSelection}'.");
+			SirenChangerMod.Log.Warn($"Alternate UI/tool fallback for {contextLabel} points to same selection '{alternateSelection}'.");
 			return ResolvedSelection.Default();
 		}
 
@@ -368,11 +349,11 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 				return ResolvedSelection.Default();
 			}
 
-			SirenChangerMod.Log.Warn($"Alternate ambient fallback failed for {contextLabel}: '{alternateSelection}'. {alternateResult.Error}");
+			SirenChangerMod.Log.Warn($"Alternate UI/tool fallback failed for {contextLabel}: '{alternateSelection}'. {alternateResult.Error}");
 			return ResolvedSelection.Default();
 		}
 
-		SirenChangerMod.Log.Info($"Applied alternate ambient fallback '{alternateSelection}' for {contextLabel} after '{failedSelectionKey}' failed.");
+		SirenChangerMod.Log.Info($"Applied alternate UI/tool fallback '{alternateSelection}' for {contextLabel} after '{failedSelectionKey}' failed.");
 		return ResolvedSelection.Custom(alternateResult.Clip!, alternateResult.Profile!, alternateResult.FilePath);
 	}
 
@@ -382,7 +363,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 		Dictionary<string, SelectionLoadResult> selectionLoadCache,
 		out SelectionLoadResult result)
 	{
-		// Cache avoids repeatedly decoding the same custom file during one apply pass.
+		// Cache avoids repeated disk/decoder work for the same key in one pass.
 		string normalizedSelection = AudioReplacementDomainConfig.NormalizeProfileKey(selectionKey);
 		if (selectionLoadCache.TryGetValue(normalizedSelection, out result))
 		{
@@ -405,7 +386,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 		}
 
 		if (!SirenChangerMod.TryResolveAudioProfilePath(
-			DeveloperAudioDomain.Ambient,
+			DeveloperAudioDomain.UITool,
 			config.CustomFolderName,
 			normalizedSelection,
 			out string filePath))
@@ -449,6 +430,41 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 		}
 	}
 
+	// Build one stable UI/tool target key from ToolUX field and prefab names.
+	private static string BuildUIToolTargetKey(string fieldName, string prefabName)
+	{
+		string normalizedField = NormalizeUIToolFieldName(fieldName);
+		string normalizedPrefab = AudioReplacementDomainConfig.NormalizeTargetKey(prefabName ?? string.Empty);
+		if (string.IsNullOrWhiteSpace(normalizedField) && string.IsNullOrWhiteSpace(normalizedPrefab))
+		{
+			return string.Empty;
+		}
+
+		if (string.IsNullOrWhiteSpace(normalizedPrefab))
+		{
+			return $"ui-tool/{normalizedField}";
+		}
+
+		return $"ui-tool/{normalizedField}/{normalizedPrefab}";
+	}
+
+	// Normalize ToolUX field names into readable/stable key segments.
+	private static string NormalizeUIToolFieldName(string fieldName)
+	{
+		string value = (fieldName ?? string.Empty).Trim();
+		if (value.StartsWith("m_", StringComparison.OrdinalIgnoreCase))
+		{
+			value = value.Substring(2);
+		}
+
+		if (value.EndsWith("Sound", StringComparison.OrdinalIgnoreCase) && value.Length > 5)
+		{
+			value = value.Substring(0, value.Length - 5);
+		}
+
+		return AudioReplacementDomainConfig.NormalizeTargetKey(value);
+	}
+
 	private enum ResolvedSelectionOutcome
 	{
 		Default,
@@ -456,7 +472,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 		CustomClip
 	}
 
-	// Lightweight tagged union for resolved target behavior.
+	// Lightweight tagged union describing what should be applied to a target.
 	private sealed class ResolvedSelection
 	{
 		public ResolvedSelectionOutcome Outcome { get; set; }
@@ -465,7 +481,7 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 
 		public SirenSfxProfile? Profile { get; set; }
 
-		public string ReplacementPath { get; set; } = string.Empty;
+		public string SourcePath { get; set; } = string.Empty;
 
 		public static ResolvedSelection Default()
 		{
@@ -489,26 +505,25 @@ public sealed partial class AmbientReplacementSystem : GameSystemBase
 			{
 				Outcome = ResolvedSelectionOutcome.CustomClip,
 				Clip = clip,
-				Profile = profile,
-				ReplacementPath = replacementPath
+				Profile = profile.ClampCopy(),
+				SourcePath = replacementPath ?? string.Empty
 			};
 		}
 	}
 
-	// Per-selection load result memoized during one apply pass.
+	// One-pass selection lookup result cached per resolved key.
 	private sealed class SelectionLoadResult
 	{
 		public bool Success { get; set; }
 
 		public bool IsPending { get; set; }
 
+		public string Error { get; set; } = string.Empty;
+
 		public AudioClip? Clip { get; set; }
 
 		public SirenSfxProfile? Profile { get; set; }
 
 		public string FilePath { get; set; } = string.Empty;
-
-		public string Error { get; set; } = string.Empty;
 	}
 }
-

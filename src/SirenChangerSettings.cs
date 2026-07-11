@@ -8,8 +8,8 @@ using UnityEngine.Scripting;
 
 namespace SirenChanger;
 
-[SettingsUITabOrder(kGeneralTab, kPublicTransportTab, kSirensTab, kVehiclesTab, kAmbientTab, kBuildingsTab, kDeveloperTab)]
-[SettingsUIGroupOrder(kGeneralGroup, kCitySoundSetGroup, kGuidanceGroup, kTransitAnnouncementGroup, kTransitAnnouncementLineGroup, kVehicleGroup, kVehicleOverrideGroup, kFallbackGroup, kProfileGroup, kDiagnosticsGroup, kVehicleSetupGroup, kVehicleOverrideTargetGroup, kVehicleFallbackGroup, kVehicleProfileGroup, kAmbientSetupGroup, kAmbientTargetGroup, kAmbientFallbackGroup, kAmbientProfileGroup, kBuildingSetupGroup, kBuildingTargetGroup, kBuildingFallbackGroup, kBuildingProfileGroup, kDeveloperSirenGroup, kDeveloperEngineGroup, kDeveloperAmbientGroup, kDeveloperBuildingGroup, kDeveloperModuleGroup)]
+[SettingsUITabOrder(kGeneralTab, kPublicTransportTab, kSirensTab, kVehiclesTab, kAmbientTab, kBuildingsTab, kUIToolTab, kDeveloperTab)]
+[SettingsUIGroupOrder(kGeneralGroup, kCitySoundSetGroup, kGuidanceGroup, kTransitAnnouncementGroup, kTransitAnnouncementLineGroup, kTransitEmergencyAnnouncementGroup, kVehicleGroup, kVehicleOverrideGroup, kFallbackGroup, kProfileGroup, kDiagnosticsGroup, kVehicleSetupGroup, kVehicleOverrideTargetGroup, kVehicleFallbackGroup, kVehicleProfileGroup, kAmbientSetupGroup, kAmbientTargetGroup, kAmbientWorldTargetGroup, kAmbientDisasterTargetGroup, kAmbientFallbackGroup, kAmbientProfileGroup, kBuildingSetupGroup, kBuildingTargetGroup, kBuildingServiceTargetGroup, kBuildingFallbackGroup, kBuildingProfileGroup, kUIToolSetupGroup, kUIToolTargetGroup, kUIToolFallbackGroup, kUIToolProfileGroup, kDeveloperSirenGroup, kDeveloperEngineGroup, kDeveloperAmbientGroup, kDeveloperBuildingGroup, kDeveloperModuleGroup)]
 [SettingsUIShowGroupName]
 // Options UI binding surface for all configurable siren changer behavior.
 public sealed partial class SirenChangerSettings : ModSetting
@@ -26,6 +26,8 @@ public sealed partial class SirenChangerSettings : ModSetting
 
 	public const string kBuildingsTab = "Buildings";
 
+	public const string kUIToolTab = "UI & Tool SFX";
+
 	public const string kGeneralGroup = "Siren Setup";
 
 	public const string kCitySoundSetGroup = "City Sound Sets";
@@ -35,6 +37,8 @@ public sealed partial class SirenChangerSettings : ModSetting
 	public const string kTransitAnnouncementGroup = "Global Announcement Settings";
 
 	public const string kTransitAnnouncementLineGroup = "Per-Station Line Overrides";
+
+	public const string kTransitEmergencyAnnouncementGroup = "Emergency PA Announcements";
 
 	public const string kVehicleGroup = "Siren Defaults";
 

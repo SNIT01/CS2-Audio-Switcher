@@ -44,14 +44,14 @@
   <Screenshot Value="Images/Screen_Dev2.jpg" />
   <Screenshot Value="Images/Screen_Dev3.jpg" />
   <!--CHANGE LOG-->
-	<ChangeLog Value="Fixed broken UI images, Fixed 'don't show again', Major performance pass" />
+	<ChangeLog Value="Moved local audio and settings to ModsData; fixed transit station, line, and station-line discovery and names; improved announcement queuing and override matching; added safe deferred engine and siren live updates with guarded retries and error handling; updated documentation." />
   <Tag Value="" />
   <!--Link to the forum post where the mod can be discussed-->
   <ForumLink Value="https://forum.paradoxplaza.com/forum/threads/audio-switcher.1903848/" />
   <!--Version of the mod-->
-  <ModVersion Value="2.5.2" />
+  <ModVersion Value="2.9.0" />
   <!--Recommended version of the base game to use the mod-->
-  <GameVersion Value="1.5.6f1" />
+  <GameVersion Value="1.6.0f1" />
   <!--Dependency for the mod, can be set multiple times-->
   <Dependency Id="" />
   <!--Required DLC, can be set multiple times. Supported values are "Landmark Buildings", "San Fransisco Set", "Beach Properties", "Urban Promenades", "Modern Architecture"-->
@@ -61,4 +61,3 @@
   <!--Supported values Public, Private, Unlisted-->
   <AccessLevel Value="Public" />
 </Publish>
-                                              

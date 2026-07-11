@@ -751,7 +751,72 @@ internal static class SirenPathUtils
 {
 	private const string ModName = "SirenChanger";
 
+	private const string GameDataFolderName = "ModsData";
+
+	private const string GameModsFolderName = "Mods";
+
 	private static readonly char[] s_InvalidFileNameChars = Path.GetInvalidFileNameChars();
+
+	private static readonly HashSet<string> s_MigratableRootFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+	{
+		SirenReplacementConfig.SettingsFileName,
+		SirenReplacementConfig.DetectedSirensFileName,
+		SirenChangerMod.VehicleEngineSettingsFileName,
+		SirenChangerMod.AmbientSettingsFileName,
+		SirenChangerMod.BuildingSettingsFileName,
+		SirenChangerMod.UIToolSettingsFileName,
+		SirenChangerMod.TransitAnnouncementSettingsFileName,
+		CitySoundProfileRegistry.SettingsFileName,
+		"SirenChangerGuidanceState.json"
+	};
+
+	private static readonly HashSet<string> s_MigratableDirectoryNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+	{
+		SirenReplacementConfig.DefaultCustomSirensFolderName,
+		SirenChangerMod.VehicleEngineCustomFolderName,
+		SirenChangerMod.AmbientCustomFolderName,
+		SirenChangerMod.BuildingCustomFolderName,
+		SirenChangerMod.UIToolCustomFolderName,
+		SirenChangerMod.TransitAnnouncementCustomFolderName,
+		"Custom Transit Announcements",
+		"Transit Announcements",
+		CitySoundProfileRegistry.ProfilesDirectoryName
+	};
+
+	private static readonly HashSet<string> s_KnownModPackageRootFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+	{
+		"SirenChanger.dll",
+		"SirenChanger.Guidance.mjs",
+		"SirenChanger.pdb",
+		"SirenChanger_linux_x86_64.so",
+		"SirenChanger_mac_x86_64.bundle",
+		"SirenChanger_win_x86_64.dll",
+		"SirenChanger_win_x86_64.pdb"
+	};
+
+	private static readonly HashSet<string> s_KnownModPackageRootDirectoryNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+	{
+		"Images",
+		ModName
+	};
+
+	private static readonly HashSet<string> s_KnownModPackageImageFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+	{
+		"Audio Switcher Logo.jpg",
+		"GuidanceBanner_Changelog.svg",
+		"GuidanceBanner_Tutorial.svg",
+		"Screen_Ambient.jpg",
+		"Screen_Dev.jpg",
+		"Screen_Dev2.jpg",
+		"Screen_Dev3.jpg",
+		"Screen_Engine.jpg",
+		"Screen_Gen.jpg",
+		"Screen_Prof.jpg",
+		"Screen_PT.jpg",
+		"Screen_Siren.jpg",
+		"Screen_Siren2.jpg",
+		"UI_Banner.jpeg"
+	};
 
 	private static readonly HashSet<string> s_SupportedCustomSirenExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
 	{
@@ -759,20 +824,286 @@ internal static class SirenPathUtils
 		".ogg"
 	};
 
-	// Resolve mod settings folder path from game userdata or local app data.
+	// Resolve mod data folder path from game userdata or LocalLow app data.
 	public static string GetSettingsDirectory(bool ensureExists)
 	{
-		string? userData = Environment.GetEnvironmentVariable("CSII_USERDATAPATH");
-		string baseDirectory = !string.IsNullOrWhiteSpace(userData)
-			? Path.Combine(userData, "Mods", ModName)
-			: Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Colossal Order", "Cities Skylines II", "Mods", ModName);
+		string baseDirectory = Path.Combine(GetCitiesUserDataDirectory(), GameDataFolderName, ModName);
 
 		if (ensureExists)
 		{
 			Directory.CreateDirectory(baseDirectory);
+			TryCleanupMigratedModPackageArtifacts(baseDirectory);
+			TryMigrateLegacySettingsDirectory(baseDirectory);
 		}
 
 		return baseDirectory;
+	}
+
+	// Resolve the local Mods directory used for generated package output.
+	public static string GetModsDirectory(bool ensureExists)
+	{
+		string directory = Path.Combine(GetCitiesUserDataDirectory(), GameModsFolderName);
+		if (ensureExists)
+		{
+			Directory.CreateDirectory(directory);
+		}
+
+		return directory;
+	}
+
+	private static string GetCitiesUserDataDirectory()
+	{
+		string? userData = Environment.GetEnvironmentVariable("CSII_USERDATAPATH");
+		if (!string.IsNullOrWhiteSpace(userData))
+		{
+			return userData.Trim();
+		}
+
+		string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+		if (!string.IsNullOrWhiteSpace(userProfile))
+		{
+			return Path.Combine(userProfile, "AppData", "LocalLow", "Colossal Order", "Cities Skylines II");
+		}
+
+		return Path.Combine(
+			Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+			"Colossal Order",
+			"Cities Skylines II");
+	}
+
+	private static void TryMigrateLegacySettingsDirectory(string targetDirectory)
+	{
+		try
+		{
+			if (string.IsNullOrWhiteSpace(targetDirectory))
+			{
+				return;
+			}
+
+			foreach (string legacyDirectory in GetLegacySettingsDirectories())
+			{
+				if (string.IsNullOrWhiteSpace(legacyDirectory) ||
+					string.Equals(
+						Path.GetFullPath(legacyDirectory),
+						Path.GetFullPath(targetDirectory),
+						StringComparison.OrdinalIgnoreCase) ||
+					!HasMigratableLegacyContent(legacyDirectory))
+				{
+					continue;
+				}
+
+				CopyMigratableLegacySettings(legacyDirectory, targetDirectory);
+				break;
+			}
+		}
+		catch
+		{
+			// Migration is best-effort; missing or locked legacy data should not block mod startup.
+		}
+	}
+
+	private static IEnumerable<string> GetLegacySettingsDirectories()
+	{
+		HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		void AddIfUnique(List<string> values, string path)
+		{
+			if (string.IsNullOrWhiteSpace(path))
+			{
+				return;
+			}
+
+			string fullPath = Path.GetFullPath(path);
+			if (seen.Add(fullPath))
+			{
+				values.Add(fullPath);
+			}
+		}
+
+		List<string> directories = new List<string>();
+		string? userData = Environment.GetEnvironmentVariable("CSII_USERDATAPATH");
+		if (!string.IsNullOrWhiteSpace(userData))
+		{
+			AddIfUnique(directories, Path.Combine(userData.Trim(), GameModsFolderName, ModName));
+		}
+
+		string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+		if (!string.IsNullOrWhiteSpace(userProfile))
+		{
+			AddIfUnique(
+				directories,
+				Path.Combine(userProfile, "AppData", "LocalLow", "Colossal Order", "Cities Skylines II", GameModsFolderName, ModName));
+		}
+
+		AddIfUnique(
+			directories,
+			Path.Combine(
+				Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+				"Colossal Order",
+				"Cities Skylines II",
+				GameModsFolderName,
+				ModName));
+
+		return directories;
+	}
+
+	private static bool HasMigratableLegacyContent(string directory)
+	{
+		if (!Directory.Exists(directory))
+		{
+			return false;
+		}
+
+		foreach (string file in Directory.EnumerateFiles(directory, "*", SearchOption.TopDirectoryOnly))
+		{
+			if (IsMigratableRootFile(file))
+			{
+				return true;
+			}
+		}
+
+		foreach (string childDirectory in Directory.EnumerateDirectories(directory, "*", SearchOption.TopDirectoryOnly))
+		{
+			if (IsMigratableLegacyDirectory(childDirectory))
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static void CopyMigratableLegacySettings(string sourceDirectory, string targetDirectory)
+	{
+		Directory.CreateDirectory(targetDirectory);
+		foreach (string file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.TopDirectoryOnly))
+		{
+			if (!IsMigratableRootFile(file))
+			{
+				continue;
+			}
+
+			CopyFileIfMissing(file, Path.Combine(targetDirectory, Path.GetFileName(file)));
+		}
+
+		foreach (string childDirectory in Directory.EnumerateDirectories(sourceDirectory, "*", SearchOption.TopDirectoryOnly))
+		{
+			if (!IsMigratableLegacyDirectory(childDirectory))
+			{
+				continue;
+			}
+
+			CopyDirectoryContents(childDirectory, Path.Combine(targetDirectory, Path.GetFileName(childDirectory)));
+		}
+	}
+
+	private static bool IsMigratableRootFile(string filePath)
+	{
+		return s_MigratableRootFileNames.Contains(Path.GetFileName(filePath));
+	}
+
+	private static bool IsMigratableLegacyDirectory(string directory)
+	{
+		string directoryName = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+		return s_MigratableDirectoryNames.Contains(directoryName) || DirectoryContainsSupportedAudioFiles(directory);
+	}
+
+	private static bool DirectoryContainsSupportedAudioFiles(string directory)
+	{
+		if (!Directory.Exists(directory))
+		{
+			return false;
+		}
+
+		return Directory
+			.EnumerateFiles(directory, "*", SearchOption.AllDirectories)
+			.Any(file => s_SupportedCustomSirenExtensions.Contains(Path.GetExtension(file)));
+	}
+
+	private static void CopyDirectoryContents(string sourceDirectory, string targetDirectory)
+	{
+		Directory.CreateDirectory(targetDirectory);
+		foreach (string directory in Directory.EnumerateDirectories(sourceDirectory, "*", SearchOption.AllDirectories))
+		{
+			string relative = Path.GetRelativePath(sourceDirectory, directory);
+			Directory.CreateDirectory(Path.Combine(targetDirectory, relative));
+		}
+
+		foreach (string file in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+		{
+			string relative = Path.GetRelativePath(sourceDirectory, file);
+			string targetFile = Path.Combine(targetDirectory, relative);
+			string? targetParent = Path.GetDirectoryName(targetFile);
+			if (!string.IsNullOrWhiteSpace(targetParent))
+			{
+				Directory.CreateDirectory(targetParent);
+			}
+
+			CopyFileIfMissing(file, targetFile);
+		}
+	}
+
+	private static void CopyFileIfMissing(string sourceFile, string targetFile)
+	{
+		if (File.Exists(targetFile))
+		{
+			return;
+		}
+
+		string? targetParent = Path.GetDirectoryName(targetFile);
+		if (!string.IsNullOrWhiteSpace(targetParent))
+		{
+			Directory.CreateDirectory(targetParent);
+		}
+
+		File.Copy(sourceFile, targetFile, overwrite: false);
+	}
+
+	private static void TryCleanupMigratedModPackageArtifacts(string targetDirectory)
+	{
+		try
+		{
+			if (string.IsNullOrWhiteSpace(targetDirectory) || !Directory.Exists(targetDirectory))
+			{
+				return;
+			}
+
+			foreach (string fileName in s_KnownModPackageRootFileNames)
+			{
+				string filePath = Path.Combine(targetDirectory, fileName);
+				if (File.Exists(filePath))
+				{
+					File.Delete(filePath);
+				}
+			}
+
+			foreach (string directoryName in s_KnownModPackageRootDirectoryNames)
+			{
+				string directoryPath = Path.Combine(targetDirectory, directoryName);
+				if (Directory.Exists(directoryPath) && DirectoryContainsOnlyKnownPackageImages(directoryPath))
+				{
+					Directory.Delete(directoryPath, recursive: true);
+				}
+			}
+		}
+		catch
+		{
+			// Cleanup is best-effort; data/settings loading must not depend on it.
+		}
+	}
+
+	private static bool DirectoryContainsOnlyKnownPackageImages(string directory)
+	{
+		bool sawFile = false;
+		foreach (string file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+		{
+			sawFile = true;
+			if (!s_KnownModPackageImageFileNames.Contains(Path.GetFileName(file)))
+			{
+				return false;
+			}
+		}
+
+		return sawFile;
 	}
 
 	// Resolve settings file path from settings directory.

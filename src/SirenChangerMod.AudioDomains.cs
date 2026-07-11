@@ -16,11 +16,127 @@ namespace SirenChanger;
 // Engine, ambient, and building options/scanning helpers split from the core mod file.
 public sealed partial class SirenChangerMod
 {
+	private enum AmbientTargetSection
+	{
+		None = 0,
+		Primary = 1,
+		World = 2,
+		Disaster = 3
+	}
+
+	private enum BuildingTargetSection
+	{
+		None = 0,
+		Primary = 1,
+		Service = 2
+	}
+
 	private static string s_LastVehicleEnginePreviewStatus = "No vehicle engine preview has been played in this session.";
+
+	private static string s_LastVehicleEngineEditorLinkStatus = "No advanced engine editor link action has been run in this session.";
 
 	private static string s_LastAmbientPreviewStatus = "No ambient preview has been played in this session.";
 
 	private static string s_LastBuildingPreviewStatus = "No building preview has been played in this session.";
+
+	private static string s_LastUIToolPreviewStatus = "No UI/tool preview has been played in this session.";
+
+	private static string s_SelectedAmbientDisasterTarget = string.Empty;
+
+	private static string s_SelectedAmbientWorldTarget = string.Empty;
+
+	private static string s_SelectedBuildingServiceTarget = string.Empty;
+
+	private static int s_AmbientDisasterTargetDropdownCacheVersion = -1;
+
+	private static DropdownItem<string>[] s_AmbientDisasterTargetDropdown = Array.Empty<DropdownItem<string>>();
+
+	private static int s_AmbientWorldTargetDropdownCacheVersion = -1;
+
+	private static DropdownItem<string>[] s_AmbientWorldTargetDropdown = Array.Empty<DropdownItem<string>>();
+
+	private static int s_BuildingServiceTargetDropdownCacheVersion = -1;
+
+	private static DropdownItem<string>[] s_BuildingServiceTargetDropdown = Array.Empty<DropdownItem<string>>();
+
+	private static readonly string[] s_AmbientDisasterTokens =
+	{
+		"disaster",
+		"flood",
+		"tornado",
+		"tsunami",
+		"earthquake",
+		"wildfire",
+		"firestorm",
+		"storm",
+		"lightning",
+		"thunder",
+		"hail",
+		"blizzard",
+		"evac",
+		"warning"
+	};
+
+	private static readonly string[] s_AmbientWorldTokens =
+	{
+		"world",
+		"weather",
+		"wind",
+		"rain",
+		"water",
+		"ocean",
+		"sea",
+		"wave",
+		"forest",
+		"nature",
+		"birds",
+		"seagull",
+		"environment",
+		"day",
+		"night",
+		"season",
+		"climate"
+	};
+
+	private static readonly string[] s_ServiceBuildingTokens =
+	{
+		"service",
+		"police",
+		"fire",
+		"ambulance",
+		"hospital",
+		"clinic",
+		"medical",
+		"school",
+		"college",
+		"university",
+		"welfare",
+		"prison",
+		"jail",
+		"courthouse",
+		"post",
+		"mail",
+		"telecom",
+		"power",
+		"substation",
+		"water",
+		"sewage",
+		"waste",
+		"garbage",
+		"recycling",
+		"landfill",
+		"incinerator",
+		"crematorium",
+		"cemetery",
+		"depot",
+		"station",
+		"airport",
+		"harbor",
+		"port",
+		"maintenance",
+		"snow",
+		"shelter"
+	};
 
 	// Build vehicle-engine profile dropdown cache when options version changes.
 	private static void EnsureVehicleEngineDropdownCacheCurrent()
@@ -83,6 +199,27 @@ public sealed partial class SirenChangerMod
 			out s_BuildingDropdownWithDefault,
 			out s_BuildingDropdownWithoutDefault);
 		s_BuildingDropdownCacheVersion = OptionsVersion;
+	}
+
+	// Build UI/tool profile dropdown cache when options version changes.
+	private static void EnsureUIToolDropdownCacheCurrent()
+	{
+		if (s_UIToolDropdownCacheVersion == OptionsVersion &&
+			s_UIToolDropdownWithDefault.Length > 0 &&
+			s_UIToolDropdownWithoutDefault.Length > 0)
+		{
+			return;
+		}
+
+		List<string> keys = UIToolConfig.CustomProfiles.Keys
+			.OrderBy(static value => value, StringComparer.OrdinalIgnoreCase)
+			.ToList();
+		BuildDomainDropdownCache(
+			keys,
+			"No custom UI/tool sounds found",
+			out s_UIToolDropdownWithDefault,
+			out s_UIToolDropdownWithoutDefault);
+		s_UIToolDropdownCacheVersion = OptionsVersion;
 	}
 
 	// Shared dropdown-item builder for engine/ambient/building custom file lists.
@@ -175,33 +312,10 @@ public sealed partial class SirenChangerMod
 			return;
 		}
 
-		if (s_DiscoveredAmbientTargets.Length == 0)
-		{
-			s_AmbientTargetDropdown = new[]
-			{
-				new DropdownItem<string>
-				{
-					value = string.Empty,
-					displayName = "No ambient targets detected",
-					disabled = true
-				}
-			};
-			s_AmbientTargetDropdownCacheVersion = OptionsVersion;
-			return;
-		}
-
-		List<DropdownItem<string>> options = new List<DropdownItem<string>>(s_DiscoveredAmbientTargets.Length);
-		for (int i = 0; i < s_DiscoveredAmbientTargets.Length; i++)
-		{
-			string targetName = s_DiscoveredAmbientTargets[i];
-			options.Add(new DropdownItem<string>
-			{
-				value = targetName,
-				displayName = targetName
-			});
-		}
-
-		s_AmbientTargetDropdown = options.ToArray();
+		s_AmbientTargetDropdown = BuildFilteredTargetDropdownItems(
+			s_DiscoveredAmbientTargets,
+			static targetName => ClassifyAmbientTargetSection(targetName) == AmbientTargetSection.Primary,
+			"No ambient targets detected");
 		s_AmbientTargetDropdownCacheVersion = OptionsVersion;
 	}
 
@@ -213,25 +327,72 @@ public sealed partial class SirenChangerMod
 			return;
 		}
 
-		if (s_DiscoveredBuildingTargets.Length == 0)
+		s_BuildingTargetDropdown = BuildFilteredTargetDropdownItems(
+			s_DiscoveredBuildingTargets,
+			static targetName => ClassifyBuildingTargetSection(targetName) == BuildingTargetSection.Primary,
+			"No building targets detected");
+		s_BuildingTargetDropdownCacheVersion = OptionsVersion;
+	}
+
+	// Rebuild discovered disaster ambient-target dropdown cache when options version changes.
+	private static void EnsureAmbientDisasterTargetDropdownCurrent()
+	{
+		if (s_AmbientDisasterTargetDropdownCacheVersion == OptionsVersion && s_AmbientDisasterTargetDropdown.Length > 0)
 		{
-			s_BuildingTargetDropdown = new[]
-			{
-				new DropdownItem<string>
-				{
-					value = string.Empty,
-					displayName = "No building targets detected",
-					disabled = true
-				}
-			};
-			s_BuildingTargetDropdownCacheVersion = OptionsVersion;
 			return;
 		}
 
-		List<DropdownItem<string>> options = new List<DropdownItem<string>>(s_DiscoveredBuildingTargets.Length);
-		for (int i = 0; i < s_DiscoveredBuildingTargets.Length; i++)
+		s_AmbientDisasterTargetDropdown = BuildFilteredTargetDropdownItems(
+			s_DiscoveredAmbientTargets,
+			static targetName => ClassifyAmbientTargetSection(targetName) == AmbientTargetSection.Disaster,
+			"No disaster ambient targets detected");
+		s_AmbientDisasterTargetDropdownCacheVersion = OptionsVersion;
+	}
+
+	// Rebuild discovered world ambient-target dropdown cache when options version changes.
+	private static void EnsureAmbientWorldTargetDropdownCurrent()
+	{
+		if (s_AmbientWorldTargetDropdownCacheVersion == OptionsVersion && s_AmbientWorldTargetDropdown.Length > 0)
 		{
-			string targetName = s_DiscoveredBuildingTargets[i];
+			return;
+		}
+
+		s_AmbientWorldTargetDropdown = BuildFilteredTargetDropdownItems(
+			s_DiscoveredAmbientTargets,
+			static targetName => ClassifyAmbientTargetSection(targetName) == AmbientTargetSection.World,
+			"No world ambient targets detected");
+		s_AmbientWorldTargetDropdownCacheVersion = OptionsVersion;
+	}
+
+	// Rebuild discovered service-building target dropdown cache when options version changes.
+	private static void EnsureBuildingServiceTargetDropdownCurrent()
+	{
+		if (s_BuildingServiceTargetDropdownCacheVersion == OptionsVersion && s_BuildingServiceTargetDropdown.Length > 0)
+		{
+			return;
+		}
+
+		s_BuildingServiceTargetDropdown = BuildFilteredTargetDropdownItems(
+			s_DiscoveredBuildingTargets,
+			static targetName => ClassifyBuildingTargetSection(targetName) == BuildingTargetSection.Service,
+			"No service building targets detected");
+		s_BuildingServiceTargetDropdownCacheVersion = OptionsVersion;
+	}
+
+	private static DropdownItem<string>[] BuildFilteredTargetDropdownItems(
+		IReadOnlyList<string> sourceTargets,
+		Func<string, bool> includeTarget,
+		string emptyMessage)
+	{
+		List<DropdownItem<string>> options = new List<DropdownItem<string>>(sourceTargets.Count);
+		for (int i = 0; i < sourceTargets.Count; i++)
+		{
+			string targetName = sourceTargets[i];
+			if (!includeTarget(targetName))
+			{
+				continue;
+			}
+
 			options.Add(new DropdownItem<string>
 			{
 				value = targetName,
@@ -239,8 +400,55 @@ public sealed partial class SirenChangerMod
 			});
 		}
 
-		s_BuildingTargetDropdown = options.ToArray();
-		s_BuildingTargetDropdownCacheVersion = OptionsVersion;
+		if (options.Count == 0)
+		{
+			options.Add(new DropdownItem<string>
+			{
+				value = string.Empty,
+				displayName = emptyMessage,
+				disabled = true
+			});
+		}
+
+		return options.ToArray();
+	}
+
+	// Rebuild discovered UI/tool-target dropdown cache when options version changes.
+	private static void EnsureUIToolTargetDropdownCurrent()
+	{
+		if (s_UIToolTargetDropdownCacheVersion == OptionsVersion && s_UIToolTargetDropdown.Length > 0)
+		{
+			return;
+		}
+
+		if (s_DiscoveredUIToolTargets.Length == 0)
+		{
+			s_UIToolTargetDropdown = new[]
+			{
+				new DropdownItem<string>
+				{
+					value = string.Empty,
+					displayName = "No UI/tool targets detected",
+					disabled = true
+				}
+			};
+			s_UIToolTargetDropdownCacheVersion = OptionsVersion;
+			return;
+		}
+
+		List<DropdownItem<string>> options = new List<DropdownItem<string>>(s_DiscoveredUIToolTargets.Length);
+		for (int i = 0; i < s_DiscoveredUIToolTargets.Length; i++)
+		{
+			string targetName = s_DiscoveredUIToolTargets[i];
+			options.Add(new DropdownItem<string>
+			{
+				value = targetName,
+				displayName = targetName
+			});
+		}
+
+		s_UIToolTargetDropdown = options.ToArray();
+		s_UIToolTargetDropdownCacheVersion = OptionsVersion;
 	}
 
 	// Set selected vehicle-engine target key in options UI.
@@ -307,18 +515,30 @@ public sealed partial class SirenChangerMod
 	// Set selected ambient target key in options UI.
 	internal static void SetAmbientTargetSelectionTargetFromOptions(string targetName)
 	{
+		string normalized = AudioReplacementDomainConfig.NormalizeTargetKey(targetName);
+		if (!IsAmbientPrimaryTargetKey(normalized))
+		{
+			normalized = string.Empty;
+		}
+
 		string previous = AmbientConfig.TargetSelectionTarget;
-		AmbientConfig.SetTargetSelectionTarget(targetName);
-		if (!string.Equals(previous, AmbientConfig.TargetSelectionTarget, StringComparison.Ordinal))
+		AmbientConfig.SetTargetSelectionTarget(normalized);
+		if (!string.Equals(previous, normalized, StringComparison.Ordinal))
 		{
 			OptionsVersion++;
 		}
 	}
 
+	// Get selected ambient target key for the non-disaster override section.
+	internal static string GetAmbientTargetSelectionTargetForOptions()
+	{
+		return GetActiveAmbientPrimaryTargetKey();
+	}
+
 	// Get selected ambient override for the currently selected target.
 	internal static string GetSelectedAmbientTargetSelectionForOptions()
 	{
-		string key = AmbientConfig.TargetSelectionTarget;
+		string key = GetActiveAmbientPrimaryTargetKey();
 		if (string.IsNullOrWhiteSpace(key))
 		{
 			return SirenReplacementConfig.DefaultSelectionToken;
@@ -330,7 +550,7 @@ public sealed partial class SirenChangerMod
 	// Set ambient override for the currently selected target.
 	internal static void SetSelectedAmbientTargetSelectionFromOptions(string selection)
 	{
-		string key = AmbientConfig.TargetSelectionTarget;
+		string key = GetActiveAmbientPrimaryTargetKey();
 		if (string.IsNullOrWhiteSpace(key))
 		{
 			return;
@@ -345,12 +565,12 @@ public sealed partial class SirenChangerMod
 	// Read-only status text for ambient override controls.
 	internal static string GetSelectedAmbientOverrideStatusText()
 	{
-		if (s_DiscoveredAmbientTargets.Length == 0)
+		if (!HasDiscoveredAmbientPrimaryTargets())
 		{
 			return "No ambient targets detected yet. Click Rescan Ambient Targets in a loaded map/editor session.";
 		}
 
-		string key = AmbientConfig.TargetSelectionTarget;
+		string key = GetActiveAmbientPrimaryTargetKey();
 		if (string.IsNullOrWhiteSpace(key))
 		{
 			return "Select an ambient target to edit its sound override.";
@@ -365,21 +585,114 @@ public sealed partial class SirenChangerMod
 		return $"'{key}' override: {FormatSirenDisplayName(selection)}";
 	}
 
+	// Link the advanced engine profile editor to the currently selected vehicle override profile.
+	internal static void LinkVehicleEngineEditorToSelectedOverrideFromOptions()
+	{
+		string targetKey = AudioReplacementDomainConfig.NormalizeTargetKey(VehicleEngineConfig.TargetSelectionTarget);
+		if (string.IsNullOrWhiteSpace(targetKey))
+		{
+			s_LastVehicleEngineEditorLinkStatus = "Select a vehicle prefab first, then choose an override sound to edit.";
+			OptionsVersion++;
+			return;
+		}
+
+		string selection = AudioReplacementDomainConfig.NormalizeProfileKey(VehicleEngineConfig.GetTargetSelection(targetKey));
+		if (AudioReplacementDomainConfig.IsDefaultSelection(selection))
+		{
+			s_LastVehicleEngineEditorLinkStatus = $"'{targetKey}' currently uses Default. Pick a concrete override sound first.";
+			OptionsVersion++;
+			return;
+		}
+
+		if (string.IsNullOrWhiteSpace(selection) || !VehicleEngineConfig.TryGetProfile(selection, out _))
+		{
+			s_LastVehicleEngineEditorLinkStatus = $"Cannot link advanced editor: override profile '{selection}' is unavailable.";
+			OptionsVersion++;
+			return;
+		}
+
+		bool changed = false;
+		if (!string.Equals(VehicleEngineConfig.EditProfileSelection, selection, StringComparison.Ordinal))
+		{
+			VehicleEngineConfig.EditProfileSelection = selection;
+			changed = true;
+		}
+
+		string copySource = AudioReplacementDomainConfig.NormalizeProfileKey(VehicleEngineConfig.CopyFromProfileSelection);
+		if (string.IsNullOrWhiteSpace(copySource) || !VehicleEngineConfig.TryGetProfile(copySource, out _))
+		{
+			VehicleEngineConfig.CopyFromProfileSelection = selection;
+			changed = true;
+		}
+
+		int linkedVehicleCount = CountVehicleEngineOverridesUsingProfile(selection);
+		string displayName = FormatSirenDisplayName(selection);
+		s_LastVehicleEngineEditorLinkStatus =
+			$"Advanced editor now targets '{displayName}'. This profile is used by {linkedVehicleCount} vehicle override(s).";
+		if (changed)
+		{
+			SaveAudioDomainConfig(DeveloperAudioDomain.VehicleEngine);
+			MarkAudioDomainConfigChanged(DeveloperAudioDomain.VehicleEngine);
+		}
+
+		OptionsVersion++;
+	}
+
+	// Read-only status text for the latest advanced-editor link action.
+	internal static string GetVehicleEngineEditorLinkStatusText()
+	{
+		return s_LastVehicleEngineEditorLinkStatus;
+	}
+
+	// Count how many vehicle-prefab overrides currently reference one profile key.
+	private static int CountVehicleEngineOverridesUsingProfile(string profileKey)
+	{
+		if (string.IsNullOrWhiteSpace(profileKey) || VehicleEngineConfig.TargetSelections == null)
+		{
+			return 0;
+		}
+
+		string normalizedProfileKey = AudioReplacementDomainConfig.NormalizeProfileKey(profileKey);
+		int count = 0;
+		foreach (KeyValuePair<string, string> pair in VehicleEngineConfig.TargetSelections)
+		{
+			string normalizedSelection = AudioReplacementDomainConfig.NormalizeProfileKey(pair.Value);
+			if (string.Equals(normalizedSelection, normalizedProfileKey, StringComparison.OrdinalIgnoreCase))
+			{
+				count++;
+			}
+		}
+
+		return count;
+	}
+
 	// Set selected building target key in options UI.
 	internal static void SetBuildingTargetSelectionTargetFromOptions(string targetName)
 	{
+		string normalized = AudioReplacementDomainConfig.NormalizeTargetKey(targetName);
+		if (!IsBuildingPrimaryTargetKey(normalized))
+		{
+			normalized = string.Empty;
+		}
+
 		string previous = BuildingConfig.TargetSelectionTarget;
-		BuildingConfig.SetTargetSelectionTarget(targetName);
-		if (!string.Equals(previous, BuildingConfig.TargetSelectionTarget, StringComparison.Ordinal))
+		BuildingConfig.SetTargetSelectionTarget(normalized);
+		if (!string.Equals(previous, normalized, StringComparison.Ordinal))
 		{
 			OptionsVersion++;
 		}
 	}
 
+	// Get selected building target key for the non-service override section.
+	internal static string GetBuildingTargetSelectionTargetForOptions()
+	{
+		return GetActiveBuildingPrimaryTargetKey();
+	}
+
 	// Get selected building override for the currently selected target.
 	internal static string GetSelectedBuildingTargetSelectionForOptions()
 	{
-		string key = BuildingConfig.TargetSelectionTarget;
+		string key = GetActiveBuildingPrimaryTargetKey();
 		if (string.IsNullOrWhiteSpace(key))
 		{
 			return SirenReplacementConfig.DefaultSelectionToken;
@@ -391,7 +704,7 @@ public sealed partial class SirenChangerMod
 	// Set building override for the currently selected target.
 	internal static void SetSelectedBuildingTargetSelectionFromOptions(string selection)
 	{
-		string key = BuildingConfig.TargetSelectionTarget;
+		string key = GetActiveBuildingPrimaryTargetKey();
 		if (string.IsNullOrWhiteSpace(key))
 		{
 			return;
@@ -406,12 +719,12 @@ public sealed partial class SirenChangerMod
 	// Read-only status text for building override controls.
 	internal static string GetSelectedBuildingOverrideStatusText()
 	{
-		if (s_DiscoveredBuildingTargets.Length == 0)
+		if (!HasDiscoveredBuildingPrimaryTargets())
 		{
 			return "No building targets detected yet. Click Rescan Building Targets in a loaded map/editor session.";
 		}
 
-		string key = BuildingConfig.TargetSelectionTarget;
+		string key = GetActiveBuildingPrimaryTargetKey();
 		if (string.IsNullOrWhiteSpace(key))
 		{
 			return "Select a building target to edit its sound override.";
@@ -421,6 +734,491 @@ public sealed partial class SirenChangerMod
 		if (AudioReplacementDomainConfig.IsDefaultSelection(selection))
 		{
 			return $"'{key}' uses the building default selection.";
+		}
+
+		return $"'{key}' override: {FormatSirenDisplayName(selection)}";
+	}
+
+	// Build dropdown data for discovered service-building target selectors.
+	internal static DropdownItem<string>[] BuildBuildingServiceTargetDropdownItems()
+	{
+		EnsureBuildingServiceTargetDropdownCurrent();
+		return s_BuildingServiceTargetDropdown;
+	}
+
+	// Set selected service-building target key in options UI.
+	internal static void SetBuildingServiceTargetSelectionTargetFromOptions(string targetName)
+	{
+		string normalized = AudioReplacementDomainConfig.NormalizeTargetKey(targetName);
+		if (!IsServiceBuildingTargetKey(normalized))
+		{
+			normalized = string.Empty;
+		}
+
+		if (!string.Equals(s_SelectedBuildingServiceTarget, normalized, StringComparison.Ordinal))
+		{
+			s_SelectedBuildingServiceTarget = normalized;
+			OptionsVersion++;
+		}
+	}
+
+	// Get selected service-building target key for options UI.
+	internal static string GetBuildingServiceTargetSelectionTargetForOptions()
+	{
+		return GetActiveBuildingServiceTargetKey();
+	}
+
+	// Get selected building override for the currently selected service-building target.
+	internal static string GetSelectedBuildingServiceTargetSelectionForOptions()
+	{
+		string key = GetActiveBuildingServiceTargetKey();
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return SirenReplacementConfig.DefaultSelectionToken;
+		}
+
+		return BuildingConfig.GetTargetSelection(key);
+	}
+
+	// Set building override for the currently selected service-building target.
+	internal static void SetSelectedBuildingServiceTargetSelectionFromOptions(string selection)
+	{
+		string key = GetActiveBuildingServiceTargetKey();
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return;
+		}
+
+		if (BuildingConfig.SetTargetSelection(key, selection))
+		{
+			OptionsVersion++;
+		}
+	}
+
+	// Read-only status text for service-building override controls.
+	internal static string GetSelectedBuildingServiceOverrideStatusText()
+	{
+		if (!HasDiscoveredBuildingServiceTargets())
+		{
+			return "No service building targets detected yet. Click Rescan Building Targets in a loaded map/editor session.";
+		}
+
+		string key = GetActiveBuildingServiceTargetKey();
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return "Select a service building target to edit its sound override.";
+		}
+
+		string selection = BuildingConfig.GetTargetSelection(key);
+		if (AudioReplacementDomainConfig.IsDefaultSelection(selection))
+		{
+			return $"'{key}' uses the building default selection.";
+		}
+
+		return $"'{key}' override: {FormatSirenDisplayName(selection)}";
+	}
+
+	// Build dropdown data for discovered disaster ambient target selectors.
+	internal static DropdownItem<string>[] BuildAmbientDisasterTargetDropdownItems()
+	{
+		EnsureAmbientDisasterTargetDropdownCurrent();
+		return s_AmbientDisasterTargetDropdown;
+	}
+
+	// Set selected disaster ambient target key in options UI.
+	internal static void SetAmbientDisasterTargetSelectionTargetFromOptions(string targetName)
+	{
+		string normalized = AudioReplacementDomainConfig.NormalizeTargetKey(targetName);
+		if (!IsDisasterAmbientTargetKey(normalized))
+		{
+			normalized = string.Empty;
+		}
+
+		if (!string.Equals(s_SelectedAmbientDisasterTarget, normalized, StringComparison.Ordinal))
+		{
+			s_SelectedAmbientDisasterTarget = normalized;
+			OptionsVersion++;
+		}
+	}
+
+	// Get selected disaster ambient target key for options UI.
+	internal static string GetAmbientDisasterTargetSelectionTargetForOptions()
+	{
+		return GetActiveAmbientDisasterTargetKey();
+	}
+
+	// Get selected ambient override for the currently selected disaster target.
+	internal static string GetSelectedAmbientDisasterTargetSelectionForOptions()
+	{
+		string key = GetActiveAmbientDisasterTargetKey();
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return SirenReplacementConfig.DefaultSelectionToken;
+		}
+
+		return AmbientConfig.GetTargetSelection(key);
+	}
+
+	// Set ambient override for the currently selected disaster target.
+	internal static void SetSelectedAmbientDisasterTargetSelectionFromOptions(string selection)
+	{
+		string key = GetActiveAmbientDisasterTargetKey();
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return;
+		}
+
+		if (AmbientConfig.SetTargetSelection(key, selection))
+		{
+			OptionsVersion++;
+		}
+	}
+
+	// Read-only status text for disaster ambient override controls.
+	internal static string GetSelectedAmbientDisasterOverrideStatusText()
+	{
+		if (!HasDiscoveredAmbientDisasterTargets())
+		{
+			return "No disaster ambient targets detected yet. Click Rescan Ambient Targets in a loaded map/editor session.";
+		}
+
+		string key = GetActiveAmbientDisasterTargetKey();
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return "Select a disaster ambient target to edit its sound override.";
+		}
+
+		string selection = AmbientConfig.GetTargetSelection(key);
+		if (AudioReplacementDomainConfig.IsDefaultSelection(selection))
+		{
+			return $"'{key}' uses the ambient default selection.";
+		}
+
+		return $"'{key}' override: {FormatSirenDisplayName(selection)}";
+	}
+
+	// Build dropdown data for discovered world ambient target selectors.
+	internal static DropdownItem<string>[] BuildAmbientWorldTargetDropdownItems()
+	{
+		EnsureAmbientWorldTargetDropdownCurrent();
+		return s_AmbientWorldTargetDropdown;
+	}
+
+	// Set selected world ambient target key in options UI.
+	internal static void SetAmbientWorldTargetSelectionTargetFromOptions(string targetName)
+	{
+		string normalized = AudioReplacementDomainConfig.NormalizeTargetKey(targetName);
+		if (!IsWorldAmbientTargetKey(normalized))
+		{
+			normalized = string.Empty;
+		}
+
+		if (!string.Equals(s_SelectedAmbientWorldTarget, normalized, StringComparison.Ordinal))
+		{
+			s_SelectedAmbientWorldTarget = normalized;
+			OptionsVersion++;
+		}
+	}
+
+	// Get selected world ambient target key for options UI.
+	internal static string GetAmbientWorldTargetSelectionTargetForOptions()
+	{
+		return GetActiveAmbientWorldTargetKey();
+	}
+
+	// Get selected ambient override for the currently selected world target.
+	internal static string GetSelectedAmbientWorldTargetSelectionForOptions()
+	{
+		string key = GetActiveAmbientWorldTargetKey();
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return SirenReplacementConfig.DefaultSelectionToken;
+		}
+
+		return AmbientConfig.GetTargetSelection(key);
+	}
+
+	// Set ambient override for the currently selected world target.
+	internal static void SetSelectedAmbientWorldTargetSelectionFromOptions(string selection)
+	{
+		string key = GetActiveAmbientWorldTargetKey();
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return;
+		}
+
+		if (AmbientConfig.SetTargetSelection(key, selection))
+		{
+			OptionsVersion++;
+		}
+	}
+
+	// Read-only status text for world ambient override controls.
+	internal static string GetSelectedAmbientWorldOverrideStatusText()
+	{
+		if (!HasDiscoveredAmbientWorldTargets())
+		{
+			return "No world ambient targets detected yet. Click Rescan Ambient Targets in a loaded map/editor session.";
+		}
+
+		string key = GetActiveAmbientWorldTargetKey();
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return "Select a world ambient target to edit its sound override.";
+		}
+
+		string selection = AmbientConfig.GetTargetSelection(key);
+		if (AudioReplacementDomainConfig.IsDefaultSelection(selection))
+		{
+			return $"'{key}' uses the ambient default selection.";
+		}
+
+		return $"'{key}' override: {FormatSirenDisplayName(selection)}";
+	}
+
+	// Returns true when at least one ambient target outside world/disaster sections is available.
+	internal static bool HasDiscoveredAmbientPrimaryTargets()
+	{
+		for (int i = 0; i < s_DiscoveredAmbientTargets.Length; i++)
+		{
+			if (ClassifyAmbientTargetSection(s_DiscoveredAmbientTargets[i]) == AmbientTargetSection.Primary)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	// Returns true when at least one disaster ambient target is available.
+	internal static bool HasDiscoveredAmbientDisasterTargets()
+	{
+		for (int i = 0; i < s_DiscoveredAmbientTargets.Length; i++)
+		{
+			if (ClassifyAmbientTargetSection(s_DiscoveredAmbientTargets[i]) == AmbientTargetSection.Disaster)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	// Returns true when at least one world ambient target is available.
+	internal static bool HasDiscoveredAmbientWorldTargets()
+	{
+		for (int i = 0; i < s_DiscoveredAmbientTargets.Length; i++)
+		{
+			if (ClassifyAmbientTargetSection(s_DiscoveredAmbientTargets[i]) == AmbientTargetSection.World)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	// Returns true when at least one non-service building target is available.
+	internal static bool HasDiscoveredBuildingPrimaryTargets()
+	{
+		for (int i = 0; i < s_DiscoveredBuildingTargets.Length; i++)
+		{
+			if (ClassifyBuildingTargetSection(s_DiscoveredBuildingTargets[i]) == BuildingTargetSection.Primary)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	// Returns true when at least one service-building target is available.
+	internal static bool HasDiscoveredBuildingServiceTargets()
+	{
+		for (int i = 0; i < s_DiscoveredBuildingTargets.Length; i++)
+		{
+			if (ClassifyBuildingTargetSection(s_DiscoveredBuildingTargets[i]) == BuildingTargetSection.Service)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static string GetActiveAmbientPrimaryTargetKey()
+	{
+		string key = AudioReplacementDomainConfig.NormalizeTargetKey(AmbientConfig.TargetSelectionTarget);
+		return ClassifyAmbientTargetSection(key) == AmbientTargetSection.Primary ? key : string.Empty;
+	}
+
+	private static string GetActiveAmbientDisasterTargetKey()
+	{
+		string key = AudioReplacementDomainConfig.NormalizeTargetKey(s_SelectedAmbientDisasterTarget);
+		return ClassifyAmbientTargetSection(key) == AmbientTargetSection.Disaster ? key : string.Empty;
+	}
+
+	private static string GetActiveAmbientWorldTargetKey()
+	{
+		string key = AudioReplacementDomainConfig.NormalizeTargetKey(s_SelectedAmbientWorldTarget);
+		return ClassifyAmbientTargetSection(key) == AmbientTargetSection.World ? key : string.Empty;
+	}
+
+	private static string GetActiveBuildingPrimaryTargetKey()
+	{
+		string key = AudioReplacementDomainConfig.NormalizeTargetKey(BuildingConfig.TargetSelectionTarget);
+		return ClassifyBuildingTargetSection(key) == BuildingTargetSection.Primary ? key : string.Empty;
+	}
+
+	private static string GetActiveBuildingServiceTargetKey()
+	{
+		string key = AudioReplacementDomainConfig.NormalizeTargetKey(s_SelectedBuildingServiceTarget);
+		return ClassifyBuildingTargetSection(key) == BuildingTargetSection.Service ? key : string.Empty;
+	}
+
+	private static bool IsAmbientPrimaryTargetKey(string targetKey)
+	{
+		return ClassifyAmbientTargetSection(targetKey) == AmbientTargetSection.Primary;
+	}
+
+	private static bool IsDisasterAmbientTargetKey(string targetKey)
+	{
+		return ClassifyAmbientTargetSection(targetKey) == AmbientTargetSection.Disaster;
+	}
+
+	private static bool IsWorldAmbientTargetKey(string targetKey)
+	{
+		return ClassifyAmbientTargetSection(targetKey) == AmbientTargetSection.World;
+	}
+
+	private static bool IsBuildingPrimaryTargetKey(string targetKey)
+	{
+		return ClassifyBuildingTargetSection(targetKey) == BuildingTargetSection.Primary;
+	}
+
+	private static bool IsServiceBuildingTargetKey(string targetKey)
+	{
+		return ClassifyBuildingTargetSection(targetKey) == BuildingTargetSection.Service;
+	}
+
+	private static AmbientTargetSection ClassifyAmbientTargetSection(string targetKey)
+	{
+		string normalized = AudioReplacementDomainConfig.NormalizeTargetKey(targetKey);
+		if (!IsKnownAmbientTargetKey(normalized))
+		{
+			return AmbientTargetSection.None;
+		}
+
+		if (ContainsAnyToken(normalized, s_AmbientDisasterTokens))
+		{
+			return AmbientTargetSection.Disaster;
+		}
+
+		if (ContainsAnyToken(normalized, s_AmbientWorldTokens))
+		{
+			return AmbientTargetSection.World;
+		}
+
+		return AmbientTargetSection.Primary;
+	}
+
+	private static BuildingTargetSection ClassifyBuildingTargetSection(string targetKey)
+	{
+		string normalized = AudioReplacementDomainConfig.NormalizeTargetKey(targetKey);
+		if (!IsKnownBuildingTargetKey(normalized))
+		{
+			return BuildingTargetSection.None;
+		}
+
+		if (ContainsAnyToken(normalized, s_ServiceBuildingTokens))
+		{
+			return BuildingTargetSection.Service;
+		}
+
+		return BuildingTargetSection.Primary;
+	}
+
+	private static bool IsKnownAmbientTargetKey(string targetKey)
+	{
+		return !string.IsNullOrWhiteSpace(targetKey) &&
+			Array.Exists(s_DiscoveredAmbientTargets, existing => string.Equals(existing, targetKey, StringComparison.OrdinalIgnoreCase));
+	}
+
+	private static bool IsKnownBuildingTargetKey(string targetKey)
+	{
+		return !string.IsNullOrWhiteSpace(targetKey) &&
+			Array.Exists(s_DiscoveredBuildingTargets, existing => string.Equals(existing, targetKey, StringComparison.OrdinalIgnoreCase));
+	}
+
+	private static bool ContainsAnyToken(string value, IReadOnlyList<string> tokens)
+	{
+		for (int i = 0; i < tokens.Count; i++)
+		{
+			if (ContainsTextToken(value, tokens[i]))
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	// Set selected UI/tool target key in options UI.
+	internal static void SetUIToolTargetSelectionTargetFromOptions(string targetName)
+	{
+		string previous = UIToolConfig.TargetSelectionTarget;
+		UIToolConfig.SetTargetSelectionTarget(targetName);
+		if (!string.Equals(previous, UIToolConfig.TargetSelectionTarget, StringComparison.Ordinal))
+		{
+			OptionsVersion++;
+		}
+	}
+
+	// Get selected UI/tool override for the currently selected target.
+	internal static string GetSelectedUIToolTargetSelectionForOptions()
+	{
+		string key = UIToolConfig.TargetSelectionTarget;
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return SirenReplacementConfig.DefaultSelectionToken;
+		}
+
+		return UIToolConfig.GetTargetSelection(key);
+	}
+
+	// Set UI/tool override for the currently selected target.
+	internal static void SetSelectedUIToolTargetSelectionFromOptions(string selection)
+	{
+		string key = UIToolConfig.TargetSelectionTarget;
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return;
+		}
+
+		if (UIToolConfig.SetTargetSelection(key, selection))
+		{
+			OptionsVersion++;
+		}
+	}
+
+	// Read-only status text for UI/tool override controls.
+	internal static string GetSelectedUIToolOverrideStatusText()
+	{
+		if (s_DiscoveredUIToolTargets.Length == 0)
+		{
+			return "No UI/tool targets detected yet. Click Rescan UI/Tool Targets in a loaded map/editor session.";
+		}
+
+		string key = UIToolConfig.TargetSelectionTarget;
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return "Select a UI/tool target to edit its sound override.";
+		}
+
+		string selection = UIToolConfig.GetTargetSelection(key);
+		if (AudioReplacementDomainConfig.IsDefaultSelection(selection))
+		{
+			return $"'{key}' uses the UI/tool default selection.";
 		}
 
 		return $"'{key}' override: {FormatSirenDisplayName(selection)}";
@@ -444,6 +1242,12 @@ public sealed partial class SirenChangerMod
 		SyncCustomBuildingCatalog(saveIfChanged: true, forceStatusRefresh: true);
 	}
 
+	// Rescan custom UI/tool files and refresh options state.
+	internal static void RefreshCustomUIToolFromOptions()
+	{
+		SyncCustomUIToolCatalog(saveIfChanged: true, forceStatusRefresh: true);
+	}
+
 	// Scan loaded prefabs for vehicle-engine targets and refresh per-vehicle options.
 	internal static void RefreshVehicleEnginePrefabsFromOptions()
 	{
@@ -452,7 +1256,7 @@ public sealed partial class SirenChangerMod
 			s_LastVehicleEnginePrefabScanStatus = status;
 			if (UpdateDomainTargetScanMetadata(VehicleEngineConfig, s_LastVehicleEnginePrefabScanStatus, forceTimestampRefresh: true))
 			{
-				SaveConfig();
+				SaveAudioDomainConfig(DeveloperAudioDomain.VehicleEngine);
 			}
 
 			OptionsVersion++;
@@ -465,7 +1269,7 @@ public sealed partial class SirenChangerMod
 			: $"{status}\nNo vehicle engine prefabs were found in the active world.";
 		if (UpdateDomainTargetScanMetadata(VehicleEngineConfig, s_LastVehicleEnginePrefabScanStatus, forceTimestampRefresh: true))
 		{
-			SaveConfig();
+			SaveAudioDomainConfig(DeveloperAudioDomain.VehicleEngine);
 		}
 
 		OptionsVersion++;
@@ -479,7 +1283,7 @@ public sealed partial class SirenChangerMod
 			s_LastAmbientTargetScanStatus = status;
 			if (UpdateDomainTargetScanMetadata(AmbientConfig, s_LastAmbientTargetScanStatus, forceTimestampRefresh: true))
 			{
-				SaveConfig();
+				SaveAudioDomainConfig(DeveloperAudioDomain.Ambient);
 			}
 
 			OptionsVersion++;
@@ -492,7 +1296,7 @@ public sealed partial class SirenChangerMod
 			: $"{status}\nNo ambient targets were found in the active world.";
 		if (UpdateDomainTargetScanMetadata(AmbientConfig, s_LastAmbientTargetScanStatus, forceTimestampRefresh: true))
 		{
-			SaveConfig();
+			SaveAudioDomainConfig(DeveloperAudioDomain.Ambient);
 		}
 
 		OptionsVersion++;
@@ -506,7 +1310,7 @@ public sealed partial class SirenChangerMod
 			s_LastBuildingTargetScanStatus = status;
 			if (UpdateDomainTargetScanMetadata(BuildingConfig, s_LastBuildingTargetScanStatus, forceTimestampRefresh: true))
 			{
-				SaveConfig();
+				SaveAudioDomainConfig(DeveloperAudioDomain.Building);
 			}
 
 			OptionsVersion++;
@@ -519,7 +1323,34 @@ public sealed partial class SirenChangerMod
 			: $"{status}\nNo building targets were found in the active world.";
 		if (UpdateDomainTargetScanMetadata(BuildingConfig, s_LastBuildingTargetScanStatus, forceTimestampRefresh: true))
 		{
-			SaveConfig();
+			SaveAudioDomainConfig(DeveloperAudioDomain.Building);
+		}
+
+		OptionsVersion++;
+	}
+
+	// Scan loaded prefabs for UI/tool targets and refresh per-target options.
+	internal static void RefreshUIToolTargetsFromOptions()
+	{
+		if (!TryScanUIToolTargets(out List<string> discovered, out string status))
+		{
+			s_LastUIToolTargetScanStatus = status;
+			if (UpdateDomainTargetScanMetadata(UIToolConfig, s_LastUIToolTargetScanStatus, forceTimestampRefresh: true))
+			{
+				SaveAudioDomainConfig(DeveloperAudioDomain.UITool);
+			}
+
+			OptionsVersion++;
+			return;
+		}
+
+		SetDiscoveredUIToolTargets(discovered);
+		s_LastUIToolTargetScanStatus = discovered.Count > 0
+			? $"{status}\nDetected: {discovered.Count} target(s)."
+			: $"{status}\nNo UI/tool targets were found in the active world.";
+		if (UpdateDomainTargetScanMetadata(UIToolConfig, s_LastUIToolTargetScanStatus, forceTimestampRefresh: true))
+		{
+			SaveAudioDomainConfig(DeveloperAudioDomain.UITool);
 		}
 
 		OptionsVersion++;
@@ -543,6 +1374,12 @@ public sealed partial class SirenChangerMod
 		return s_LastBuildingTargetScanStatus;
 	}
 
+	// Status text for UI/tool target scans.
+	internal static string GetUIToolTargetScanStatusText()
+	{
+		return s_LastUIToolTargetScanStatus;
+	}
+
 	// Status text for vehicle-engine custom file scans.
 	internal static string GetVehicleEngineCatalogScanStatusText()
 	{
@@ -561,6 +1398,12 @@ public sealed partial class SirenChangerMod
 		return BuildDomainCatalogScanStatusText(BuildingConfig, "Rescan Custom Building Files");
 	}
 
+	// Status text for UI/tool custom file scans.
+	internal static string GetUIToolCatalogScanStatusText()
+	{
+		return BuildDomainCatalogScanStatusText(UIToolConfig, "Rescan Custom UI/Tool Files");
+	}
+
 	// Preview status text for vehicle-engine profile preview action.
 	internal static string GetVehicleEnginePreviewStatusText()
 	{
@@ -577,6 +1420,12 @@ public sealed partial class SirenChangerMod
 	internal static string GetBuildingPreviewStatusText()
 	{
 		return s_LastBuildingPreviewStatus;
+	}
+
+	// Preview status text for UI/tool profile preview action.
+	internal static string GetUIToolPreviewStatusText()
+	{
+		return s_LastUIToolPreviewStatus;
 	}
 
 	// Play the currently selected vehicle-engine profile once.
@@ -616,6 +1465,19 @@ public sealed partial class SirenChangerMod
 			s_DefaultBuildingPreviewClip,
 			BuildingProfileTemplate,
 			ref s_LastBuildingPreviewStatus);
+	}
+
+	// Play the currently selected UI/tool profile once.
+	internal static void PreviewSelectedUIToolProfileFromOptions()
+	{
+		PreviewDomainProfileFromOptions(
+			DeveloperAudioDomain.UITool,
+			UIToolConfig,
+			UIToolConfig.CustomFolderName,
+			"UI/tool",
+			s_DefaultUIToolPreviewClip,
+			UIToolProfileTemplate,
+			ref s_LastUIToolPreviewStatus);
 	}
 
 	// Shared preview player for non-siren profile editors.
@@ -672,7 +1534,7 @@ public sealed partial class SirenChangerMod
 				config.CopyFromProfileSelection = key;
 			}
 
-			SaveConfig();
+			SaveAudioDomainConfig(domain);
 		}
 
 		if (!TryResolveAudioProfilePath(domain, folderName, key, out string path))
@@ -1161,6 +2023,150 @@ public sealed partial class SirenChangerMod
 		}
 
 		return false;
+	}
+
+	// Scan all loaded worlds for UI/tool SFX targets sourced from ToolUX sound settings.
+	private static bool TryScanUIToolTargets(out List<string> discovered, out string status)
+	{
+		discovered = new List<string>();
+		status = string.Empty;
+
+		HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		int scannedWorldCount = 0;
+		int scannedToolFieldCount = 0;
+
+		var worlds = World.All;
+		for (int i = 0; i < worlds.Count; i++)
+		{
+			World world = worlds[i];
+			if (world == null || !world.IsCreated)
+			{
+				continue;
+			}
+
+			if (TryScanUIToolTargetsFromWorld(world, seen, discovered, out int worldToolFieldCount))
+			{
+				scannedWorldCount++;
+				scannedToolFieldCount += worldToolFieldCount;
+			}
+		}
+
+		if (scannedWorldCount == 0)
+		{
+			status = "No world with Tool UX sound data is currently available. Open a map or fully loaded editor session and retry.";
+			return false;
+		}
+
+		discovered.Sort(StringComparer.OrdinalIgnoreCase);
+		status = $"Last scan: {DateTime.Now:yyyy-MM-dd HH:mm:ss}\nScanned worlds: {scannedWorldCount}, tool sound fields: {scannedToolFieldCount}";
+		return true;
+	}
+
+	// Scan one ECS world for UI/tool-target SFX prefabs from ToolUXSoundSettingsData.
+	private static bool TryScanUIToolTargetsFromWorld(
+		World world,
+		HashSet<string> seen,
+		List<string> discovered,
+		out int scannedToolFieldCount)
+	{
+		scannedToolFieldCount = 0;
+
+		try
+		{
+			PrefabSystem? prefabSystem = world.GetExistingSystemManaged<PrefabSystem>();
+			if (prefabSystem == null)
+			{
+				return false;
+			}
+
+			using (EntityQuery soundQuery = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<ToolUXSoundSettingsData>()))
+			{
+				if (soundQuery.IsEmptyIgnoreFilter)
+				{
+					return false;
+				}
+
+				using (NativeArray<ToolUXSoundSettingsData> soundSettingsArray =
+					soundQuery.ToComponentDataArray<ToolUXSoundSettingsData>(Allocator.Temp))
+				{
+					for (int settingsIndex = 0; settingsIndex < soundSettingsArray.Length; settingsIndex++)
+					{
+						ToolUXSoundSettingsData soundData = soundSettingsArray[settingsIndex];
+						for (int i = 0; i < UIToolSoundSettingsFields.EntityFields.Length; i++)
+						{
+							var field = UIToolSoundSettingsFields.EntityFields[i];
+							object? value = field.GetValue(soundData);
+							if (!(value is Entity entity) || entity == Entity.Null)
+							{
+								continue;
+							}
+
+							scannedToolFieldCount++;
+							if (!TryGetPrefabSafe(prefabSystem, entity, out PrefabBase prefab))
+							{
+								continue;
+							}
+
+							SFX sfx = prefab.GetComponent<SFX>();
+							if (sfx == null || sfx.m_AudioClip == null)
+							{
+								continue;
+							}
+
+							string targetKey = BuildUIToolTargetKey(field.Name, prefab.name);
+							if (string.IsNullOrWhiteSpace(targetKey) || !seen.Add(targetKey))
+							{
+								continue;
+							}
+
+							discovered.Add(targetKey);
+						}
+					}
+				}
+			}
+
+			return true;
+		}
+		catch (Exception ex)
+		{
+			Log.Warn($"UI/tool target scan skipped world '{world.Name}': {ex.Message}");
+			return false;
+		}
+	}
+
+	// Build one stable UI/tool target key from ToolUX field and prefab names.
+	private static string BuildUIToolTargetKey(string fieldName, string prefabName)
+	{
+		string normalizedField = NormalizeUIToolFieldName(fieldName);
+		string normalizedPrefab = AudioReplacementDomainConfig.NormalizeTargetKey(prefabName ?? string.Empty);
+		if (string.IsNullOrWhiteSpace(normalizedField) && string.IsNullOrWhiteSpace(normalizedPrefab))
+		{
+			return string.Empty;
+		}
+
+		if (string.IsNullOrWhiteSpace(normalizedPrefab))
+		{
+			return $"ui-tool/{normalizedField}";
+		}
+
+		return $"ui-tool/{normalizedField}/{normalizedPrefab}";
+	}
+
+	// Normalize ToolUX field names into readable/stable key segments.
+	private static string NormalizeUIToolFieldName(string fieldName)
+	{
+		string value = (fieldName ?? string.Empty).Trim();
+		if (value.StartsWith("m_", StringComparison.OrdinalIgnoreCase))
+		{
+			value = value.Substring(2);
+		}
+
+		if (value.EndsWith("Sound", StringComparison.OrdinalIgnoreCase) && value.Length > 5)
+		{
+			value = value.Substring(0, value.Length - 5);
+		}
+
+		return AudioReplacementDomainConfig.NormalizeTargetKey(value);
 	}
 }
 

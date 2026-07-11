@@ -2,11 +2,13 @@
 using System.Collections.Generic;
 using Game;
 using Game.Common;
+using Game.Effects;
 using Game.Prefabs;
 using Game.Prefabs.Effects;
 using Game.SceneFlow;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Jobs;
 using UnityEngine;
 
 namespace SirenChanger;
@@ -14,16 +16,32 @@ namespace SirenChanger;
 // Runtime ECS system that applies configured custom engine audio selections.
 public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 {
+	private const int kVehicleOverrideStableFrames = 180;
+
+	private const int kVehicleOverrideRetryFrames = 60;
+
 	// Prefab index and runtime caches used to restore defaults and apply overrides.
 	private PrefabSystem m_PrefabSystem = null!;
 
+	private EffectControlSystem m_EffectControlSystem = null!;
+
 	private EntityQuery m_PrefabQuery = default;
+
+	private EntityQuery m_PrefabRefQuery = default;
+
+	private ComponentLookup<PrefabRef> m_PrefabRefData = default;
 
 	private readonly Dictionary<string, SFX> m_EngineSfxByPrefab = new Dictionary<string, SFX>(StringComparer.OrdinalIgnoreCase);
 
 	private readonly Dictionary<string, SirenSfxSnapshot> m_DefaultEngineSfxByPrefab = new Dictionary<string, SirenSfxSnapshot>(StringComparer.OrdinalIgnoreCase);
 
 	private readonly Dictionary<string, List<VehicleEngineTargetDefinition>> m_VehicleTargetsByPrefab = new Dictionary<string, List<VehicleEngineTargetDefinition>>(StringComparer.OrdinalIgnoreCase);
+
+	private readonly Dictionary<string, int> m_FirstInactiveFrameByVehiclePrefab = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+	private readonly List<string> m_SortedEnginePrefabs = new List<string>();
+
+	private readonly List<string> m_SortedVehiclePrefabs = new List<string>();
 
 	// Inclusive tokens used to detect likely engine-related effects.
 	private static readonly string[] s_EngineEffectTokens =
@@ -65,11 +83,22 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 	private int m_LastAppliedAudioLoadVersion = -1;
 
+	private bool m_HasPendingAudioLoads;
+
+	private bool m_HasPendingVehicleOverrideApplies;
+
+	private int m_NextVehicleOverrideRetryFrame;
+
 	protected override void OnCreate()
 	{
 		base.OnCreate();
 		m_PrefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
+		m_EffectControlSystem = World.GetOrCreateSystemManaged<EffectControlSystem>();
 		m_PrefabQuery = GetEntityQuery(ComponentType.ReadOnly<PrefabData>());
+		m_PrefabRefQuery = GetEntityQuery(
+			ComponentType.ReadOnly<PrefabRef>(),
+			ComponentType.Exclude<Deleted>());
+		m_PrefabRefData = GetComponentLookup<PrefabRef>(isReadOnly: true);
 	}
 
 	protected override void OnUpdate()
@@ -104,15 +133,22 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 		WaveClipLoader.PollAsyncLoads();
 		int currentAudioLoadVersion = WaveClipLoader.AsyncCompletionVersion;
-		// Only re-apply when configuration changed or async clip loads completed.
-		if (m_LastAppliedConfigVersion == SirenChangerMod.ConfigVersion &&
-			m_LastAppliedAudioLoadVersion == currentAudioLoadVersion)
+		int currentConfigVersion = SirenChangerMod.GetAudioDomainConfigVersion(DeveloperAudioDomain.VehicleEngine);
+		bool configChanged = m_LastAppliedConfigVersion != currentConfigVersion;
+		bool audioLoadCompleted = m_HasPendingAudioLoads && m_LastAppliedAudioLoadVersion != currentAudioLoadVersion;
+		bool pendingOverrideRetryDue = m_HasPendingVehicleOverrideApplies && UnityEngine.Time.frameCount >= m_NextVehicleOverrideRetryFrame;
+		if (!configChanged && !audioLoadCompleted && !pendingOverrideRetryDue)
 		{
+			if (!m_HasPendingAudioLoads)
+			{
+				m_LastAppliedAudioLoadVersion = currentAudioLoadVersion;
+			}
+
 			return;
 		}
 
 		ApplyConfiguredEngines();
-		m_LastAppliedConfigVersion = SirenChangerMod.ConfigVersion;
+		m_LastAppliedConfigVersion = currentConfigVersion;
 		m_LastAppliedAudioLoadVersion = currentAudioLoadVersion;
 	}
 
@@ -125,8 +161,14 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		m_EngineSfxByPrefab.Clear();
 		m_DefaultEngineSfxByPrefab.Clear();
 		m_VehicleTargetsByPrefab.Clear();
+		m_SortedEnginePrefabs.Clear();
+		m_SortedVehiclePrefabs.Clear();
+		m_FirstInactiveFrameByVehiclePrefab.Clear();
 		m_LastAppliedConfigVersion = -1;
 		m_LastAppliedAudioLoadVersion = -1;
+		m_HasPendingAudioLoads = false;
+		m_HasPendingVehicleOverrideApplies = false;
+		m_NextVehicleOverrideRetryFrame = 0;
 	}
 
 	private void BuildTargetCache()
@@ -136,6 +178,9 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		m_EngineSfxByPrefab.Clear();
 		m_DefaultEngineSfxByPrefab.Clear();
 		m_VehicleTargetsByPrefab.Clear();
+		m_SortedEnginePrefabs.Clear();
+		m_SortedVehiclePrefabs.Clear();
+		m_FirstInactiveFrameByVehiclePrefab.Clear();
 		SirenChangerMod.BeginDetectedAudioCollection(DeveloperAudioDomain.VehicleEngine);
 
 		SirenSfxProfile template = SirenSfxProfile.CreateFallback();
@@ -198,6 +243,10 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 		List<string> discovered = new List<string>(discoveredVehiclePrefabs);
 		discovered.Sort(StringComparer.OrdinalIgnoreCase);
+		m_SortedEnginePrefabs.AddRange(m_EngineSfxByPrefab.Keys);
+		m_SortedEnginePrefabs.Sort(StringComparer.OrdinalIgnoreCase);
+		m_SortedVehiclePrefabs.AddRange(m_VehicleTargetsByPrefab.Keys);
+		m_SortedVehiclePrefabs.Sort(StringComparer.OrdinalIgnoreCase);
 		SirenChangerMod.SetDiscoveredVehicleEnginePrefabs(discovered);
 		SirenChangerMod.SetVehicleEngineProfileTemplate(template);
 		SirenChangerMod.SetVehicleEngineDefaultPreviewClip(defaultPreviewClip);
@@ -209,14 +258,26 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 	{
 		AudioReplacementDomainConfig config = SirenChangerMod.VehicleEngineConfig;
 		config.Normalize(SirenChangerMod.VehicleEngineCustomFolderName);
+		m_HasPendingAudioLoads = false;
+		m_HasPendingVehicleOverrideApplies = false;
 
 		// Start from defaults every pass so settings changes are deterministic.
 		RestoreAllEngineTargetDefaults();
-		RestoreAllVehicleEffectBindings(disposeOverrides: false);
 
+		bool activePrefabScanSucceeded = TryBuildActivePrefabSet(out HashSet<Entity> activePrefabEntities);
+		int currentFrame = UnityEngine.Time.frameCount;
+		int pendingVehicleOverrideCount = 0;
 		if (!config.Enabled)
 		{
-			SirenChangerMod.Log.Info("Vehicle engine apply skipped because engine replacement is disabled.");
+			int restoredCount = RestoreConfiguredVehicleOverridesWhenSafe(
+				activePrefabScanSucceeded,
+				activePrefabEntities,
+				currentFrame,
+				ref pendingVehicleOverrideCount);
+			SchedulePendingVehicleOverrideRetryIfNeeded();
+			SirenChangerMod.Log.Info(
+				$"Vehicle engine apply skipped because engine replacement is disabled. " +
+				$"VehicleOverridesRestored={restoredCount}, VehicleOverridesPending={pendingVehicleOverrideCount}.");
 			return;
 		}
 
@@ -228,11 +289,9 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		// Phase 1: global replacement applied to all discovered engine prefabs.
 		if (!AudioReplacementDomainConfig.IsDefaultSelection(defaultSelection))
 		{
-			List<string> enginePrefabs = new List<string>(m_EngineSfxByPrefab.Keys);
-			enginePrefabs.Sort(StringComparer.OrdinalIgnoreCase);
-			for (int i = 0; i < enginePrefabs.Count; i++)
+			for (int i = 0; i < m_SortedEnginePrefabs.Count; i++)
 			{
-				string prefabName = enginePrefabs[i];
+				string prefabName = m_SortedEnginePrefabs[i];
 				if (!m_EngineSfxByPrefab.TryGetValue(prefabName, out SFX sfx) || sfx == null)
 				{
 					continue;
@@ -246,40 +305,85 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 			}
 		}
 
-		List<string> vehiclePrefabs = new List<string>(m_VehicleTargetsByPrefab.Keys);
-		vehiclePrefabs.Sort(StringComparer.OrdinalIgnoreCase);
 		// Phase 2: per-vehicle override rebinding (if any) takes precedence.
-		for (int i = 0; i < vehiclePrefabs.Count; i++)
+		for (int i = 0; i < m_SortedVehiclePrefabs.Count; i++)
 		{
-			string vehiclePrefab = vehiclePrefabs[i];
+			string vehiclePrefab = m_SortedVehiclePrefabs[i];
 			string overrideSelection = config.GetTargetSelection(vehiclePrefab);
-			if (AudioReplacementDomainConfig.IsDefaultSelection(overrideSelection))
-			{
-				continue;
-			}
-
-			ResolvedSelection resolved = ResolveSelection(overrideSelection, config, selectionLoadCache, $"EngineVehicle:{vehiclePrefab}");
-			if (resolved.Outcome == ResolvedSelectionOutcome.Default)
-			{
-				continue;
-			}
-
 			if (!m_VehicleTargetsByPrefab.TryGetValue(vehiclePrefab, out List<VehicleEngineTargetDefinition>? targets) || targets == null)
 			{
 				continue;
 			}
 
+			if (AudioReplacementDomainConfig.IsDefaultSelection(overrideSelection))
+			{
+				vehicleOverrideCount += RestoreVehicleTargetsWhenSafe(
+					targets,
+					activePrefabScanSucceeded,
+					activePrefabEntities,
+					currentFrame,
+					ref pendingVehicleOverrideCount);
+				continue;
+			}
+
+			ResolvedSelection resolved = ResolveSelection(overrideSelection, config, selectionLoadCache, $"EngineVehicle:{vehiclePrefab}");
+			if (resolved.Outcome == ResolvedSelectionOutcome.Pending)
+			{
+				continue;
+			}
+
+			if (resolved.Outcome == ResolvedSelectionOutcome.Default)
+			{
+				vehicleOverrideCount += RestoreVehicleTargetsWhenSafe(
+					targets,
+					activePrefabScanSucceeded,
+					activePrefabEntities,
+					currentFrame,
+					ref pendingVehicleOverrideCount);
+				continue;
+			}
+
 			for (int j = 0; j < targets.Count; j++)
 			{
-				if (ApplyResolvedSelectionToVehicleOverride(targets[j], resolved))
+				VehicleEngineTargetDefinition target = targets[j];
+				if (IsVehicleOverrideSelectionApplied(target, overrideSelection))
 				{
 					vehicleOverrideCount++;
+					continue;
+				}
+
+				if (!CanSafelyRebindVehiclePrefab(
+					target.VehiclePrefab,
+					target.VehiclePrefabName,
+					activePrefabScanSucceeded,
+					activePrefabEntities,
+					currentFrame))
+				{
+					MarkVehicleOverridePending(ref pendingVehicleOverrideCount);
+					continue;
+				}
+
+				try
+				{
+					if (ApplyResolvedSelectionToVehicleOverride(target, resolved))
+					{
+						target.AppliedSelectionKey = AudioReplacementDomainConfig.NormalizeProfileKey(overrideSelection);
+						vehicleOverrideCount++;
+					}
+				}
+				catch (Exception ex)
+				{
+					SirenChangerMod.Log.Warn(
+						$"Vehicle engine override for '{target.VehiclePrefabName}' failed and will be retried later: {ex.Message}");
+					MarkVehicleOverridePending(ref pendingVehicleOverrideCount);
 				}
 			}
 		}
 
+		SchedulePendingVehicleOverrideRetryIfNeeded();
 		SirenChangerMod.Log.Info(
-			$"Vehicle engine apply complete. Enabled={config.Enabled}, GlobalReplacements={globalReplacementCount}, VehicleOverrides={vehicleOverrideCount}.");
+			$"Vehicle engine apply complete. Enabled={config.Enabled}, GlobalReplacements={globalReplacementCount}, " +
+			$"VehicleOverrides={vehicleOverrideCount}, VehicleOverridesPending={pendingVehicleOverrideCount}.");
 	}
 
 	private void RestoreAllEngineTargetDefaults()
@@ -381,7 +485,10 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		if (changed)
 		{
 			// Notify PrefabSystem so runtime instances pick up the modified binding.
-			m_PrefabSystem.UpdatePrefab(vehicleTarget.VehiclePrefab);
+			if (!TryUpdateVehiclePrefab(vehicleTarget.VehiclePrefab, vehicleTarget.VehiclePrefabName, "engine override binding"))
+			{
+				return false;
+			}
 		}
 		
 		return true;
@@ -482,34 +589,294 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 			List<VehicleEngineTargetDefinition> targets = pair.Value;
 			for (int i = 0; i < targets.Count; i++)
 			{
-				VehicleEngineTargetDefinition target = targets[i];
-				bool restored = false;
-				if (target.OriginalEffectPrefab != null &&
-					target.TryGetEffectSettings(out EffectSource.EffectSettings effectSettings) &&
-					!ReferenceEquals(effectSettings.m_Effect, target.OriginalEffectPrefab))
-				{
-					effectSettings.m_Effect = target.OriginalEffectPrefab;
-					restored = true;
-				}
-
-				if (restored)
-				{
-					m_PrefabSystem.UpdatePrefab(target.VehiclePrefab);
-				}
-
-				if (!disposeOverrides || target.OverrideEffectPrefab == null)
-				{
-					continue;
-				}
-
-				if (m_PrefabSystem.TryGetEntity(target.OverrideEffectPrefab, out _))
-				{
-					m_PrefabSystem.RemovePrefab(target.OverrideEffectPrefab);
-				}
-
-				UnityEngine.Object.Destroy(target.OverrideEffectPrefab);
-				target.OverrideEffectPrefab = null;
+				TryRestoreVehicleEffectBinding(targets[i], disposeOverrides);
 			}
+		}
+	}
+
+	private int RestoreConfiguredVehicleOverridesWhenSafe(
+		bool activePrefabScanSucceeded,
+		HashSet<Entity> activePrefabEntities,
+		int currentFrame,
+		ref int pendingVehicleOverrideCount)
+	{
+		int restoredCount = 0;
+		for (int i = 0; i < m_SortedVehiclePrefabs.Count; i++)
+		{
+			string vehiclePrefab = m_SortedVehiclePrefabs[i];
+			if (!m_VehicleTargetsByPrefab.TryGetValue(vehiclePrefab, out List<VehicleEngineTargetDefinition>? targets) || targets == null)
+			{
+				continue;
+			}
+
+			restoredCount += RestoreVehicleTargetsWhenSafe(
+				targets,
+				activePrefabScanSucceeded,
+				activePrefabEntities,
+				currentFrame,
+				ref pendingVehicleOverrideCount);
+		}
+
+		return restoredCount;
+	}
+
+	private int RestoreVehicleTargetsWhenSafe(
+		List<VehicleEngineTargetDefinition> targets,
+		bool activePrefabScanSucceeded,
+		HashSet<Entity> activePrefabEntities,
+		int currentFrame,
+		ref int pendingVehicleOverrideCount)
+	{
+		int restoredCount = 0;
+		for (int i = 0; i < targets.Count; i++)
+		{
+			VehicleEngineTargetDefinition target = targets[i];
+			if (!IsVehicleOverrideBound(target))
+			{
+				target.AppliedSelectionKey = SirenReplacementConfig.DefaultSelectionToken;
+				continue;
+			}
+
+			if (!CanSafelyRebindVehiclePrefab(
+				target.VehiclePrefab,
+				target.VehiclePrefabName,
+				activePrefabScanSucceeded,
+				activePrefabEntities,
+				currentFrame))
+			{
+				MarkVehicleOverridePending(ref pendingVehicleOverrideCount);
+				continue;
+			}
+
+			if (TryRestoreVehicleEffectBinding(target, disposeOverrides: false))
+			{
+				restoredCount++;
+			}
+			else
+			{
+				MarkVehicleOverridePending(ref pendingVehicleOverrideCount);
+			}
+		}
+
+		return restoredCount;
+	}
+
+	private bool TryRestoreVehicleEffectBinding(VehicleEngineTargetDefinition target, bool disposeOverrides)
+	{
+		try
+		{
+			bool restored = false;
+			if (target.OriginalEffectPrefab != null &&
+				target.TryGetEffectSettings(out EffectSource.EffectSettings effectSettings) &&
+				!ReferenceEquals(effectSettings.m_Effect, target.OriginalEffectPrefab))
+			{
+				effectSettings.m_Effect = target.OriginalEffectPrefab;
+				restored = true;
+			}
+
+			if (restored &&
+				!TryUpdateVehiclePrefab(target.VehiclePrefab, target.VehiclePrefabName, "engine override restore"))
+			{
+				return false;
+			}
+
+			target.AppliedSelectionKey = SirenReplacementConfig.DefaultSelectionToken;
+			if (!disposeOverrides || target.OverrideEffectPrefab == null)
+			{
+				return restored;
+			}
+
+			if (m_PrefabSystem.TryGetEntity(target.OverrideEffectPrefab, out _))
+			{
+				m_PrefabSystem.RemovePrefab(target.OverrideEffectPrefab);
+			}
+
+			UnityEngine.Object.Destroy(target.OverrideEffectPrefab);
+			target.OverrideEffectPrefab = null;
+			return true;
+		}
+		catch (Exception ex)
+		{
+			SirenChangerMod.Log.Warn(
+				$"Vehicle engine override restore skipped for '{target.VehiclePrefabName}' because an error occurred: {ex.Message}");
+			return false;
+		}
+	}
+
+	private bool TryBuildActivePrefabSet(out HashSet<Entity> activePrefabEntities)
+	{
+		activePrefabEntities = new HashSet<Entity>();
+		if (TryBuildActiveEffectOwnerPrefabSet(activePrefabEntities))
+		{
+			return true;
+		}
+
+		return TryBuildAllActivePrefabSet(activePrefabEntities);
+	}
+
+	private bool TryBuildActiveEffectOwnerPrefabSet(HashSet<Entity> activePrefabEntities)
+	{
+		try
+		{
+			m_PrefabRefData.Update(this);
+			NativeList<EnabledEffectData> enabledData = m_EffectControlSystem.GetEnabledData(readOnly: true, out JobHandle dependencies);
+			dependencies.Complete();
+			for (int i = 0; i < enabledData.Length; i++)
+			{
+				Entity owner = enabledData[i].m_Owner;
+				if (owner != Entity.Null &&
+					m_PrefabRefData.TryGetComponent(owner, out PrefabRef prefabRef) &&
+					prefabRef.m_Prefab != Entity.Null)
+				{
+					activePrefabEntities.Add(prefabRef.m_Prefab);
+				}
+			}
+
+			return true;
+		}
+		catch (Exception ex)
+		{
+			SirenChangerMod.Log.Warn($"Vehicle engine override active-effect scan failed; falling back to active vehicle prefab scan: {ex.Message}");
+			activePrefabEntities.Clear();
+			return false;
+		}
+	}
+
+	private bool TryBuildAllActivePrefabSet(HashSet<Entity> activePrefabEntities)
+	{
+		try
+		{
+			activePrefabEntities.Clear();
+			if (m_PrefabRefQuery.IsEmptyIgnoreFilter)
+			{
+				return true;
+			}
+
+			using (NativeArray<PrefabRef> prefabRefs = m_PrefabRefQuery.ToComponentDataArray<PrefabRef>(Allocator.Temp))
+			{
+				for (int i = 0; i < prefabRefs.Length; i++)
+				{
+					Entity prefabEntity = prefabRefs[i].m_Prefab;
+					if (prefabEntity != Entity.Null)
+					{
+						activePrefabEntities.Add(prefabEntity);
+					}
+				}
+			}
+
+			return true;
+		}
+		catch (Exception ex)
+		{
+			SirenChangerMod.Log.Warn($"Vehicle engine override active-vehicle fallback scan failed; overrides will stay pending: {ex.Message}");
+			activePrefabEntities.Clear();
+			return false;
+		}
+	}
+
+	private bool CanSafelyRebindVehiclePrefab(
+		PrefabBase vehiclePrefab,
+		string vehiclePrefabName,
+		bool activePrefabScanSucceeded,
+		HashSet<Entity> activePrefabEntities,
+		int currentFrame)
+	{
+		if (!activePrefabScanSucceeded)
+		{
+			m_FirstInactiveFrameByVehiclePrefab.Remove(vehiclePrefabName);
+			return false;
+		}
+
+		try
+		{
+			if (!m_PrefabSystem.TryGetEntity(vehiclePrefab, out Entity prefabEntity) || prefabEntity == Entity.Null)
+			{
+				m_FirstInactiveFrameByVehiclePrefab.Remove(vehiclePrefabName);
+				return false;
+			}
+
+			if (activePrefabEntities.Contains(prefabEntity))
+			{
+				m_FirstInactiveFrameByVehiclePrefab.Remove(vehiclePrefabName);
+				return false;
+			}
+
+			if (!m_FirstInactiveFrameByVehiclePrefab.TryGetValue(vehiclePrefabName, out int firstInactiveFrame) ||
+				currentFrame < firstInactiveFrame)
+			{
+				m_FirstInactiveFrameByVehiclePrefab[vehiclePrefabName] = currentFrame;
+				return false;
+			}
+
+			return currentFrame - firstInactiveFrame >= kVehicleOverrideStableFrames;
+		}
+		catch (Exception ex)
+		{
+			SirenChangerMod.Log.Warn(
+				$"Vehicle engine override safety check failed for '{vehiclePrefabName}'; override will stay pending: {ex.Message}");
+			m_FirstInactiveFrameByVehiclePrefab.Remove(vehiclePrefabName);
+			return false;
+		}
+	}
+
+	private bool TryUpdateVehiclePrefab(PrefabBase vehiclePrefab, string vehiclePrefabName, string operation)
+	{
+		try
+		{
+			m_PrefabSystem.UpdatePrefab(vehiclePrefab);
+			return true;
+		}
+		catch (Exception ex)
+		{
+			SirenChangerMod.Log.Warn(
+				$"Vehicle engine {operation} failed for '{vehiclePrefabName}': {ex.Message}");
+			return false;
+		}
+	}
+
+	private bool IsVehicleOverrideSelectionApplied(VehicleEngineTargetDefinition target, string selectionKey)
+	{
+		string normalizedSelection = AudioReplacementDomainConfig.NormalizeProfileKey(selectionKey);
+		if (!string.Equals(target.AppliedSelectionKey, normalizedSelection, StringComparison.OrdinalIgnoreCase))
+		{
+			return false;
+		}
+
+		if (target.OverrideEffectPrefab == null ||
+			!target.TryGetEffectSettings(out EffectSource.EffectSettings effectSettings))
+		{
+			return false;
+		}
+
+		return ReferenceEquals(effectSettings.m_Effect, target.OverrideEffectPrefab);
+	}
+
+	private static bool IsVehicleOverrideBound(VehicleEngineTargetDefinition target)
+	{
+		if (target.OriginalEffectPrefab == null ||
+			!target.TryGetEffectSettings(out EffectSource.EffectSettings effectSettings))
+		{
+			return false;
+		}
+
+		return !ReferenceEquals(effectSettings.m_Effect, target.OriginalEffectPrefab);
+	}
+
+	private void MarkVehicleOverridePending(ref int pendingVehicleOverrideCount)
+	{
+		pendingVehicleOverrideCount++;
+		m_HasPendingVehicleOverrideApplies = true;
+	}
+
+	private void SchedulePendingVehicleOverrideRetryIfNeeded()
+	{
+		if (m_HasPendingVehicleOverrideApplies)
+		{
+			m_NextVehicleOverrideRetryFrame = UnityEngine.Time.frameCount + kVehicleOverrideRetryFrames;
+		}
+		else
+		{
+			m_NextVehicleOverrideRetryFrame = 0;
 		}
 	}
 
@@ -548,8 +915,8 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 			return;
 		}
 
-		List<VehicleEngineTargetDefinition> fallbackTargets = new List<VehicleEngineTargetDefinition>();
-		List<VehicleEngineTargetDefinition> preferredTargets = new List<VehicleEngineTargetDefinition>();
+		List<VehicleEngineTargetDefinition>? fallbackTargets = null;
+		List<VehicleEngineTargetDefinition>? preferredTargets = null;
 		for (int i = 0; i < effectSource.m_Effects.Count; i++)
 		{
 			EffectSource.EffectSettings effect = effectSource.m_Effects[i];
@@ -574,19 +941,21 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 				effectSource,
 				i,
 				effect.m_Effect);
+			fallbackTargets ??= new List<VehicleEngineTargetDefinition>();
 			fallbackTargets.Add(target);
 			if (IsLikelyVehicleEngineEffect(effectPrefabName, clipName))
 			{
+				preferredTargets ??= new List<VehicleEngineTargetDefinition>();
 				preferredTargets.Add(target);
 			}
 		}
 
-		if (fallbackTargets.Count == 0)
+		if (fallbackTargets == null || fallbackTargets.Count == 0)
 		{
 			return;
 		}
 
-		List<VehicleEngineTargetDefinition> targets = preferredTargets.Count > 0
+		List<VehicleEngineTargetDefinition> targets = preferredTargets != null && preferredTargets.Count > 0
 			// If token heuristics fail, keep a deterministic first target fallback.
 			? preferredTargets
 			: new List<VehicleEngineTargetDefinition>(1) { fallbackTargets[0] };
@@ -675,7 +1044,8 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 
 		if (primaryResult.IsPending)
 		{
-			return ResolvedSelection.Default();
+			m_HasPendingAudioLoads = true;
+			return ResolvedSelection.Pending();
 		}
 
 		SirenChangerMod.Log.Warn($"Primary engine selection failed for {contextLabel}: '{selectionKey}'. {primaryResult.Error}");
@@ -714,7 +1084,8 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		{
 			if (alternateResult.IsPending)
 			{
-				return ResolvedSelection.Default();
+				m_HasPendingAudioLoads = true;
+				return ResolvedSelection.Pending();
 			}
 
 			SirenChangerMod.Log.Warn($"Alternate engine fallback failed for {contextLabel}: '{alternateSelection}'. {alternateResult.Error}");
@@ -786,6 +1157,7 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 	private enum ResolvedSelectionOutcome
 	{
 		Default,
+		Pending,
 		Mute,
 		CustomClip
 	}
@@ -814,6 +1186,14 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 			return new ResolvedSelection
 			{
 				Outcome = ResolvedSelectionOutcome.Mute
+			};
+		}
+
+		public static ResolvedSelection Pending()
+		{
+			return new ResolvedSelection
+			{
+				Outcome = ResolvedSelectionOutcome.Pending
 			};
 		}
 
@@ -861,6 +1241,8 @@ public sealed partial class VehicleEngineReplacementSystem : GameSystemBase
 		public EffectPrefab OriginalEffectPrefab { get; }
 
 		public EffectPrefab? OverrideEffectPrefab { get; set; }
+
+		public string AppliedSelectionKey { get; set; } = SirenReplacementConfig.DefaultSelectionToken;
 
 		public VehicleEngineTargetDefinition(
 			PrefabBase vehiclePrefab,

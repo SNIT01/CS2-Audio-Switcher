@@ -25,6 +25,7 @@ internal enum DeveloperAudioDomain
 	VehicleEngine,
 	Ambient,
 	Building,
+	UITool,
 	TransitAnnouncement
 }
 
@@ -94,6 +95,7 @@ public sealed partial class SirenChangerMod
 		VehicleEngineSettingsFileName,
 		AmbientSettingsFileName,
 		BuildingSettingsFileName,
+		UIToolSettingsFileName,
 		TransitAnnouncementSettingsFileName
 	};
 
@@ -111,6 +113,8 @@ public sealed partial class SirenChangerMod
 
 	private static readonly Dictionary<string, DetectedAudioEntry> s_DetectedBuildingAudio = new Dictionary<string, DetectedAudioEntry>(StringComparer.OrdinalIgnoreCase);
 
+	private static readonly Dictionary<string, DetectedAudioEntry> s_DetectedUIToolAudio = new Dictionary<string, DetectedAudioEntry>(StringComparer.OrdinalIgnoreCase);
+
 	private static string s_DeveloperSelectedSirenKey = string.Empty;
 
 	private static string s_DeveloperSelectedEngineKey = string.Empty;
@@ -119,6 +123,8 @@ public sealed partial class SirenChangerMod
 
 	private static string s_DeveloperSelectedBuildingKey = string.Empty;
 
+	private static string s_DeveloperSelectedUIToolKey = string.Empty;
+
 	private static string s_DeveloperSirenStatus = "No detected siren sounds are available yet. Load a map/editor session to detect sounds.";
 
 	private static string s_DeveloperEngineStatus = "No detected vehicle engine sounds are available yet. Load a map/editor session to detect sounds.";
@@ -126,6 +132,8 @@ public sealed partial class SirenChangerMod
 	private static string s_DeveloperAmbientStatus = "No detected ambient sounds are available yet. Load a map/editor session to detect sounds.";
 
 	private static string s_DeveloperBuildingStatus = "No detected building sounds are available yet. Load a map/editor session to detect sounds.";
+
+	private static string s_DeveloperUIToolStatus = "No detected UI/tool sounds are available yet. Load a map/editor session to detect sounds.";
 
 	private static string s_DeveloperModuleDisplayName = kDeveloperModuleDefaultDisplayName;
 
@@ -171,6 +179,8 @@ public sealed partial class SirenChangerMod
 
 	private static string s_DeveloperModuleSelectedLocalBuildingKey = string.Empty;
 
+	private static string s_DeveloperModuleSelectedLocalUIToolKey = string.Empty;
+
 	private static string s_DeveloperModuleSelectedLocalTransitAnnouncementKey = string.Empty;
 
 	private static string s_DeveloperModuleSelectedSoundSetProfileId = string.Empty;
@@ -182,6 +192,8 @@ public sealed partial class SirenChangerMod
 	private static readonly HashSet<string> s_DeveloperModuleIncludedAmbient = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 	private static readonly HashSet<string> s_DeveloperModuleIncludedBuildings = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+	private static readonly HashSet<string> s_DeveloperModuleIncludedUITools = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 	private static readonly HashSet<string> s_DeveloperModuleIncludedTransitAnnouncements = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -197,6 +209,7 @@ public sealed partial class SirenChangerMod
 		changed |= ResetDetectedAudioDomainInternal(DeveloperAudioDomain.VehicleEngine);
 		changed |= ResetDetectedAudioDomainInternal(DeveloperAudioDomain.Ambient);
 		changed |= ResetDetectedAudioDomainInternal(DeveloperAudioDomain.Building);
+		changed |= ResetDetectedAudioDomainInternal(DeveloperAudioDomain.UITool);
 		if (changed)
 		{
 			OptionsVersion++;
@@ -748,7 +761,123 @@ public sealed partial class SirenChangerMod
 	// Read-only status text that makes the active upload pipeline explicit in options.
 	internal static string GetDeveloperModuleUploadModeStatusText()
 	{
-		return "Asset Upload Mode Active\nUploads are published through the PDX asset pipeline (not code-mod publishing).";
+		StringBuilder builder = new StringBuilder(512);
+		builder.Append("Asset Upload Mode Active");
+		builder.Append('\n').Append("Backend: PDX asset upload pipeline (code-mod publishing disabled).");
+		builder.Append('\n').Append("Publish Mode: ").Append(GetDeveloperModuleUploadPublishModeLabel(s_DeveloperModuleUploadPublishMode));
+		builder.Append('\n').Append("Visibility: ").Append(GetDeveloperModuleUploadAccessLevelLabel(s_DeveloperModuleUploadAccessLevel));
+
+		if (s_DeveloperModuleUploadPublishMode == DeveloperModuleUploadPublishMode.UpdateExisting)
+		{
+			if (s_DeveloperModuleUploadExistingPublishedId > 0)
+			{
+				builder.Append('\n')
+					.Append("Update Target: Mod ID ")
+					.Append(s_DeveloperModuleUploadExistingPublishedId.ToString(CultureInfo.InvariantCulture))
+					.Append('.');
+			}
+			else
+			{
+				builder.Append('\n').Append("Update Target: Missing Existing Mod ID (required for Update Existing).");
+			}
+		}
+		else
+		{
+			builder.Append('\n').Append("Update Target: A new listing will be created.");
+		}
+
+		if (TryResolveUploadReadyModulePathForStatus(out string moduleRootPath))
+		{
+			builder.Append('\n').Append("Package: Ready (").Append(moduleRootPath).Append(')');
+		}
+		else
+		{
+			builder.Append('\n').Append("Package: Not found. Build Local or Build + Upload first.");
+		}
+
+		builder.Append('\n').Append("Thumbnail: ").Append(GetDeveloperModuleUploadThumbnailStatusSummary());
+
+		if (TryParseDeveloperModuleAdditionalUploadDependencies(
+				out List<IModsUploadSupport.ModInfo.ModDependency> additionalDependencies,
+				out string dependencyParseError))
+		{
+			builder.Append('\n').Append("Dependencies: Audio Switcher");
+			if (additionalDependencies.Count > 0)
+			{
+				builder.Append(" + ")
+					.Append(additionalDependencies.Count.ToString(CultureInfo.InvariantCulture))
+					.Append(" additional.");
+			}
+			else
+			{
+				builder.Append(" only.");
+			}
+		}
+		else
+		{
+			builder.Append('\n').Append("Dependencies: Invalid additional dependency input (")
+				.Append(dependencyParseError)
+				.Append(')');
+		}
+
+		builder.Append('\n').Append(IsDeveloperModuleUploadInProgress()
+			? "State: Busy (upload pipeline active)."
+			: "State: Idle.");
+		return builder.ToString();
+	}
+
+	// Resolve a module path for status text using cache first, then latest upload-ready discovery.
+	private static bool TryResolveUploadReadyModulePathForStatus(out string moduleRootPath)
+	{
+		moduleRootPath = string.Empty;
+
+		string cachedPath = NormalizeDeveloperModuleExportDirectory(s_DeveloperLastUploadReadyModulePath);
+		if (!string.IsNullOrWhiteSpace(cachedPath) &&
+			Directory.Exists(cachedPath) &&
+			File.Exists(Path.Combine(cachedPath, kDeveloperModuleUploadManifestRelativePath.Replace('/', Path.DirectorySeparatorChar))))
+		{
+			moduleRootPath = cachedPath;
+			return true;
+		}
+
+		return TryResolveLatestUploadReadyModulePath(out moduleRootPath, out _);
+	}
+
+	// Build a concise thumbnail-state label for uploader status text.
+	private static string GetDeveloperModuleUploadThumbnailStatusSummary()
+	{
+		string configuredPath = NormalizeDeveloperModuleUploadThumbnailPath(s_DeveloperModuleUploadThumbnailPath);
+		string thumbnailDirectoryPath = NormalizeDeveloperModuleUploadThumbnailDirectory(s_DeveloperModuleUploadThumbnailDirectory);
+		if (string.IsNullOrWhiteSpace(configuredPath))
+		{
+			if (!string.IsNullOrWhiteSpace(thumbnailDirectoryPath) && !Directory.Exists(thumbnailDirectoryPath))
+			{
+				return $"Auto (Thumbnail Directory missing: '{thumbnailDirectoryPath}').";
+			}
+
+			return "Auto (module thumbnail.png or generated default).";
+		}
+
+		string resolvedPath = configuredPath;
+		if (!Path.IsPathRooted(resolvedPath) && TryResolveUploadReadyModulePathForStatus(out string moduleRootPath))
+		{
+			try
+			{
+				resolvedPath = Path.GetFullPath(Path.Combine(moduleRootPath, resolvedPath));
+			}
+			catch
+			{
+				resolvedPath = configuredPath;
+			}
+		}
+
+		if (File.Exists(resolvedPath))
+		{
+			string fileName = Path.GetFileName(resolvedPath);
+			return $"Selected '{(string.IsNullOrWhiteSpace(fileName) ? resolvedPath : fileName)}'.";
+		}
+
+		return $"Selected file missing: '{configuredPath}'.";
 	}
 
 	// True when a module asset upload is currently in progress.
@@ -1051,6 +1180,7 @@ public sealed partial class SirenChangerMod
 			{ DeveloperAudioDomain.VehicleEngine, new HashSet<string>(s_DeveloperModuleIncludedEngines, StringComparer.OrdinalIgnoreCase) },
 			{ DeveloperAudioDomain.Ambient, new HashSet<string>(s_DeveloperModuleIncludedAmbient, StringComparer.OrdinalIgnoreCase) },
 			{ DeveloperAudioDomain.Building, new HashSet<string>(s_DeveloperModuleIncludedBuildings, StringComparer.OrdinalIgnoreCase) },
+			{ DeveloperAudioDomain.UITool, new HashSet<string>(s_DeveloperModuleIncludedUITools, StringComparer.OrdinalIgnoreCase) },
 			{ DeveloperAudioDomain.TransitAnnouncement, new HashSet<string>(s_DeveloperModuleIncludedTransitAnnouncements, StringComparer.OrdinalIgnoreCase) }
 		};
 	}
@@ -1092,6 +1222,11 @@ public sealed partial class SirenChangerMod
 				SettingsDirectory,
 				normalizedSetId,
 				BuildingSettingsFileName,
+				ensureDirectoryExists: false);
+			snapshot.SettingsPathByDomain[DeveloperAudioDomain.UITool] = CitySoundProfileRegistry.GetSetSettingsPath(
+				SettingsDirectory,
+				normalizedSetId,
+				UIToolSettingsFileName,
 				ensureDirectoryExists: false);
 			snapshot.SettingsPathByDomain[DeveloperAudioDomain.TransitAnnouncement] = CitySoundProfileRegistry.GetSetSettingsPath(
 				SettingsDirectory,
@@ -1198,6 +1333,7 @@ public sealed partial class SirenChangerMod
 				case DeveloperAudioDomain.VehicleEngine:
 				case DeveloperAudioDomain.Ambient:
 				case DeveloperAudioDomain.Building:
+				case DeveloperAudioDomain.UITool:
 				case DeveloperAudioDomain.TransitAnnouncement:
 					if (!JsonDataSerializer.TryDeserialize(json, out AudioReplacementDomainConfig? domainConfig, out string domainParseError) ||
 						domainConfig == null)
@@ -1382,9 +1518,10 @@ public sealed partial class SirenChangerMod
 		List<string> engineKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.VehicleEngine);
 		List<string> ambientKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.Ambient);
 		List<string> buildingKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.Building);
+		List<string> uiToolKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.UITool);
 		List<string> transitAnnouncementKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.TransitAnnouncement);
 
-		int totalAvailable = sirenKeys.Count + engineKeys.Count + ambientKeys.Count + buildingKeys.Count + transitAnnouncementKeys.Count;
+		int totalAvailable = sirenKeys.Count + engineKeys.Count + ambientKeys.Count + buildingKeys.Count + uiToolKeys.Count + transitAnnouncementKeys.Count;
 		if (totalAvailable == 0)
 		{
 			SetDeveloperModuleStatus("No local audio files are currently available to include.", isWarning: true);
@@ -1428,6 +1565,15 @@ public sealed partial class SirenChangerMod
 			}
 		}
 
+		HashSet<string> uiToolIncluded = GetDeveloperModuleIncludedSet(DeveloperAudioDomain.UITool);
+		for (int i = 0; i < uiToolKeys.Count; i++)
+		{
+			if (uiToolIncluded.Add(uiToolKeys[i]))
+			{
+				added++;
+			}
+		}
+
 		HashSet<string> transitIncluded = GetDeveloperModuleIncludedSet(DeveloperAudioDomain.TransitAnnouncement);
 		for (int i = 0; i < transitAnnouncementKeys.Count; i++)
 		{
@@ -1459,6 +1605,7 @@ public sealed partial class SirenChangerMod
 		s_DeveloperModuleIncludedEngines.Clear();
 		s_DeveloperModuleIncludedAmbient.Clear();
 		s_DeveloperModuleIncludedBuildings.Clear();
+		s_DeveloperModuleIncludedUITools.Clear();
 		s_DeveloperModuleIncludedTransitAnnouncements.Clear();
 		SetDeveloperModuleStatus("Cleared all included local audio files.", isWarning: false);
 	}
@@ -1471,9 +1618,10 @@ public sealed partial class SirenChangerMod
 		List<string> engineKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.VehicleEngine);
 		List<string> ambientKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.Ambient);
 		List<string> buildingKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.Building);
+		List<string> uiToolKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.UITool);
 		List<string> transitAnnouncementKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.TransitAnnouncement);
 
-		int totalAvailable = sirenKeys.Count + engineKeys.Count + ambientKeys.Count + buildingKeys.Count + transitAnnouncementKeys.Count;
+		int totalAvailable = sirenKeys.Count + engineKeys.Count + ambientKeys.Count + buildingKeys.Count + uiToolKeys.Count + transitAnnouncementKeys.Count;
 		if (totalAvailable == 0)
 		{
 			return "No local custom audio files are currently available.";
@@ -1485,6 +1633,7 @@ public sealed partial class SirenChangerMod
 		AppendDeveloperModuleInclusionSummary(builder, "Vehicle Engines", engineKeys, s_DeveloperModuleIncludedEngines);
 		AppendDeveloperModuleInclusionSummary(builder, "Ambient Sounds", ambientKeys, s_DeveloperModuleIncludedAmbient);
 		AppendDeveloperModuleInclusionSummary(builder, "Building Sounds", buildingKeys, s_DeveloperModuleIncludedBuildings);
+		AppendDeveloperModuleInclusionSummary(builder, "UI/Tool Sounds", uiToolKeys, s_DeveloperModuleIncludedUITools);
 		AppendDeveloperModuleInclusionSummary(builder, "Transit Announcements", transitAnnouncementKeys, s_DeveloperModuleIncludedTransitAnnouncements);
 		return builder.ToString();
 	}
@@ -1658,6 +1807,22 @@ public sealed partial class SirenChangerMod
 	// Build a fresh upload-ready package and immediately upload that exact package to PDX Mods.
 	internal static void BuildAndUploadDeveloperAssetModuleToPdxMods()
 	{
+		DeveloperModuleUploadPublishMode publishMode;
+		int existingPublishedId;
+		lock (s_DeveloperModuleUploadSync)
+		{
+			publishMode = s_DeveloperModuleUploadPublishMode;
+			existingPublishedId = s_DeveloperModuleUploadExistingPublishedId;
+		}
+
+		if (publishMode == DeveloperModuleUploadPublishMode.UpdateExisting && existingPublishedId <= 0)
+		{
+			SetDeveloperModuleUploadStatus(
+				"Build + Upload blocked: Update Existing mode requires a valid Existing Mod ID before building.",
+				isWarning: true);
+			return;
+		}
+
 		if (!CreateDeveloperModuleFromLocalAudioInternal(uploadReadyAssetPackage: true, out string moduleRootPath))
 		{
 			SetDeveloperModuleUploadStatus("Build + Upload aborted because the upload package could not be generated.", isWarning: true);
@@ -1683,6 +1848,198 @@ public sealed partial class SirenChangerMod
 #pragma warning disable CS4014
 		UploadDeveloperAssetModuleToPdxMods(moduleRootPath);
 #pragma warning restore CS4014
+	}
+
+	// Run upload preflight checks without publishing to validate current settings.
+	internal static void ValidateDeveloperModuleUploadSetup()
+	{
+		if (!TryResolveLatestUploadReadyModulePath(out string moduleRootPath, out string resolveError))
+		{
+			SetDeveloperModuleUploadStatus(resolveError, isWarning: true);
+			return;
+		}
+
+		// Fire-and-forget: validation runs asynchronously and reports status via callback.
+#pragma warning disable CS4014
+		ValidateDeveloperModuleUploadSetupAsync(moduleRootPath);
+#pragma warning restore CS4014
+	}
+
+	// Validate upload settings and prerequisites for one generated upload-ready module path.
+	private static async Task ValidateDeveloperModuleUploadSetupAsync(string moduleRootPath)
+	{
+		DeveloperModuleUploadAccessLevel accessLevel;
+		DeveloperModuleUploadPublishMode publishMode;
+		int existingPublishedId;
+		lock (s_DeveloperModuleUploadSync)
+		{
+			if (s_DeveloperModuleUploadInProgress)
+			{
+				SetDeveloperModuleUploadStatus("An asset-module upload is already in progress.", isWarning: true);
+				return;
+			}
+
+			s_DeveloperModuleUploadInProgress = true;
+			accessLevel = s_DeveloperModuleUploadAccessLevel;
+			publishMode = s_DeveloperModuleUploadPublishMode;
+			existingPublishedId = s_DeveloperModuleUploadExistingPublishedId;
+		}
+
+		string publishModeLabel = GetDeveloperModuleUploadPublishModeLabel(publishMode);
+		string existingIdSuffix = publishMode == DeveloperModuleUploadPublishMode.UpdateExisting
+			? $", existing ID '{existingPublishedId.ToString(CultureInfo.InvariantCulture)}'"
+			: string.Empty;
+		SetDeveloperModuleUploadStatus(
+			$"Running upload validation for '{moduleRootPath}' with mode '{publishModeLabel}'{existingIdSuffix}...",
+			isWarning: false);
+
+		try
+		{
+			await ValidateDeveloperModuleUploadSetupInternalAsync(moduleRootPath, accessLevel, publishMode, existingPublishedId);
+		}
+		catch (OperationCanceledException)
+		{
+			SetDeveloperModuleUploadStatus("Upload validation was cancelled.", isWarning: true);
+		}
+		catch (Exception ex)
+		{
+			Log.Error($"Upload validation exception: {ex}");
+			SetDeveloperModuleUploadStatus($"Upload validation failed: {ex.Message}", isWarning: true);
+		}
+		finally
+		{
+			lock (s_DeveloperModuleUploadSync)
+			{
+				s_DeveloperModuleUploadInProgress = false;
+			}
+		}
+	}
+
+	// Core preflight validation used by "Validate Upload Setup" before any staging/publish calls.
+	private static async Task ValidateDeveloperModuleUploadSetupInternalAsync(
+		string moduleRootPath,
+		DeveloperModuleUploadAccessLevel accessLevel,
+		DeveloperModuleUploadPublishMode publishMode,
+		int existingPublishedId)
+	{
+		string resolvedModuleRoot = string.IsNullOrWhiteSpace(moduleRootPath)
+			? string.Empty
+			: Path.GetFullPath(moduleRootPath);
+		if (string.IsNullOrWhiteSpace(resolvedModuleRoot) || !Directory.Exists(resolvedModuleRoot))
+		{
+			SetDeveloperModuleUploadStatus("Upload validation failed because the selected module folder no longer exists.", isWarning: true);
+			return;
+		}
+
+		if (publishMode == DeveloperModuleUploadPublishMode.UpdateExisting && existingPublishedId <= 0)
+		{
+			SetDeveloperModuleUploadStatus(
+				"Upload validation failed because Update Existing mode requires a valid Existing Mod ID.",
+				isWarning: true);
+			return;
+		}
+
+		string manifestPath = Path.Combine(
+			resolvedModuleRoot,
+			kDeveloperModuleUploadManifestRelativePath.Replace('/', Path.DirectorySeparatorChar));
+		if (!File.Exists(manifestPath))
+		{
+			SetDeveloperModuleUploadStatus(
+				$"Upload validation failed because '{kDeveloperModuleUploadManifestRelativePath}' was not found in '{resolvedModuleRoot}'.",
+				isWarning: true);
+			return;
+		}
+
+		if (!TryBuildDeveloperModuleUploadMetadata(
+				resolvedModuleRoot,
+				manifestPath,
+				out DeveloperModuleUploadMetadata metadata,
+				out string metadataError))
+		{
+			SetDeveloperModuleUploadStatus(metadataError, isWarning: true);
+			return;
+		}
+
+		string sourceContentPath = Path.Combine(resolvedModuleRoot, kDeveloperModuleAssetContentFolderName);
+		if (!Directory.Exists(sourceContentPath))
+		{
+			SetDeveloperModuleUploadStatus(
+				$"Upload validation failed because '{kDeveloperModuleAssetContentFolderName}' was not found in '{resolvedModuleRoot}'.",
+				isWarning: true);
+			return;
+		}
+
+		long totalContentSizeBytes = 0;
+		try
+		{
+			DirectoryInfo directoryInfo = new DirectoryInfo(sourceContentPath);
+			totalContentSizeBytes = directoryInfo.EnumerateFiles("*", SearchOption.AllDirectories).Sum(file => file.Length);
+			const long MaxContentSizeBytes = 500 * 1024 * 1024; // 500 MB
+			if (totalContentSizeBytes > MaxContentSizeBytes)
+			{
+				SetDeveloperModuleUploadStatus(
+					$"Upload validation failed: content size ({(totalContentSizeBytes / (1024.0 * 1024.0)):F1} MB) exceeds maximum limit (500 MB).",
+					isWarning: true);
+				return;
+			}
+		}
+		catch (Exception sizeCheckEx)
+		{
+			Log.Warn($"Upload validation size check warning: {sizeCheckEx.Message}");
+		}
+
+		PdxAssetUploadHandle uploadHandle = new PdxAssetUploadHandle();
+		ConfigureDeveloperModuleAssetUploadHandle(uploadHandle, metadata, accessLevel, publishMode, existingPublishedId);
+
+		(bool preflightSuccess, string preflightError) = await TryRunDeveloperModuleUploadPreflightChecksAsync(uploadHandle);
+		if (!preflightSuccess)
+		{
+			SetDeveloperModuleUploadStatus(preflightError, isWarning: true);
+			return;
+		}
+
+		await TryPrimeAudioSwitcherDependencyPublishedIdCacheFromPlatformListingsAsync(uploadHandle);
+		if (!TryAttachAudioSwitcherUploadDependency(uploadHandle, out string dependencyError))
+		{
+			SetDeveloperModuleUploadStatus($"Upload validation failed while checking dependency metadata: {dependencyError}", isWarning: true);
+			return;
+		}
+
+		if (publishMode == DeveloperModuleUploadPublishMode.UpdateExisting)
+		{
+			SetDeveloperModuleUploadStatus(
+				$"Validation: verifying ownership and type for existing Mod ID '{existingPublishedId.ToString(CultureInfo.InvariantCulture)}'...",
+				isWarning: false);
+			(bool targetOk, string targetError) = await TryValidateDeveloperModuleUploadUpdateTargetAsync(uploadHandle, existingPublishedId);
+			if (!targetOk)
+			{
+				SetDeveloperModuleUploadStatus(targetError, isWarning: true);
+				return;
+			}
+		}
+
+		int additionalDependencyCount = 0;
+		if (TryParseDeveloperModuleAdditionalUploadDependencies(
+				out List<IModsUploadSupport.ModInfo.ModDependency> additionalDependencies,
+				out _))
+		{
+			additionalDependencyCount = additionalDependencies.Count;
+		}
+
+		string thumbnailFileName = Path.GetFileName(metadata.ThumbnailPath ?? string.Empty);
+		if (string.IsNullOrWhiteSpace(thumbnailFileName))
+		{
+			thumbnailFileName = "thumbnail.png";
+		}
+
+		SetDeveloperModuleUploadStatus(
+			$"Upload validation passed for '{metadata.DisplayName}'. Ready to publish from '{resolvedModuleRoot}'. " +
+			$"Mode: {GetDeveloperModuleUploadPublishModeLabel(publishMode)}. " +
+			$"Access: {GetDeveloperModuleUploadAccessLevelLabel(accessLevel)}. " +
+			$"Thumbnail: {thumbnailFileName}. " +
+			$"Dependencies: Audio Switcher + {additionalDependencyCount.ToString(CultureInfo.InvariantCulture)} additional. " +
+			$"Content size: {(totalContentSizeBytes / (1024.0 * 1024.0)):F1} MB.",
+			isWarning: false);
 	}
 
 	// Upload one upload-ready asset module path through the PDX asset pipeline.
@@ -1830,6 +2187,16 @@ public sealed partial class SirenChangerMod
 				ref skippedUnsupported,
 				ref skippedModuleSelections);
 
+			List<DeveloperModuleManifestEntry> uiToolEntries = ExportLocalProfilesToModule(
+				UIToolConfig.CustomProfiles,
+				UIToolConfig.CustomFolderName,
+				"Audio/UITools",
+				moduleContentRootPath,
+				s_DeveloperModuleIncludedUITools,
+				ref skippedMissing,
+				ref skippedUnsupported,
+				ref skippedModuleSelections);
+
 			List<DeveloperModuleManifestEntry> transitAnnouncementEntries = ExportLocalProfilesToModule(
 				TransitAnnouncementConfig.CustomProfiles,
 				TransitAnnouncementConfig.CustomFolderName,
@@ -1848,7 +2215,7 @@ public sealed partial class SirenChangerMod
 			List<string> soundSetCoverageWarnings = BuildDeveloperModuleCurrentSoundSetProfileCoverageWarningsForSetIds(
 				s_DeveloperModuleIncludedSoundSetProfiles);
 
-			int totalAudioExported = sirenEntries.Count + engineEntries.Count + ambientEntries.Count + buildingEntries.Count + transitAnnouncementEntries.Count;
+			int totalAudioExported = sirenEntries.Count + engineEntries.Count + ambientEntries.Count + buildingEntries.Count + uiToolEntries.Count + transitAnnouncementEntries.Count;
 			if (totalAudioExported == 0)
 			{
 				TryDeleteDirectory(moduleRootPath);
@@ -1869,6 +2236,7 @@ public sealed partial class SirenChangerMod
 				VehicleEngines = engineEntries,
 				Ambient = ambientEntries,
 				Buildings = buildingEntries,
+				UITools = uiToolEntries,
 				TransitAnnouncements = transitAnnouncementEntries,
 				SoundSetProfiles = soundSetProfiles
 			};
@@ -1885,14 +2253,15 @@ public sealed partial class SirenChangerMod
 				engineEntries.Count,
 				ambientEntries.Count,
 				buildingEntries.Count,
+				uiToolEntries.Count,
 				transitAnnouncementEntries.Count,
 				soundSetProfiles.Count,
 				uploadReadyAssetPackage);
 			string manifestRelativePath = Path.GetRelativePath(moduleRootPath, manifestPath).Replace('\\', '/');
 
 			string statusMessage = uploadReadyAssetPackage
-				? $"Created upload-ready asset module '{displayName}' at '{moduleRootPath}'. Version: {moduleVersion}. Manifest: {manifestRelativePath}. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Buildings: {buildingEntries.Count}, Transit: {transitAnnouncementEntries.Count}, Sound Set Profiles: {soundSetProfiles.Count}. Skipped audio missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}. Skipped profile missing/copy failures: {skippedMissingProfileSettings}/{skippedProfileCopyFailures}. Coverage warnings: {soundSetCoverageWarnings.Count}."
-				: $"Created local module (legacy layout) '{displayName}' at '{moduleRootPath}'. Version: {moduleVersion}. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Buildings: {buildingEntries.Count}, Transit: {transitAnnouncementEntries.Count}, Sound Set Profiles: {soundSetProfiles.Count}. Skipped audio missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}. Skipped profile missing/copy failures: {skippedMissingProfileSettings}/{skippedProfileCopyFailures}. Coverage warnings: {soundSetCoverageWarnings.Count}.";
+				? $"Created upload-ready asset module '{displayName}' at '{moduleRootPath}'. Version: {moduleVersion}. Manifest: {manifestRelativePath}. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Buildings: {buildingEntries.Count}, UI/Tool: {uiToolEntries.Count}, Transit: {transitAnnouncementEntries.Count}, Sound Set Profiles: {soundSetProfiles.Count}. Skipped audio missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}. Skipped profile missing/copy failures: {skippedMissingProfileSettings}/{skippedProfileCopyFailures}. Coverage warnings: {soundSetCoverageWarnings.Count}."
+				: $"Created local module (legacy layout) '{displayName}' at '{moduleRootPath}'. Version: {moduleVersion}. Sirens: {sirenEntries.Count}, Engines: {engineEntries.Count}, Ambient: {ambientEntries.Count}, Buildings: {buildingEntries.Count}, UI/Tool: {uiToolEntries.Count}, Transit: {transitAnnouncementEntries.Count}, Sound Set Profiles: {soundSetProfiles.Count}. Skipped audio missing/unsupported/module: {skippedMissing}/{skippedUnsupported}/{skippedModuleSelections}. Skipped profile missing/copy failures: {skippedMissingProfileSettings}/{skippedProfileCopyFailures}. Coverage warnings: {soundSetCoverageWarnings.Count}.";
 			if (soundSetCoverageWarnings.Count > 0)
 			{
 				statusMessage = $"{statusMessage} {string.Join(" | ", soundSetCoverageWarnings)}";
@@ -1905,11 +2274,20 @@ public sealed partial class SirenChangerMod
 				SetDeveloperModuleUploadStatus($"Ready to upload: '{moduleRootPath}'.", isWarning: false);
 			}
 
-			SyncCustomSirenCatalog(saveIfChanged: true, forceStatusRefresh: true);
-			SyncCustomVehicleEngineCatalog(saveIfChanged: true, forceStatusRefresh: true);
-			SyncCustomAmbientCatalog(saveIfChanged: true, forceStatusRefresh: true);
-			SyncCustomBuildingCatalog(saveIfChanged: true, forceStatusRefresh: true);
-			SyncCustomTransitAnnouncementCatalog(saveIfChanged: true, forceStatusRefresh: true);
+			BeginAudioModuleCatalogRefreshBatch();
+			try
+			{
+				SyncCustomSirenCatalog(saveIfChanged: true, forceStatusRefresh: true);
+				SyncCustomVehicleEngineCatalog(saveIfChanged: true, forceStatusRefresh: true);
+				SyncCustomAmbientCatalog(saveIfChanged: true, forceStatusRefresh: true);
+				SyncCustomBuildingCatalog(saveIfChanged: true, forceStatusRefresh: true);
+				SyncCustomUIToolCatalog(saveIfChanged: true, forceStatusRefresh: true);
+				SyncCustomTransitAnnouncementCatalog(saveIfChanged: true, forceStatusRefresh: true);
+			}
+			finally
+			{
+				EndAudioModuleCatalogRefreshBatch();
+			}
 			return true;
 		}
 		catch (Exception ex)
@@ -2074,7 +2452,7 @@ public sealed partial class SirenChangerMod
 				return;
 			}
 
-			int publishedId = finalizeResult.m_ModInfo.m_PublishedID;
+			int publishedId = ReadPublishedId(finalizeResult.m_ModInfo);
 			if (publishedId > 0)
 			{
 				lock (s_DeveloperModuleUploadSync)
@@ -2272,7 +2650,7 @@ public sealed partial class SirenChangerMod
 		for (int i = 0; i < authorMods.Count; i++)
 		{
 			IModsUploadSupport.ModInfo candidate = authorMods[i];
-			if (candidate.m_PublishedID != existingPublishedId)
+			if (ReadPublishedId(candidate) != existingPublishedId)
 			{
 				continue;
 			}
@@ -2347,7 +2725,7 @@ public sealed partial class SirenChangerMod
 				for (int i = 0; i < existingAuthorMods.Count; i++)
 				{
 					IModsUploadSupport.ModInfo modInfo = existingAuthorMods[i];
-					int publishedId = modInfo.m_PublishedID;
+					int publishedId = ReadPublishedId(modInfo);
 					if (publishedId <= 0 || !seenPublishedIds.Add(publishedId))
 					{
 						continue;
@@ -2407,7 +2785,7 @@ public sealed partial class SirenChangerMod
 					continue;
 				}
 
-				int publishedId = modInfo.m_PublishedID;
+				int publishedId = ReadPublishedId(modInfo);
 				if (publishedId <= 0 || !seenPublishedIds.Add(publishedId))
 				{
 					continue;
@@ -2569,13 +2947,14 @@ public sealed partial class SirenChangerMod
 		bool hasExpectedAudioSwitcherDependency = false;
 		for (int i = 0; i < dependencies.Length; i++)
 		{
-			if (dependencies[i].m_Id <= 0)
+			int dependencyId = ReadDependencyId(dependencies[i]);
+			if (dependencyId <= 0)
 			{
 				error = $"Dependency at index {i} has an invalid published ID.";
 				return false;
 			}
 
-			if (dependencies[i].m_Id == expectedAudioSwitcherDependencyId)
+			if (dependencyId == expectedAudioSwitcherDependencyId)
 			{
 				hasExpectedAudioSwitcherDependency = true;
 			}
@@ -2597,11 +2976,11 @@ public sealed partial class SirenChangerMod
 
 		for (int dependencyIndex = 0; dependencyIndex < configuredAdditionalDependencies.Count; dependencyIndex++)
 		{
-			int configuredDependencyId = configuredAdditionalDependencies[dependencyIndex].m_Id;
+			int configuredDependencyId = ReadDependencyId(configuredAdditionalDependencies[dependencyIndex]);
 			bool foundConfiguredDependency = false;
 			for (int i = 0; i < dependencies.Length; i++)
 			{
-				if (dependencies[i].m_Id != configuredDependencyId)
+				if (ReadDependencyId(dependencies[i]) != configuredDependencyId)
 				{
 					continue;
 				}
@@ -2781,6 +3160,7 @@ public sealed partial class SirenChangerMod
 			{ DeveloperAudioDomain.VehicleEngine, BuildKeySet(manifest.VehicleEngines) },
 			{ DeveloperAudioDomain.Ambient, BuildKeySet(manifest.Ambient) },
 			{ DeveloperAudioDomain.Building, BuildKeySet(manifest.Buildings) },
+			{ DeveloperAudioDomain.UITool, BuildKeySet(manifest.UITools) },
 			{ DeveloperAudioDomain.TransitAnnouncement, BuildKeySet(manifest.TransitAnnouncements) }
 		};
 	}
@@ -2840,6 +3220,11 @@ public sealed partial class SirenChangerMod
 			if (TryResolveDeveloperModuleProfileSettingsPath(contentPath, folder, declaredFiles, BuildingSettingsFileName, out string buildingSettingsPath))
 			{
 				snapshot.SettingsPathByDomain[DeveloperAudioDomain.Building] = buildingSettingsPath;
+			}
+
+			if (TryResolveDeveloperModuleProfileSettingsPath(contentPath, folder, declaredFiles, UIToolSettingsFileName, out string uiToolSettingsPath))
+			{
+				snapshot.SettingsPathByDomain[DeveloperAudioDomain.UITool] = uiToolSettingsPath;
 			}
 
 			if (TryResolveDeveloperModuleProfileSettingsPath(contentPath, folder, declaredFiles, TransitAnnouncementSettingsFileName, out string transitSettingsPath))
@@ -3377,11 +3762,11 @@ public sealed partial class SirenChangerMod
 		modInfo.m_ExternalLinks = new List<IModsUploadSupport.ExternalLinkData>();
 		if (publishMode == DeveloperModuleUploadPublishMode.UpdateExisting)
 		{
-			modInfo.m_PublishedID = existingPublishedId;
+			modInfo.m_PublishedID = FormatPublishedId(existingPublishedId);
 		}
 		else
 		{
-			modInfo.m_PublishedID = 0;
+			modInfo.m_PublishedID = string.Empty;
 		}
 
 		uploadHandle.modInfo = modInfo;
@@ -3644,7 +4029,7 @@ public sealed partial class SirenChangerMod
 
 			dependencies.Add(new IModsUploadSupport.ModInfo.ModDependency
 			{
-				m_Id = publishedId,
+				m_Id = FormatPublishedId(publishedId),
 				m_Version = NormalizeDeveloperModuleDependencyVersion(versionToken)
 			});
 		}
@@ -3704,25 +4089,26 @@ public sealed partial class SirenChangerMod
 
 		void AddOrMergeDependency(IModsUploadSupport.ModInfo.ModDependency dependency)
 		{
-			if (dependency.m_Id <= 0)
+			int dependencyId = ReadDependencyId(dependency);
+			if (dependencyId <= 0)
 			{
 				return;
 			}
 
 			dependency.m_Version = NormalizeDeveloperModuleDependencyVersion(dependency.m_Version);
-			if (dependency.m_Id == dependencyPublishedId)
+			if (dependencyId == dependencyPublishedId)
 			{
 				hasAudioSwitcherDependency = true;
 			}
 
-			if (!seenDependencyIds.Add(dependency.m_Id))
+			if (!seenDependencyIds.Add(dependencyId))
 			{
 				if (!string.IsNullOrWhiteSpace(dependency.m_Version))
 				{
 					for (int index = 0; index < mergedDependencies.Count; index++)
 					{
 						IModsUploadSupport.ModInfo.ModDependency existing = mergedDependencies[index];
-						if (existing.m_Id != dependency.m_Id || !string.IsNullOrWhiteSpace(existing.m_Version))
+						if (ReadDependencyId(existing) != dependencyId || !string.IsNullOrWhiteSpace(existing.m_Version))
 						{
 							continue;
 						}
@@ -3753,7 +4139,7 @@ public sealed partial class SirenChangerMod
 		{
 			AddOrMergeDependency(new IModsUploadSupport.ModInfo.ModDependency
 			{
-				m_Id = dependencyPublishedId,
+				m_Id = FormatPublishedId(dependencyPublishedId),
 				m_Version = string.Empty
 			});
 		}
@@ -3833,7 +4219,7 @@ public sealed partial class SirenChangerMod
 		for (int i = 0; i < authorMods.Count; i++)
 		{
 			IModsUploadSupport.ModInfo modInfo = authorMods[i];
-			int publishedId = modInfo.m_PublishedID;
+			int publishedId = ReadPublishedId(modInfo);
 			if (publishedId <= 0)
 			{
 				continue;
@@ -4087,6 +4473,30 @@ public sealed partial class SirenChangerMod
 		}
 
 		return false;
+	}
+
+	// Read platform published IDs across SDK builds where IDs may be strings or numeric values.
+	private static int ReadPublishedId(IModsUploadSupport.ModInfo modInfo)
+	{
+		return TryConvertToPositiveInt(modInfo.m_PublishedID, out int publishedId)
+			? publishedId
+			: 0;
+	}
+
+	// Read dependency IDs across SDK builds where IDs may be strings or numeric values.
+	private static int ReadDependencyId(IModsUploadSupport.ModInfo.ModDependency dependency)
+	{
+		return TryConvertToPositiveInt(dependency.m_Id, out int dependencyId)
+			? dependencyId
+			: 0;
+	}
+
+	// Format a positive platform ID for string-backed SDK fields.
+	private static string FormatPublishedId(int publishedId)
+	{
+		return publishedId > 0
+			? publishedId.ToString(CultureInfo.InvariantCulture)
+			: string.Empty;
 	}
 
 	// Build a compact upload failure message from platform operation data.
@@ -4539,10 +4949,7 @@ public sealed partial class SirenChangerMod
 	// Resolve the target root where generated modules are written.
 	private static string GetDeveloperModulesRootDirectory(bool ensureExists)
 	{
-		string? modsRoot = Path.GetDirectoryName(SettingsDirectory);
-		string resolved = string.IsNullOrWhiteSpace(modsRoot)
-			? Path.Combine(SettingsDirectory, "Generated Modules")
-			: modsRoot;
+		string resolved = SirenPathUtils.GetModsDirectory(ensureExists: false);
 		if (ensureExists)
 		{
 			Directory.CreateDirectory(resolved);
@@ -4952,6 +5359,7 @@ public sealed partial class SirenChangerMod
 		List<string> engineKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.VehicleEngine);
 		List<string> ambientKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.Ambient);
 		List<string> buildingKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.Building);
+		List<string> uiToolKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.UITool);
 		List<string> transitAnnouncementKeys = GetEligibleLocalModuleKeys(DeveloperAudioDomain.TransitAnnouncement);
 		List<string> soundSetProfileIds = GetEligibleDeveloperModuleSoundSetProfileIds();
 
@@ -4960,6 +5368,7 @@ public sealed partial class SirenChangerMod
 		changed |= SyncDeveloperModuleDomainState(DeveloperAudioDomain.VehicleEngine, engineKeys);
 		changed |= SyncDeveloperModuleDomainState(DeveloperAudioDomain.Ambient, ambientKeys);
 		changed |= SyncDeveloperModuleDomainState(DeveloperAudioDomain.Building, buildingKeys);
+		changed |= SyncDeveloperModuleDomainState(DeveloperAudioDomain.UITool, uiToolKeys);
 		changed |= SyncDeveloperModuleDomainState(DeveloperAudioDomain.TransitAnnouncement, transitAnnouncementKeys);
 		changed |= SyncDeveloperModuleSoundSetProfileState(soundSetProfileIds);
 
@@ -4992,6 +5401,14 @@ public sealed partial class SirenChangerMod
 			for (int i = 0; i < buildingKeys.Count; i++)
 			{
 				if (s_DeveloperModuleIncludedBuildings.Add(buildingKeys[i]))
+				{
+					changed = true;
+				}
+			}
+
+			for (int i = 0; i < uiToolKeys.Count; i++)
+			{
+				if (s_DeveloperModuleIncludedUITools.Add(uiToolKeys[i]))
 				{
 					changed = true;
 				}
@@ -5179,6 +5596,8 @@ public sealed partial class SirenChangerMod
 				return AmbientConfig.CustomProfiles;
 			case DeveloperAudioDomain.Building:
 				return BuildingConfig.CustomProfiles;
+			case DeveloperAudioDomain.UITool:
+				return UIToolConfig.CustomProfiles;
 			case DeveloperAudioDomain.TransitAnnouncement:
 				return TransitAnnouncementConfig.CustomProfiles;
 			default:
@@ -5207,6 +5626,10 @@ public sealed partial class SirenChangerMod
 				return string.IsNullOrWhiteSpace(BuildingConfig.CustomFolderName)
 					? BuildingCustomFolderName
 					: BuildingConfig.CustomFolderName;
+			case DeveloperAudioDomain.UITool:
+				return string.IsNullOrWhiteSpace(UIToolConfig.CustomFolderName)
+					? UIToolCustomFolderName
+					: UIToolConfig.CustomFolderName;
 			case DeveloperAudioDomain.TransitAnnouncement:
 				return string.IsNullOrWhiteSpace(TransitAnnouncementConfig.CustomFolderName)
 					? TransitAnnouncementCustomFolderName
@@ -5229,6 +5652,8 @@ public sealed partial class SirenChangerMod
 				return ref s_DeveloperModuleSelectedLocalAmbientKey;
 			case DeveloperAudioDomain.Building:
 				return ref s_DeveloperModuleSelectedLocalBuildingKey;
+			case DeveloperAudioDomain.UITool:
+				return ref s_DeveloperModuleSelectedLocalUIToolKey;
 			case DeveloperAudioDomain.TransitAnnouncement:
 				return ref s_DeveloperModuleSelectedLocalTransitAnnouncementKey;
 			default:
@@ -5249,6 +5674,8 @@ public sealed partial class SirenChangerMod
 				return s_DeveloperModuleIncludedAmbient;
 			case DeveloperAudioDomain.Building:
 				return s_DeveloperModuleIncludedBuildings;
+			case DeveloperAudioDomain.UITool:
+				return s_DeveloperModuleIncludedUITools;
 			case DeveloperAudioDomain.TransitAnnouncement:
 				return s_DeveloperModuleIncludedTransitAnnouncements;
 			default:
@@ -5269,6 +5696,8 @@ public sealed partial class SirenChangerMod
 				return "No local ambient files found";
 			case DeveloperAudioDomain.Building:
 				return "No local building files found";
+			case DeveloperAudioDomain.UITool:
+				return "No local UI/tool files found";
 			case DeveloperAudioDomain.TransitAnnouncement:
 				return "No local transit announcement files found";
 			default:
@@ -5289,6 +5718,8 @@ public sealed partial class SirenChangerMod
 				return "ambient";
 			case DeveloperAudioDomain.Building:
 				return "building";
+			case DeveloperAudioDomain.UITool:
+				return "UI/tool";
 			case DeveloperAudioDomain.TransitAnnouncement:
 				return "transit announcement";
 			default:
@@ -5303,6 +5734,7 @@ public sealed partial class SirenChangerMod
 			s_DeveloperModuleIncludedEngines.Count +
 			s_DeveloperModuleIncludedAmbient.Count +
 			s_DeveloperModuleIncludedBuildings.Count +
+			s_DeveloperModuleIncludedUITools.Count +
 			s_DeveloperModuleIncludedTransitAnnouncements.Count;
 	}
 
@@ -5409,6 +5841,7 @@ public sealed partial class SirenChangerMod
 		int engineCount,
 		int ambientCount,
 		int buildingCount,
+		int uiToolCount,
 		int transitAnnouncementCount,
 		int soundSetProfileCount,
 		bool uploadReadyAssetPackage)
@@ -5424,6 +5857,7 @@ public sealed partial class SirenChangerMod
 		builder.Append("Vehicle Engines: ").AppendLine(engineCount.ToString(CultureInfo.InvariantCulture));
 		builder.Append("Ambient Sounds: ").AppendLine(ambientCount.ToString(CultureInfo.InvariantCulture));
 		builder.Append("Building Sounds: ").AppendLine(buildingCount.ToString(CultureInfo.InvariantCulture));
+		builder.Append("UI/Tool Sounds: ").AppendLine(uiToolCount.ToString(CultureInfo.InvariantCulture));
 		builder.Append("Transit Announcements: ").AppendLine(transitAnnouncementCount.ToString(CultureInfo.InvariantCulture));
 		builder.Append("Sound Set Profiles: ").AppendLine(soundSetProfileCount.ToString(CultureInfo.InvariantCulture));
 		builder.AppendLine();
@@ -5564,6 +5998,8 @@ public sealed partial class SirenChangerMod
 				return s_DetectedAmbientAudio;
 			case DeveloperAudioDomain.Building:
 				return s_DetectedBuildingAudio;
+			case DeveloperAudioDomain.UITool:
+				return s_DetectedUIToolAudio;
 			default:
 				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown detected audio domain.");
 		}
@@ -5582,6 +6018,8 @@ public sealed partial class SirenChangerMod
 				return ref s_DeveloperSelectedAmbientKey;
 			case DeveloperAudioDomain.Building:
 				return ref s_DeveloperSelectedBuildingKey;
+			case DeveloperAudioDomain.UITool:
+				return ref s_DeveloperSelectedUIToolKey;
 			default:
 				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown detected audio domain.");
 		}
@@ -5600,6 +6038,8 @@ public sealed partial class SirenChangerMod
 				return ref s_DeveloperAmbientStatus;
 			case DeveloperAudioDomain.Building:
 				return ref s_DeveloperBuildingStatus;
+			case DeveloperAudioDomain.UITool:
+				return ref s_DeveloperUIToolStatus;
 			default:
 				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown detected audio domain.");
 		}
@@ -5661,6 +6101,8 @@ public sealed partial class SirenChangerMod
 				return "ambient sound";
 			case DeveloperAudioDomain.Building:
 				return "building sound";
+			case DeveloperAudioDomain.UITool:
+				return "UI/tool sound";
 			default:
 				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown detected audio domain.");
 		}
@@ -5678,6 +6120,8 @@ public sealed partial class SirenChangerMod
 				return "ambient sounds";
 			case DeveloperAudioDomain.Building:
 				return "building sounds";
+			case DeveloperAudioDomain.UITool:
+				return "UI/tool sounds";
 			default:
 				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown detected audio domain.");
 		}
@@ -5695,6 +6139,8 @@ public sealed partial class SirenChangerMod
 				return "No detected ambient sounds";
 			case DeveloperAudioDomain.Building:
 				return "No detected building sounds";
+			case DeveloperAudioDomain.UITool:
+				return "No detected UI/tool sounds";
 			default:
 				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown detected audio domain.");
 		}
@@ -5712,6 +6158,8 @@ public sealed partial class SirenChangerMod
 				return "No detected ambient sounds are available yet. Load a map/editor session to detect sounds.";
 			case DeveloperAudioDomain.Building:
 				return "No detected building sounds are available yet. Load a map/editor session to detect sounds.";
+			case DeveloperAudioDomain.UITool:
+				return "No detected UI/tool sounds are available yet. Load a map/editor session to detect sounds.";
 			default:
 				throw new ArgumentOutOfRangeException(nameof(domain), domain, "Unknown detected audio domain.");
 		}
@@ -5819,7 +6267,10 @@ public sealed partial class SirenChangerMod
 		[DataMember(Order = 9, Name = "transitAnnouncements")]
 		public List<DeveloperModuleManifestEntry> TransitAnnouncements { get; set; } = new List<DeveloperModuleManifestEntry>();
 
-		[DataMember(Order = 10, Name = "soundSetProfiles")]
+		[DataMember(Order = 10, Name = "uiTools")]
+		public List<DeveloperModuleManifestEntry> UITools { get; set; } = new List<DeveloperModuleManifestEntry>();
+
+		[DataMember(Order = 11, Name = "soundSetProfiles")]
 		public List<DeveloperModuleManifestSoundSetProfile> SoundSetProfiles { get; set; } = new List<DeveloperModuleManifestSoundSetProfile>();
 	}
 

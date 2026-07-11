@@ -29,6 +29,8 @@ public sealed partial class SirenChangerSettings
 
 	private const string kDeveloperModuleBuildingButtonGroup = "Buildings";
 
+	private const string kDeveloperModuleUIToolButtonGroup = "UI/Tool";
+
 	private const string kDeveloperModuleTransitButtonGroup = "Transit";
 
 	private const string kDeveloperModuleProfileButtonGroup = "Sound Set Profiles";
@@ -346,6 +348,37 @@ public sealed partial class SirenChangerSettings
 	}
 
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetModuleBuilderLocalUIToolOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Local UI/Tool File")]
+	[SettingsUIDescription(overrideValue: "Choose a local UI/tool file to add or remove from this package.")]
+	public string DeveloperModuleLocalUIToolSelection
+	{
+		get => SirenChangerMod.GetDeveloperModuleLocalAudioSelection(DeveloperAudioDomain.UITool);
+		set => SirenChangerMod.SetDeveloperModuleLocalAudioSelection(DeveloperAudioDomain.UITool, value);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kDeveloperModuleUIToolButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Add Selected UI/Tool")]
+	[SettingsUIDescription(overrideValue: "Add the selected local UI/tool file to this package.")]
+	public bool IncludeSelectedModuleUITool
+	{
+		set => SirenChangerMod.IncludeSelectedLocalAudioInModule(DeveloperAudioDomain.UITool);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kDeveloperModuleUIToolButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Remove Selected UI/Tool")]
+	[SettingsUIDescription(overrideValue: "Remove the selected local UI/tool file from this package.")]
+	public bool ExcludeSelectedModuleUITool
+	{
+		set => SirenChangerMod.ExcludeSelectedLocalAudioFromModule(DeveloperAudioDomain.UITool);
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetModuleBuilderLocalTransitAnnouncementOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Local Line Announcement File")]
@@ -484,6 +517,18 @@ public sealed partial class SirenChangerSettings
 	}
 
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIButton]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeveloperModuleUploadControlsDisabled))]
+	[SettingsUIButtonGroup(kDeveloperModuleBuildButtonGroup)]
+	[SettingsUIConfirmation(overrideConfirmMessageValue: "Upload the most recently built asset package to PDX Mods now?")]
+	[SettingsUIDisplayName(overrideValue: "Upload Latest")]
+	[SettingsUIDescription(overrideValue: "Upload the latest build from disk using current upload settings, without rebuilding first.")]
+	public bool UploadLatestAssetModule
+	{
+		set => SirenChangerMod.UploadLatestDeveloperAssetModuleToPdxMods();
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
 	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeveloperModuleUploadControlsDisabled))]
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetDeveloperModuleUploadAccessLevelOptions))]
 	[SettingsUIDisplayName(overrideValue: "Visibility")]
@@ -565,6 +610,17 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIButton]
 	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeveloperModuleUploadControlsDisabled))]
 	[SettingsUIButtonGroup(kDeveloperModuleUploadButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Validate Upload Setup")]
+	[SettingsUIDescription(overrideValue: "Run upload preflight checks without publishing to confirm account, metadata, dependencies, and target settings.")]
+	public bool ValidateDeveloperModuleUploadSetup
+	{
+		set => SirenChangerMod.ValidateDeveloperModuleUploadSetup();
+	}
+
+	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
+	[SettingsUIButton]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsDeveloperModuleUploadControlsDisabled))]
+	[SettingsUIButtonGroup(kDeveloperModuleUploadButtonGroup)]
 	[SettingsUIDisplayName(overrideValue: "Refresh Thumbnails")]
 	[SettingsUIDescription(overrideValue: "Rescan the latest upload package and Thumbnail Directory for thumbnail choices.")]
 	public bool ScanDeveloperModuleUploadThumbnails
@@ -576,7 +632,7 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIMultilineText("Media/Misc/Warning.svg")]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Pipeline Status")]
-	[SettingsUIDescription(overrideValue: "Shows the active upload backend and mode.")]
+	[SettingsUIDescription(overrideValue: "Shows current upload mode, package readiness, thumbnail/dependency checks, and validation hints.")]
 	public string DeveloperModuleUploadModeStatus => SirenChangerMod.GetDeveloperModuleUploadModeStatusText();
 
 	[SettingsUISection(kDeveloperTab, kDeveloperModuleGroup)]
@@ -714,6 +770,12 @@ public sealed partial class SirenChangerSettings
 	public static DropdownItem<string>[] GetModuleBuilderLocalBuildingOptions()
 	{
 		return SirenChangerMod.BuildDeveloperModuleLocalAudioDropdown(DeveloperAudioDomain.Building);
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetModuleBuilderLocalUIToolOptions()
+	{
+		return SirenChangerMod.BuildDeveloperModuleLocalAudioDropdown(DeveloperAudioDomain.UITool);
 	}
 
 	[Preserve]

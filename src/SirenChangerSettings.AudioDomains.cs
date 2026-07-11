@@ -21,6 +21,8 @@ public sealed partial class SirenChangerSettings
 	public const string kAmbientSetupGroup = "Ambient Setup";
 	public const string kAmbientDefaultsGroup = "Ambient Defaults";
 	public const string kAmbientTargetGroup = "Specific Ambient Target Overrides";
+	public const string kAmbientWorldTargetGroup = "Specific World Ambient Overrides";
+	public const string kAmbientDisasterTargetGroup = "Specific Disaster Ambient Overrides";
 	public const string kAmbientFallbackGroup = "Missing Ambient Sound Behavior";
 	public const string kAmbientProfileGroup = "Ambient Profile Editor";
 
@@ -29,10 +31,19 @@ public sealed partial class SirenChangerSettings
 	public const string kBuildingSetupGroup = "Building Setup";
 	public const string kBuildingDefaultsGroup = "Building Defaults";
 	public const string kBuildingTargetGroup = "Specific Building Overrides";
+	public const string kBuildingServiceTargetGroup = "Specific Service Building Overrides";
 	public const string kBuildingFallbackGroup = "Missing Building Sound Behavior";
 	public const string kBuildingProfileGroup = "Building Profile Editor";
 
 	private const string kBuildingRescanButtonGroup = "Building Scan Actions";
+
+	public const string kUIToolSetupGroup = "UI/Tool Setup";
+	public const string kUIToolDefaultsGroup = "UI/Tool Defaults";
+	public const string kUIToolTargetGroup = "Specific UI/Tool Overrides";
+	public const string kUIToolFallbackGroup = "Missing UI/Tool Sound Behavior";
+	public const string kUIToolProfileGroup = "UI/Tool Profile Editor";
+
+	private const string kUIToolRescanButtonGroup = "UI/Tool Scan Actions";
 
 	[SettingsUISection(kVehiclesTab, kVehicleSetupGroup)]
 	[SettingsUIDisplayName(overrideValue: "Enable Vehicle Engine Replacement")]
@@ -102,6 +113,23 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDescription(overrideValue: "Shows whether the selected vehicle has an override.")]
 	public string VehicleEngineOverrideStatus => SirenChangerMod.GetSelectedVehicleEngineOverrideStatusText();
 
+	[SettingsUISection(kVehiclesTab, kVehicleOverrideTargetGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsVehicleEngineOverrideDisabled))]
+	[SettingsUIButton]
+	[SettingsUIDisplayName(overrideValue: "Edit Selected Override In Advanced Editor")]
+	[SettingsUIDescription(overrideValue: "Targets the advanced engine editor at the selected vehicle override sound. Edits affect all vehicles using that same sound profile.")]
+	public bool LinkVehicleEngineOverrideToAdvancedEditor
+	{
+		set => SirenChangerMod.LinkVehicleEngineEditorToSelectedOverrideFromOptions();
+	}
+
+	[SettingsUISection(kVehiclesTab, kVehicleOverrideTargetGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Advanced Editor Link Status")]
+	[SettingsUIDescription(overrideValue: "Shows the result of linking a selected vehicle override into the advanced editor.")]
+	public string VehicleEngineEditorLinkStatus => SirenChangerMod.GetVehicleEngineEditorLinkStatusText();
+
 	[SettingsUISection(kVehiclesTab, kVehicleFallbackGroup)]
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetFallbackBehaviorOptions))]
 	[SettingsUIDisplayName(overrideValue: "If Selected Engine Sound Is Missing")]
@@ -131,7 +159,7 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetVehicleEnginePreviewableProfileOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Engine Profile To Edit")]
-	[SettingsUIDescription(overrideValue: "Select a custom engine profile to edit, or choose Default to preview the built-in game engine sample.")]
+	[SettingsUIDescription(overrideValue: "Select a custom engine profile to edit. If multiple vehicle overrides use this profile, edits apply to all of them. Choose Default only for built-in sample preview.")]
 	public string EditVehicleEngineProfile
 	{
 		get => SirenChangerMod.VehicleEngineConfig.EditProfileSelection;
@@ -391,10 +419,10 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetAmbientTargetOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Ambient Target Prefab")]
-	[SettingsUIDescription(overrideValue: "Choose a specific ambient target prefab to override.")]
+	[SettingsUIDescription(overrideValue: "Choose a specific ambient target prefab to override (excludes world and disaster targets).")]
 	public string AmbientOverrideTarget
 	{
-		get => SirenChangerMod.AmbientConfig.TargetSelectionTarget;
+		get => SirenChangerMod.GetAmbientTargetSelectionTargetForOptions();
 		set => SirenChangerMod.SetAmbientTargetSelectionTargetFromOptions(value);
 	}
 
@@ -416,6 +444,68 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDisplayName(overrideValue: "Ambient Override Status")]
 	[SettingsUIDescription(overrideValue: "Shows whether the selected ambient target has an override.")]
 	public string AmbientOverrideStatus => SirenChangerMod.GetSelectedAmbientOverrideStatusText();
+
+	[SettingsUISection(kAmbientTab, kAmbientWorldTargetGroup)]
+	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowAmbientWorldOverrideWarning))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetAmbientWorldTargetOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "World Ambient Target Prefab")]
+	[SettingsUIDescription(overrideValue: "Choose a specific world ambient target prefab to override.")]
+	public string AmbientWorldOverrideTarget
+	{
+		get => SirenChangerMod.GetAmbientWorldTargetSelectionTargetForOptions();
+		set => SirenChangerMod.SetAmbientWorldTargetSelectionTargetFromOptions(value);
+	}
+
+	[SettingsUISection(kAmbientTab, kAmbientWorldTargetGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsAmbientWorldOverrideDisabled))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetAmbientSelectionOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Override World Ambient Sound")]
+	[SettingsUIDescription(overrideValue: "Default means this world target uses the ambient default selection.")]
+	public string AmbientWorldOverrideSelection
+	{
+		get => SirenChangerMod.GetSelectedAmbientWorldTargetSelectionForOptions();
+		set => SirenChangerMod.SetSelectedAmbientWorldTargetSelectionFromOptions(value);
+	}
+
+	[SettingsUISection(kAmbientTab, kAmbientWorldTargetGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "World Ambient Override Status")]
+	[SettingsUIDescription(overrideValue: "Shows whether the selected world ambient target has an override.")]
+	public string AmbientWorldOverrideStatus => SirenChangerMod.GetSelectedAmbientWorldOverrideStatusText();
+
+	[SettingsUISection(kAmbientTab, kAmbientDisasterTargetGroup)]
+	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowAmbientDisasterOverrideWarning))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetAmbientDisasterTargetOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Disaster Ambient Target Prefab")]
+	[SettingsUIDescription(overrideValue: "Choose a specific disaster ambient target prefab to override.")]
+	public string AmbientDisasterOverrideTarget
+	{
+		get => SirenChangerMod.GetAmbientDisasterTargetSelectionTargetForOptions();
+		set => SirenChangerMod.SetAmbientDisasterTargetSelectionTargetFromOptions(value);
+	}
+
+	[SettingsUISection(kAmbientTab, kAmbientDisasterTargetGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsAmbientDisasterOverrideDisabled))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetAmbientSelectionOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Override Disaster Ambient Sound")]
+	[SettingsUIDescription(overrideValue: "Default means this disaster target uses the ambient default selection.")]
+	public string AmbientDisasterOverrideSelection
+	{
+		get => SirenChangerMod.GetSelectedAmbientDisasterTargetSelectionForOptions();
+		set => SirenChangerMod.SetSelectedAmbientDisasterTargetSelectionFromOptions(value);
+	}
+
+	[SettingsUISection(kAmbientTab, kAmbientDisasterTargetGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Disaster Ambient Override Status")]
+	[SettingsUIDescription(overrideValue: "Shows whether the selected disaster ambient target has an override.")]
+	public string AmbientDisasterOverrideStatus => SirenChangerMod.GetSelectedAmbientDisasterOverrideStatusText();
 
 	[SettingsUISection(kAmbientTab, kAmbientFallbackGroup)]
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetFallbackBehaviorOptions))]
@@ -706,10 +796,10 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetBuildingTargetOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Building Target Prefab")]
-	[SettingsUIDescription(overrideValue: "Choose a specific building prefab to override.")]
+	[SettingsUIDescription(overrideValue: "Choose a specific non-service building prefab to override.")]
 	public string BuildingOverrideTarget
 	{
-		get => SirenChangerMod.BuildingConfig.TargetSelectionTarget;
+		get => SirenChangerMod.GetBuildingTargetSelectionTargetForOptions();
 		set => SirenChangerMod.SetBuildingTargetSelectionTargetFromOptions(value);
 	}
 
@@ -731,6 +821,37 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDisplayName(overrideValue: "Building Override Status")]
 	[SettingsUIDescription(overrideValue: "Shows whether the selected building target has an override.")]
 	public string BuildingOverrideStatus => SirenChangerMod.GetSelectedBuildingOverrideStatusText();
+
+	[SettingsUISection(kBuildingsTab, kBuildingServiceTargetGroup)]
+	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowBuildingServiceOverrideWarning))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetBuildingServiceTargetOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Service Building Target Prefab")]
+	[SettingsUIDescription(overrideValue: "Choose a specific service building prefab to override.")]
+	public string BuildingServiceOverrideTarget
+	{
+		get => SirenChangerMod.GetBuildingServiceTargetSelectionTargetForOptions();
+		set => SirenChangerMod.SetBuildingServiceTargetSelectionTargetFromOptions(value);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingServiceTargetGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsBuildingServiceOverrideDisabled))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetBuildingSelectionOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Override Service Building Sound")]
+	[SettingsUIDescription(overrideValue: "Default means this service building uses the building default selection.")]
+	public string BuildingServiceOverrideSelection
+	{
+		get => SirenChangerMod.GetSelectedBuildingServiceTargetSelectionForOptions();
+		set => SirenChangerMod.SetSelectedBuildingServiceTargetSelectionFromOptions(value);
+	}
+
+	[SettingsUISection(kBuildingsTab, kBuildingServiceTargetGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Service Building Override Status")]
+	[SettingsUIDescription(overrideValue: "Shows whether the selected service building target has an override.")]
+	public string BuildingServiceOverrideStatus => SirenChangerMod.GetSelectedBuildingServiceOverrideStatusText();
 
 	[SettingsUISection(kBuildingsTab, kBuildingFallbackGroup)]
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetFallbackBehaviorOptions))]
@@ -972,6 +1093,323 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowBuildingCatalogWarning))]
 	public string BuildingCatalogScanStatus => SirenChangerMod.GetBuildingCatalogScanStatusText();
 
+	[SettingsUISection(kUIToolTab, kUIToolSetupGroup)]
+	[SettingsUIDisplayName(overrideValue: "Enable UI/Tool Replacement")]
+	[SettingsUIDescription(overrideValue: "Enable or disable custom UI and tool sound replacement.")]
+	public bool UIToolEnabled
+	{
+		get => SirenChangerMod.UIToolConfig.Enabled;
+		set => SirenChangerMod.UIToolConfig.Enabled = value;
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolSetupGroup)]
+	[SettingsUIDisplayName(overrideValue: "Mute UI/Tool Targets")]
+	[SettingsUIDescription(overrideValue: "Mute all detected UI/tool targets while keeping assignments intact.")]
+	public bool UIToolMuteAllTargets
+	{
+		get => SirenChangerMod.UIToolConfig.MuteAllTargets;
+		set => SirenChangerMod.UIToolConfig.MuteAllTargets = value;
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolSetupGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kUIToolRescanButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Rescan Custom UI/Tool Files")]
+	[SettingsUIDescription(overrideValue: "Rescan the Custom UI Tool SFX folder and refresh dropdowns.")]
+	public bool UpdateCustomUITool
+	{
+		set => SirenChangerMod.RefreshCustomUIToolFromOptions();
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolSetupGroup)]
+	[SettingsUIButton]
+	[SettingsUIButtonGroup(kUIToolRescanButtonGroup)]
+	[SettingsUIDisplayName(overrideValue: "Rescan UI/Tool Targets")]
+	[SettingsUIDescription(overrideValue: "Scan currently loaded worlds and refresh UI/tool override targets.")]
+	public bool UpdateUIToolTargets
+	{
+		set => SirenChangerMod.RefreshUIToolTargetsFromOptions();
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolSetupGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "UI/Tool Target Scan Status")]
+	[SettingsUIDescription(overrideValue: "Shows the last UI/tool target scan result.")]
+	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowUIToolTargetScanWarning))]
+	public string UIToolTargetScanStatus => SirenChangerMod.GetUIToolTargetScanStatusText();
+
+	[SettingsUISection(kUIToolTab, kUIToolTargetGroup)]
+	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowUIToolOverrideWarning))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetUIToolTargetOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "UI/Tool Target")]
+	[SettingsUIDescription(overrideValue: "Choose a specific detected UI/tool target to override.")]
+	public string UIToolOverrideTarget
+	{
+		get => SirenChangerMod.UIToolConfig.TargetSelectionTarget;
+		set => SirenChangerMod.SetUIToolTargetSelectionTargetFromOptions(value);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolTargetGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsUIToolOverrideDisabled))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetUIToolSelectionOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Override UI/Tool Sound")]
+	[SettingsUIDescription(overrideValue: "Default means this target uses the current UI/tool default selection.")]
+	public string UIToolOverrideSelection
+	{
+		get => SirenChangerMod.GetSelectedUIToolTargetSelectionForOptions();
+		set => SirenChangerMod.SetSelectedUIToolTargetSelectionFromOptions(value);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolTargetGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "UI/Tool Override Status")]
+	[SettingsUIDescription(overrideValue: "Shows whether the selected UI/tool target has an override.")]
+	public string UIToolOverrideStatus => SirenChangerMod.GetSelectedUIToolOverrideStatusText();
+
+	[SettingsUISection(kUIToolTab, kUIToolFallbackGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetFallbackBehaviorOptions))]
+	[SettingsUIDisplayName(overrideValue: "If Selected UI/Tool Sound Is Missing")]
+	[SettingsUIDescription(overrideValue: "Fallback behavior when the selected UI/tool sound cannot be loaded.")]
+	public int MissingUIToolFallbackBehavior
+	{
+		get => (int)SirenChangerMod.UIToolConfig.MissingSelectionFallbackBehavior;
+		set => SirenChangerMod.UIToolConfig.MissingSelectionFallbackBehavior =
+			Enum.IsDefined(typeof(SirenFallbackBehavior), value)
+				? (SirenFallbackBehavior)value
+				: SirenFallbackBehavior.Default;
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolFallbackGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsUIToolAlternateFallbackSelectionDisabled))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetUIToolSelectionOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Alternate UI/Tool Sound")]
+	[SettingsUIDescription(overrideValue: "Used only when fallback behavior is set to Alternate Custom Sound File.")]
+	public string AlternateUIToolFallbackSelection
+	{
+		get => SirenChangerMod.UIToolConfig.AlternateFallbackSelection;
+		set => SirenChangerMod.UIToolConfig.AlternateFallbackSelection = NormalizeDomainSelection(value);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetUIToolPreviewableProfileOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "UI/Tool Profile To Edit")]
+	[SettingsUIDescription(overrideValue: "Select a custom UI/tool profile to edit, or choose Default to preview the built-in sample.")]
+	public string EditUIToolProfile
+	{
+		get => SirenChangerMod.UIToolConfig.EditProfileSelection;
+		set => SirenChangerMod.UIToolConfig.EditProfileSelection = AudioReplacementDomainConfig.NormalizeProfileKey(value);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIButton]
+	[SettingsUIDisplayName(overrideValue: "Preview Selected UI/Tool Sound")]
+	[SettingsUIDescription(overrideValue: "Play the selected custom UI/tool profile, or the built-in default sample when Default is selected.")]
+	public bool PreviewSelectedUIToolProfile
+	{
+		set => SirenChangerMod.PreviewSelectedUIToolProfileFromOptions();
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Preview Status")]
+	[SettingsUIDescription(overrideValue: "Shows the last UI/tool profile preview result.")]
+	public string UIToolPreviewStatus => SirenChangerMod.GetUIToolPreviewStatusText();
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoUIToolEditableProfile))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetUIToolCopySourceOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Copy Settings From UI/Tool Profile")]
+	[SettingsUIDescription(overrideValue: "Choose a source profile from custom UI/tool sounds or detected UI/tool SFX.")]
+	public string CopyFromUIToolProfile
+	{
+		get => SirenChangerMod.UIToolConfig.CopyFromProfileSelection;
+		set => SirenChangerMod.UIToolConfig.CopyFromProfileSelection = AudioReplacementDomainConfig.NormalizeProfileKey(value);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsUIToolCopyProfileDisabled))]
+	[SettingsUIButton]
+	[SettingsUIDisplayName(overrideValue: "Copy Source Into Current UI/Tool Profile")]
+	[SettingsUIDescription(overrideValue: "Copy SFX parameters from source profile into the currently edited profile.")]
+	public bool CopyUIToolProfileIntoEditable
+	{
+		set
+		{
+			if (TryGetUIToolEditableProfile(out SirenSfxProfile target) &&
+				TryGetUIToolCopySourceProfile(out SirenSfxProfile source))
+			{
+				CopyProfileValues(target, source);
+				SirenChangerMod.NotifyRuntimeConfigChanged(saveToDisk: true);
+			}
+		}
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIButton]
+	[SettingsUIDisplayName(overrideValue: "Reset Current UI/Tool Profile To Template")]
+	[SettingsUIDescription(overrideValue: "Reset the selected profile to template values captured from detected UI/tool SFX.")]
+	public bool ResetEditableUIToolProfileToTemplate
+	{
+		set
+		{
+			if (TryGetUIToolEditableProfile(out SirenSfxProfile target))
+			{
+				CopyProfileValues(target, SirenChangerMod.UIToolProfileTemplate);
+				SirenChangerMod.NotifyRuntimeConfigChanged(saveToDisk: true);
+			}
+		}
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoUIToolEditableProfile))]
+	[SettingsUISlider(min = 0f, max = 100f, step = 1f, unit = "percentageSingleFraction", scalarMultiplier = 100f, updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Volume")]
+	[SettingsUIDescription(overrideValue: "UI/tool profile volume.")]
+	public float UIToolProfileVolume
+	{
+		get => GetUIToolEditableProfile().Volume;
+		set => SetUIToolProfileValue(profile => profile.Volume = value, clamp: true);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoUIToolEditableProfile))]
+	[SettingsUISlider(min = -3f, max = 3f, step = 0.05f, unit = "floatSingleFraction", updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Pitch")]
+	[SettingsUIDescription(overrideValue: "UI/tool profile pitch.")]
+	public float UIToolProfilePitch
+	{
+		get => GetUIToolEditableProfile().Pitch;
+		set => SetUIToolProfileValue(profile => profile.Pitch = value, clamp: true);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoUIToolEditableProfile))]
+	[SettingsUISlider(min = 0f, max = 100f, step = 1f, unit = "percentageSingleFraction", scalarMultiplier = 100f, updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Spatial Blend")]
+	[SettingsUIDescription(overrideValue: "UI/tool profile spatial blend.")]
+	public float UIToolProfileSpatialBlend
+	{
+		get => GetUIToolEditableProfile().SpatialBlend;
+		set => SetUIToolProfileValue(profile => profile.SpatialBlend = value, clamp: true);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoUIToolEditableProfile))]
+	[SettingsUISlider(min = 0f, max = 100f, step = 1f, unit = "percentageSingleFraction", scalarMultiplier = 100f, updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Doppler Level")]
+	[SettingsUIDescription(overrideValue: "Controls doppler effect intensity for moving UI/tool sources.")]
+	public float UIToolProfileDoppler
+	{
+		get => GetUIToolEditableProfile().Doppler;
+		set => SetUIToolProfileValue(profile => profile.Doppler = value, clamp: true);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoUIToolEditableProfile))]
+	[SettingsUISlider(min = 0f, max = 360f, step = 1f, unit = "integer", updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Stereo Spread")]
+	[SettingsUIDescription(overrideValue: "Sets how widely stereo channels are spread in 3D space.")]
+	public float UIToolProfileSpread
+	{
+		get => GetUIToolEditableProfile().Spread;
+		set => SetUIToolProfileValue(profile => profile.Spread = value, clamp: true);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoUIToolEditableProfile))]
+	[SettingsUISlider(min = 0f, max = 100f, step = 0.5f, unit = "floatSingleFraction", updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Min Distance")]
+	[SettingsUIDescription(overrideValue: "Distance where volume starts attenuating based on rolloff mode.")]
+	public float UIToolProfileMinDistance
+	{
+		get => GetUIToolEditableProfile().MinDistance;
+		set => SetUIToolProfileValue(profile => profile.MinDistance = value, clamp: true);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoUIToolEditableProfile))]
+	[SettingsUISlider(min = 1f, max = 500f, step = 1f, unit = "floatSingleFraction", updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Max Distance")]
+	[SettingsUIDescription(overrideValue: "Distance where the UI/tool sound reaches minimum audible level.")]
+	public float UIToolProfileMaxDistance
+	{
+		get => GetUIToolEditableProfile().MaxDistance;
+		set => SetUIToolProfileValue(profile => profile.MaxDistance = value, clamp: true);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoUIToolEditableProfile))]
+	[SettingsUIDisplayName(overrideValue: "Loop")]
+	[SettingsUIDescription(overrideValue: "When enabled, this UI/tool profile loops.")]
+	public bool UIToolProfileLoop
+	{
+		get => GetUIToolEditableProfile().Loop;
+		set => SetUIToolProfileValue(profile => profile.Loop = value, clamp: false);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoUIToolEditableProfile))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetRolloffModeOptions))]
+	[SettingsUIDisplayName(overrideValue: "Rolloff Mode")]
+	[SettingsUIDescription(overrideValue: "Selects how volume attenuates over distance.")]
+	public int UIToolProfileRolloffMode
+	{
+		get => (int)GetUIToolEditableProfile().RolloffMode;
+		set => SetUIToolProfileValue(
+			profile => profile.RolloffMode = Enum.IsDefined(typeof(AudioRolloffMode), value)
+				? (AudioRolloffMode)value
+				: AudioRolloffMode.Linear,
+			clamp: false);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoUIToolEditableProfile))]
+	[SettingsUIDisplayName(overrideValue: "Random Start Time")]
+	[SettingsUIDescription(overrideValue: "Start playback from a random clip position to reduce repetitive sync.")]
+	public bool UIToolProfileRandomStartTime
+	{
+		get => GetUIToolEditableProfile().RandomStartTime;
+		set => SetUIToolProfileValue(profile => profile.RandomStartTime = value, clamp: false);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoUIToolEditableProfile))]
+	[SettingsUISlider(min = 0f, max = 10f, step = 0.05f, unit = "floatSingleFraction", updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Fade In Seconds")]
+	[SettingsUIDescription(overrideValue: "Time to ramp from silence to full volume when playback starts.")]
+	public float UIToolProfileFadeInSeconds
+	{
+		get => GetUIToolEditableProfile().FadeInSeconds;
+		set => SetUIToolProfileValue(profile => profile.FadeInSeconds = value, clamp: true);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolProfileGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(NoUIToolEditableProfile))]
+	[SettingsUISlider(min = 0f, max = 10f, step = 0.05f, unit = "floatSingleFraction", updateOnDragEnd = true)]
+	[SettingsUIDisplayName(overrideValue: "Fade Out Seconds")]
+	[SettingsUIDescription(overrideValue: "Time to ramp from current volume to silence when playback stops.")]
+	public float UIToolProfileFadeOutSeconds
+	{
+		get => GetUIToolEditableProfile().FadeOutSeconds;
+		set => SetUIToolProfileValue(profile => profile.FadeOutSeconds = value, clamp: true);
+	}
+
+	[SettingsUISection(kUIToolTab, kUIToolSetupGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Custom UI/Tool File Scan Status")]
+	[SettingsUIDescription(overrideValue: "Shows the latest custom UI/tool folder scan summary and changed files.")]
+	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowUIToolCatalogWarning))]
+	public string UIToolCatalogScanStatus => SirenChangerMod.GetUIToolCatalogScanStatusText();
+
 	// Disable vehicle-target override controls until targets are discovered and selected.
 	public bool IsVehicleEngineOverrideDisabled()
 	{
@@ -988,8 +1426,22 @@ public sealed partial class SirenChangerSettings
 	// Disable ambient-target override controls until targets are discovered and selected.
 	public bool IsAmbientOverrideDisabled()
 	{
-		return !SirenChangerMod.HasDiscoveredAmbientTargets() ||
-			string.IsNullOrWhiteSpace(SirenChangerMod.AmbientConfig.TargetSelectionTarget);
+		return !SirenChangerMod.HasDiscoveredAmbientPrimaryTargets() ||
+			string.IsNullOrWhiteSpace(SirenChangerMod.GetAmbientTargetSelectionTargetForOptions());
+	}
+
+	// Disable disaster ambient-target override controls until targets are discovered and selected.
+	public bool IsAmbientDisasterOverrideDisabled()
+	{
+		return !SirenChangerMod.HasDiscoveredAmbientDisasterTargets() ||
+			string.IsNullOrWhiteSpace(SirenChangerMod.GetAmbientDisasterTargetSelectionTargetForOptions());
+	}
+
+	// Disable world ambient-target override controls until targets are discovered and selected.
+	public bool IsAmbientWorldOverrideDisabled()
+	{
+		return !SirenChangerMod.HasDiscoveredAmbientWorldTargets() ||
+			string.IsNullOrWhiteSpace(SirenChangerMod.GetAmbientWorldTargetSelectionTargetForOptions());
 	}
 
 	// Alternate fallback dropdown is only active when the corresponding policy is selected.
@@ -1001,14 +1453,34 @@ public sealed partial class SirenChangerSettings
 	// Disable building-target override controls until targets are discovered and selected.
 	public bool IsBuildingOverrideDisabled()
 	{
-		return !SirenChangerMod.HasDiscoveredBuildingTargets() ||
-			string.IsNullOrWhiteSpace(SirenChangerMod.BuildingConfig.TargetSelectionTarget);
+		return !SirenChangerMod.HasDiscoveredBuildingPrimaryTargets() ||
+			string.IsNullOrWhiteSpace(SirenChangerMod.GetBuildingTargetSelectionTargetForOptions());
+	}
+
+	// Disable service-building override controls until targets are discovered and selected.
+	public bool IsBuildingServiceOverrideDisabled()
+	{
+		return !SirenChangerMod.HasDiscoveredBuildingServiceTargets() ||
+			string.IsNullOrWhiteSpace(SirenChangerMod.GetBuildingServiceTargetSelectionTargetForOptions());
 	}
 
 	// Alternate fallback dropdown is only active when the corresponding policy is selected.
 	public bool IsBuildingAlternateFallbackSelectionDisabled()
 	{
 		return SirenChangerMod.BuildingConfig.MissingSelectionFallbackBehavior != SirenFallbackBehavior.AlternateCustomSiren;
+	}
+
+	// Disable UI/tool-target override controls until targets are discovered and selected.
+	public bool IsUIToolOverrideDisabled()
+	{
+		return !SirenChangerMod.HasDiscoveredUIToolTargets() ||
+			string.IsNullOrWhiteSpace(SirenChangerMod.UIToolConfig.TargetSelectionTarget);
+	}
+
+	// Alternate fallback dropdown is only active when the corresponding policy is selected.
+	public bool IsUIToolAlternateFallbackSelectionDisabled()
+	{
+		return SirenChangerMod.UIToolConfig.MissingSelectionFallbackBehavior != SirenFallbackBehavior.AlternateCustomSiren;
 	}
 
 	// Editable profile controls require a concrete custom profile selection.
@@ -1055,6 +1527,11 @@ public sealed partial class SirenChangerSettings
 		return !TryGetBuildingEditableProfile(out _);
 	}
 
+	public bool NoUIToolEditableProfile()
+	{
+		return !TryGetUIToolEditableProfile(out _);
+	}
+
 	// Copy is disabled when source/target are unavailable or identical.
 	public bool IsBuildingCopyProfileDisabled()
 	{
@@ -1066,6 +1543,20 @@ public sealed partial class SirenChangerSettings
 		return string.Equals(
 			SirenChangerMod.BuildingConfig.CopyFromProfileSelection,
 			SirenChangerMod.BuildingConfig.EditProfileSelection,
+			StringComparison.OrdinalIgnoreCase);
+	}
+
+	// Copy is disabled when source/target are unavailable or identical.
+	public bool IsUIToolCopyProfileDisabled()
+	{
+		if (!TryGetUIToolEditableProfile(out _) || !TryGetUIToolCopySourceProfile(out _))
+		{
+			return true;
+		}
+
+		return string.Equals(
+			SirenChangerMod.UIToolConfig.CopyFromProfileSelection,
+			SirenChangerMod.UIToolConfig.EditProfileSelection,
 			StringComparison.OrdinalIgnoreCase);
 	}
 
@@ -1099,6 +1590,18 @@ public sealed partial class SirenChangerSettings
 		return IsAmbientOverrideDisabled();
 	}
 
+	// Warning helper: indicate that disaster ambient override selection is incomplete.
+	public bool ShowAmbientDisasterOverrideWarning()
+	{
+		return IsAmbientDisasterOverrideDisabled();
+	}
+
+	// Warning helper: indicate that world ambient override selection is incomplete.
+	public bool ShowAmbientWorldOverrideWarning()
+	{
+		return IsAmbientWorldOverrideDisabled();
+	}
+
 	// Warning helper: indicate that no custom ambient profiles are currently available.
 	public bool ShowAmbientCatalogWarning()
 	{
@@ -1117,10 +1620,34 @@ public sealed partial class SirenChangerSettings
 		return IsBuildingOverrideDisabled();
 	}
 
+	// Warning helper: indicate that service-building override selection is incomplete.
+	public bool ShowBuildingServiceOverrideWarning()
+	{
+		return IsBuildingServiceOverrideDisabled();
+	}
+
 	// Warning helper: indicate that no custom building profiles are currently available.
 	public bool ShowBuildingCatalogWarning()
 	{
 		return SirenChangerMod.BuildingConfig.CustomProfiles.Count == 0;
+	}
+
+	// Warning helper: indicate that UI/tool target scans have not produced targets yet.
+	public bool ShowUIToolTargetScanWarning()
+	{
+		return !SirenChangerMod.HasDiscoveredUIToolTargets();
+	}
+
+	// Warning helper: indicate that UI/tool override selection is incomplete.
+	public bool ShowUIToolOverrideWarning()
+	{
+		return IsUIToolOverrideDisabled();
+	}
+
+	// Warning helper: indicate that no custom UI/tool profiles are currently available.
+	public bool ShowUIToolCatalogWarning()
+	{
+		return SirenChangerMod.UIToolConfig.CustomProfiles.Count == 0;
 	}
 
 	// Centralized labels/descriptions for key actions to simplify localization.
@@ -1177,6 +1704,24 @@ public sealed partial class SirenChangerSettings
 
 	[Preserve]
 	public static string GetBuildingTargetPrefabScanStatusDescription() => "Shows the last building target scan result.";
+
+	[Preserve]
+	public static string GetRescanCustomUIToolFilesLabel() => "Rescan Custom UI/Tool Files";
+
+	[Preserve]
+	public static string GetRescanCustomUIToolFilesDescription() => "Rescan the Custom UI Tool SFX folder and refresh dropdowns.";
+
+	[Preserve]
+	public static string GetRescanUIToolTargetsLabel() => "Rescan UI/Tool Targets";
+
+	[Preserve]
+	public static string GetRescanUIToolTargetsDescription() => "Scan currently loaded worlds and refresh UI/tool override targets.";
+
+	[Preserve]
+	public static string GetUIToolTargetScanStatusLabel() => "UI/Tool Target Scan Status";
+
+	[Preserve]
+	public static string GetUIToolTargetScanStatusDescription() => "Shows the last UI/tool target scan result.";
 
 	[Preserve]
 	public static DropdownItem<string>[] GetVehicleEngineSelectionOptions()
@@ -1241,6 +1786,18 @@ public sealed partial class SirenChangerSettings
 	}
 
 	[Preserve]
+	public static DropdownItem<string>[] GetAmbientWorldTargetOptions()
+	{
+		return SirenChangerMod.BuildAmbientWorldTargetDropdownItems();
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetAmbientDisasterTargetOptions()
+	{
+		return SirenChangerMod.BuildAmbientDisasterTargetDropdownItems();
+	}
+
+	[Preserve]
 	public static DropdownItem<string>[] GetBuildingSelectionOptions()
 	{
 		return SirenChangerMod.BuildBuildingDropdownItems(includeDefault: true);
@@ -1273,12 +1830,52 @@ public sealed partial class SirenChangerSettings
 		return SirenChangerMod.BuildBuildingTargetDropdownItems();
 	}
 
+	[Preserve]
+	public static DropdownItem<string>[] GetBuildingServiceTargetOptions()
+	{
+		return SirenChangerMod.BuildBuildingServiceTargetDropdownItems();
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetUIToolSelectionOptions()
+	{
+		return SirenChangerMod.BuildUIToolDropdownItems(includeDefault: true);
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetUIToolPreviewableProfileOptions()
+	{
+		return SirenChangerMod.BuildUIToolDropdownItems(includeDefault: true);
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetUIToolEditableProfileOptions()
+	{
+		return SirenChangerMod.BuildUIToolDropdownItems(includeDefault: false);
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetUIToolCopySourceOptions()
+	{
+		return BuildCopySourceOptions(
+			"Default (Detected UI/Tool Template)",
+			SirenChangerMod.BuildUIToolDropdownItems(includeDefault: false),
+			SirenChangerMod.BuildDetectedCopySourceDropdown(DeveloperAudioDomain.UITool));
+	}
+
+	[Preserve]
+	public static DropdownItem<string>[] GetUIToolTargetOptions()
+	{
+		return SirenChangerMod.BuildUIToolTargetDropdownItems();
+	}
+
 	// Reset all non-siren domain settings when options are reset to defaults.
 	private static void ResetExtendedDomainDefaults()
 	{
 		ResetVehicleEngineDefaults();
 		ResetAmbientDefaults();
 		ResetBuildingDefaults();
+		ResetUIToolDefaults();
 		ResetTransitAnnouncementDefaults();
 	}
 
@@ -1394,6 +1991,44 @@ public sealed partial class SirenChangerSettings
 
 		config.EnsureSelectionsValid(new HashSet<string>(config.CustomProfiles.Keys, StringComparer.OrdinalIgnoreCase));
 		config.Normalize(SirenChangerMod.BuildingCustomFolderName);
+	}
+
+	// Restore UI/tool-domain configuration and re-seed profile values from the detected template.
+	private static void ResetUIToolDefaults()
+	{
+		AudioReplacementDomainConfig config = SirenChangerMod.UIToolConfig;
+		config.Enabled = true;
+		config.CustomFolderName = SirenChangerMod.UIToolCustomFolderName;
+		config.DefaultSelection = SirenReplacementConfig.DefaultSelectionToken;
+		config.EditProfileSelection = string.Empty;
+		config.CopyFromProfileSelection = string.Empty;
+		config.CustomProfiles.Clear();
+		config.TargetSelections.Clear();
+		config.TargetSelectionTarget = string.Empty;
+		config.KnownTargets.Clear();
+		config.MuteAllTargets = false;
+		config.MissingSelectionFallbackBehavior = SirenFallbackBehavior.Default;
+		config.AlternateFallbackSelection = SirenReplacementConfig.DefaultSelectionToken;
+		config.LastCatalogScanUtcTicks = 0;
+		config.LastCatalogScanFileCount = 0;
+		config.LastCatalogScanAddedCount = 0;
+		config.LastCatalogScanRemovedCount = 0;
+		config.LastCatalogScanChangedFiles.Clear();
+		config.LastTargetScanUtcTicks = 0;
+		config.LastTargetScanStatus = string.Empty;
+		config.LastValidationUtcTicks = 0;
+		config.LastValidationReport = string.Empty;
+
+		SirenChangerMod.SyncCustomUIToolCatalog(saveIfChanged: false);
+		SirenSfxProfile seed = SirenChangerMod.UIToolProfileTemplate.ClampCopy();
+		List<string> profileKeys = new List<string>(config.CustomProfiles.Keys);
+		for (int i = 0; i < profileKeys.Count; i++)
+		{
+			config.CustomProfiles[profileKeys[i]] = seed.ClampCopy();
+		}
+
+		config.EnsureSelectionsValid(new HashSet<string>(config.CustomProfiles.Keys, StringComparer.OrdinalIgnoreCase));
+		config.Normalize(SirenChangerMod.UIToolCustomFolderName);
 	}
 
 	// Normalize user dropdown value, mapping empty/default back to canonical token.
@@ -1583,6 +2218,69 @@ public sealed partial class SirenChangerSettings
 	private static void SetBuildingProfileValue(Action<SirenSfxProfile> updater, bool clamp)
 	{
 		if (!TryGetBuildingEditableProfile(out SirenSfxProfile profile))
+		{
+			return;
+		}
+
+		updater(profile);
+		if (clamp)
+		{
+			profile.ClampInPlace();
+		}
+	}
+
+	// Resolve current editable UI/tool profile or fallback to template when none is selected.
+	private static SirenSfxProfile GetUIToolEditableProfile()
+	{
+		if (TryGetUIToolEditableProfile(out SirenSfxProfile profile))
+		{
+			return profile;
+		}
+
+		return SirenChangerMod.UIToolProfileTemplate;
+	}
+
+	// Try resolve current editable UI/tool profile from custom profile map.
+	private static bool TryGetUIToolEditableProfile(out SirenSfxProfile profile)
+	{
+		profile = null!;
+		string key = SirenChangerMod.UIToolConfig.EditProfileSelection;
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return false;
+		}
+
+		return SirenChangerMod.UIToolConfig.TryGetProfile(key, out profile);
+	}
+
+	// Resolve copy-source profile for UI/tool editor from default, detected, or custom entries.
+	private static bool TryGetUIToolCopySourceProfile(out SirenSfxProfile profile)
+	{
+		profile = null!;
+		string key = SirenChangerMod.UIToolConfig.CopyFromProfileSelection;
+		if (string.IsNullOrWhiteSpace(key))
+		{
+			return false;
+		}
+
+		if (AudioReplacementDomainConfig.IsDefaultSelection(key))
+		{
+			profile = SirenChangerMod.UIToolProfileTemplate;
+			return true;
+		}
+
+		if (SirenChangerMod.TryGetDetectedCopySourceProfile(DeveloperAudioDomain.UITool, key, out profile))
+		{
+			return true;
+		}
+
+		return SirenChangerMod.UIToolConfig.TryGetProfile(key, out profile);
+	}
+
+	// Apply an update action to the current editable UI/tool profile.
+	private static void SetUIToolProfileValue(Action<SirenSfxProfile> updater, bool clamp)
+	{
+		if (!TryGetUIToolEditableProfile(out SirenSfxProfile profile))
 		{
 			return;
 		}

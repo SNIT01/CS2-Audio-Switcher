@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Networking;
 
@@ -12,17 +13,25 @@ internal static class WaveClipLoader
 {
 	private const int kMaxCachedClips = 128;
 
+	private const long kMaxCachedClipBytes = 512L * 1024L * 1024L;
+
 	private static readonly TimeSpan kOggLoadTimeout = TimeSpan.FromSeconds(10);
 
-	private static readonly TimeSpan kOggRetryCooldown = TimeSpan.FromSeconds(10);
+	private static readonly TimeSpan kAudioRetryCooldown = TimeSpan.FromSeconds(10);
 
 	private static readonly Dictionary<string, CachedClip> s_ClipCache = new Dictionary<string, CachedClip>(StringComparer.OrdinalIgnoreCase);
 
 	private static readonly Dictionary<string, PendingOggLoad> s_PendingOggLoads = new Dictionary<string, PendingOggLoad>(StringComparer.OrdinalIgnoreCase);
 
+	private static readonly Dictionary<string, PendingWavLoad> s_PendingWavLoads = new Dictionary<string, PendingWavLoad>(StringComparer.OrdinalIgnoreCase);
+
 	private static readonly Dictionary<string, FailedOggLoad> s_FailedOggLoads = new Dictionary<string, FailedOggLoad>(StringComparer.OrdinalIgnoreCase);
 
+	private static readonly Dictionary<string, FailedWavLoad> s_FailedWavLoads = new Dictionary<string, FailedWavLoad>(StringComparer.OrdinalIgnoreCase);
+
 	private static readonly List<string> s_PendingOggKeysScratch = new List<string>();
+
+	private static readonly List<string> s_PendingWavKeysScratch = new List<string>();
 
 	private static int s_AsyncCompletionVersion = 1;
 
@@ -38,6 +47,8 @@ internal static class WaveClipLoader
 		public long FileLength { get; set; }
 
 		public long LastAccessUtcTicks { get; set; }
+
+		public long CacheBytes { get; set; }
 	}
 
 	// In-flight OGG decode request tracked across update ticks.
@@ -46,6 +57,17 @@ internal static class WaveClipLoader
 		public UnityWebRequest Request { get; set; } = null!;
 
 		public UnityWebRequestAsyncOperation Operation { get; set; } = null!;
+
+		public long FileLength { get; set; }
+
+		public long LastWriteUtcTicks { get; set; }
+
+		public long StartedUtcTicks { get; set; }
+	}
+
+	private sealed class PendingWavLoad
+	{
+		public Task<WavDecodeResult> DecodeTask { get; set; } = null!;
 
 		public long FileLength { get; set; }
 
@@ -64,6 +86,38 @@ internal static class WaveClipLoader
 		public long FailedUtcTicks { get; set; }
 
 		public string Error { get; set; } = string.Empty;
+	}
+
+	private sealed class FailedWavLoad
+	{
+		public long FileLength { get; set; }
+
+		public long LastWriteUtcTicks { get; set; }
+
+		public long FailedUtcTicks { get; set; }
+
+		public string Error { get; set; } = string.Empty;
+	}
+
+	private readonly struct WavDecodeResult
+	{
+		public WavDecodeResult(float[] samples, int channels, int sampleRate, string error)
+		{
+			Samples = samples;
+			Channels = channels;
+			SampleRate = sampleRate;
+			Error = error;
+		}
+
+		public float[] Samples { get; }
+
+		public int Channels { get; }
+
+		public int SampleRate { get; }
+
+		public string Error { get; }
+
+		public bool Success => Samples != null && Samples.Length > 0 && Channels > 0 && SampleRate > 0 && string.IsNullOrWhiteSpace(Error);
 	}
 
 	// Tri-state result used by runtime apply logic.
@@ -119,8 +173,11 @@ internal static class WaveClipLoader
 		}
 
 		s_PendingOggLoads.Clear();
+		s_PendingWavLoads.Clear();
 		s_FailedOggLoads.Clear();
+		s_FailedWavLoads.Clear();
 		s_PendingOggKeysScratch.Clear();
+		s_PendingWavKeysScratch.Clear();
 		s_LastAsyncPollFrame = -1;
 
 		foreach (KeyValuePair<string, CachedClip> item in s_ClipCache)
@@ -144,29 +201,54 @@ internal static class WaveClipLoader
 		}
 
 		s_LastAsyncPollFrame = frame;
-		if (s_PendingOggLoads.Count == 0)
+		if (s_PendingOggLoads.Count == 0 && s_PendingWavLoads.Count == 0)
 		{
 			return;
 		}
 
-		s_PendingOggKeysScratch.Clear();
-		foreach (string key in s_PendingOggLoads.Keys)
+		if (s_PendingOggLoads.Count > 0)
 		{
-			s_PendingOggKeysScratch.Add(key);
-		}
-
-		for (int i = 0; i < s_PendingOggKeysScratch.Count; i++)
-		{
-			string path = s_PendingOggKeysScratch[i];
-			if (!s_PendingOggLoads.TryGetValue(path, out PendingOggLoad? pending) || pending == null)
+			s_PendingOggKeysScratch.Clear();
+			foreach (string key in s_PendingOggLoads.Keys)
 			{
-				continue;
+				s_PendingOggKeysScratch.Add(key);
 			}
 
-			TryFinalizePendingOgg(path, pending, out _, out _);
+			for (int i = 0; i < s_PendingOggKeysScratch.Count; i++)
+			{
+				string path = s_PendingOggKeysScratch[i];
+				if (!s_PendingOggLoads.TryGetValue(path, out PendingOggLoad? pending) || pending == null)
+				{
+					continue;
+				}
+
+				TryFinalizePendingOgg(path, pending, out _, out _);
+			}
+
+			s_PendingOggKeysScratch.Clear();
 		}
 
-		s_PendingOggKeysScratch.Clear();
+		if (s_PendingWavLoads.Count > 0)
+		{
+			s_PendingWavKeysScratch.Clear();
+			foreach (string key in s_PendingWavLoads.Keys)
+			{
+				s_PendingWavKeysScratch.Add(key);
+			}
+
+			for (int i = 0; i < s_PendingWavKeysScratch.Count; i++)
+			{
+				string path = s_PendingWavKeysScratch[i];
+				if (!s_PendingWavLoads.TryGetValue(path, out PendingWavLoad? pending) || pending == null)
+				{
+					continue;
+				}
+
+				TryFinalizePendingWav(path, pending, out _, out _);
+			}
+
+			s_PendingWavKeysScratch.Clear();
+		}
 	}
 
 	// Return a cache hit only if file metadata still matches.
@@ -202,27 +284,63 @@ internal static class WaveClipLoader
 			UnityEngine.Object.Destroy(existing.Clip);
 		}
 
+		long cacheBytes = EstimateClipCacheBytes(clip);
+		if (cacheBytes > kMaxCachedClipBytes)
+		{
+			s_ClipCache.Remove(path);
+			return;
+		}
+
 		s_ClipCache[path] = new CachedClip
 		{
 			Clip = clip,
 			FileLength = fileLength,
 			LastWriteUtcTicks = lastWriteTicks,
-			LastAccessUtcTicks = DateTime.UtcNow.Ticks
+			LastAccessUtcTicks = DateTime.UtcNow.Ticks,
+			CacheBytes = cacheBytes
 		};
 
 		TrimClipCache();
 	}
 
-	// Remove least-recently-used entries when cache size is exceeded.
+	private static long EstimateClipCacheBytes(AudioClip clip)
+	{
+		try
+		{
+			if (clip == null || clip.samples <= 0 || clip.channels <= 0)
+			{
+				return 0;
+			}
+
+			return (long)clip.samples * clip.channels * sizeof(float);
+		}
+		catch
+		{
+			return 0;
+		}
+	}
+
+	private static long GetTotalCachedClipBytes()
+	{
+		long total = 0;
+		foreach (KeyValuePair<string, CachedClip> pair in s_ClipCache)
+		{
+			total += Math.Max(0L, pair.Value?.CacheBytes ?? 0L);
+		}
+
+		return total;
+	}
+
+	// Remove least-recently-used entries when cache size or byte budget is exceeded.
 	private static void TrimClipCache()
 	{
-		if (s_ClipCache.Count <= kMaxCachedClips)
+		long totalBytes = GetTotalCachedClipBytes();
+		if (s_ClipCache.Count <= kMaxCachedClips && totalBytes <= kMaxCachedClipBytes)
 		{
 			return;
 		}
 
-		int removeCount = s_ClipCache.Count - kMaxCachedClips;
-		for (int i = 0; i < removeCount; i++)
+		while (s_ClipCache.Count > kMaxCachedClips || totalBytes > kMaxCachedClipBytes)
 		{
 			string oldestKey = string.Empty;
 			long oldestTicks = long.MaxValue;
@@ -248,12 +366,15 @@ internal static class WaveClipLoader
 				break;
 			}
 
+			long removedBytes = 0;
 			if (s_ClipCache.TryGetValue(oldestKey, out CachedClip entry) && entry?.Clip != null)
 			{
+				removedBytes = Math.Max(0L, entry.CacheBytes);
 				UnityEngine.Object.Destroy(entry.Clip);
 			}
 
 			s_ClipCache.Remove(oldestKey);
+			totalBytes = Math.Max(0L, totalBytes - removedBytes);
 		}
 	}
 
@@ -263,16 +384,7 @@ internal static class WaveClipLoader
 		string extension = Path.GetExtension(normalizedPath);
 		if (string.Equals(extension, ".wav", StringComparison.OrdinalIgnoreCase))
 		{
-			if (TryLoadWavInternal(normalizedPath, out AudioClip loaded, out error))
-			{
-				loaded.name = $"SC_{Path.GetFileNameWithoutExtension(normalizedPath)}";
-				clip = loaded;
-				StoreCachedClip(normalizedPath, loaded, fileLength, lastWriteTicks);
-				return AudioLoadStatus.Success;
-			}
-
-			clip = null!;
-			return AudioLoadStatus.Failure;
+			return TryLoadWavInternal(normalizedPath, fileLength, lastWriteTicks, out clip, out error);
 		}
 
 		if (string.Equals(extension, ".ogg", StringComparison.OrdinalIgnoreCase))
@@ -285,15 +397,82 @@ internal static class WaveClipLoader
 		return AudioLoadStatus.Failure;
 	}
 
-	// Decode PCM/float WAV bytes and create a Unity clip.
-	private static bool TryLoadWavInternal(string normalizedPath, out AudioClip clip, out string error)
+	// Start or poll async WAV read/decode without blocking the simulation thread.
+	private static AudioLoadStatus TryLoadWavInternal(string normalizedPath, long fileLength, long lastWriteTicks, out AudioClip clip, out string error)
 	{
-		byte[] wavBytes = File.ReadAllBytes(normalizedPath);
-		return TryCreateClipFromWavBytes(
-			wavBytes,
-			$"SC_{Path.GetFileNameWithoutExtension(normalizedPath)}",
-			out clip,
-			out error);
+		clip = null!;
+		if (s_FailedWavLoads.TryGetValue(normalizedPath, out FailedWavLoad? failed) && failed != null)
+		{
+			if (failed.FileLength != fileLength || failed.LastWriteUtcTicks != lastWriteTicks)
+			{
+				s_FailedWavLoads.Remove(normalizedPath);
+			}
+			else
+			{
+				long elapsedTicks = DateTime.UtcNow.Ticks - failed.FailedUtcTicks;
+				if (elapsedTicks < kAudioRetryCooldown.Ticks)
+				{
+					error = $"WAV load recently failed: {failed.Error}";
+					return AudioLoadStatus.Failure;
+				}
+
+				s_FailedWavLoads.Remove(normalizedPath);
+			}
+		}
+
+		if (s_PendingWavLoads.TryGetValue(normalizedPath, out PendingWavLoad? pending) && pending != null)
+		{
+			if (pending.FileLength != fileLength || pending.LastWriteUtcTicks != lastWriteTicks)
+			{
+				s_PendingWavLoads.Remove(normalizedPath);
+				s_AsyncCompletionVersion++;
+			}
+			else
+			{
+				AudioLoadStatus status = TryFinalizePendingWav(normalizedPath, pending, out clip, out error);
+				if (status != AudioLoadStatus.Pending)
+				{
+					return status;
+				}
+
+				error = "WAV decode is still in progress. Try again in a moment.";
+				return AudioLoadStatus.Pending;
+			}
+		}
+
+		s_PendingWavLoads[normalizedPath] = new PendingWavLoad
+		{
+			DecodeTask = Task.Run(() => DecodeWavFile(normalizedPath)),
+			FileLength = fileLength,
+			LastWriteUtcTicks = lastWriteTicks,
+			StartedUtcTicks = DateTime.UtcNow.Ticks
+		};
+
+		error = "WAV decode started asynchronously. Try again shortly.";
+		return AudioLoadStatus.Pending;
+	}
+
+	private static WavDecodeResult DecodeWavFile(string normalizedPath)
+	{
+		try
+		{
+			byte[] wavBytes = File.ReadAllBytes(normalizedPath);
+			if (wavBytes == null || wavBytes.Length == 0)
+			{
+				return new WavDecodeResult(Array.Empty<float>(), 0, 0, "WAV payload was empty.");
+			}
+
+			if (!TryDecodeWav(wavBytes, out float[] samples, out int channels, out int sampleRate, out string error))
+			{
+				return new WavDecodeResult(Array.Empty<float>(), 0, 0, error);
+			}
+
+			return new WavDecodeResult(samples, channels, sampleRate, string.Empty);
+		}
+		catch (Exception ex)
+		{
+			return new WavDecodeResult(Array.Empty<float>(), 0, 0, ex.Message);
+		}
 	}
 
 	// Decode WAV bytes and create an in-memory Unity clip (used by file and TTS paths).
@@ -321,6 +500,25 @@ internal static class WaveClipLoader
 			return false;
 		}
 
+		return TryCreateClipFromDecodedSamples(samples, channels, sampleRate, clipName, out clip, out error);
+	}
+
+	private static bool TryCreateClipFromDecodedSamples(
+		float[] samples,
+		int channels,
+		int sampleRate,
+		string clipName,
+		out AudioClip clip,
+		out string error)
+	{
+		clip = null!;
+		error = string.Empty;
+		if (samples == null || samples.Length == 0 || channels <= 0 || sampleRate <= 0)
+		{
+			error = "WAV payload contained no sample frames.";
+			return false;
+		}
+
 		int sampleFrames = samples.Length / channels;
 		if (sampleFrames <= 0)
 		{
@@ -341,6 +539,65 @@ internal static class WaveClipLoader
 		return true;
 	}
 
+	private static AudioLoadStatus TryFinalizePendingWav(string path, PendingWavLoad pending, out AudioClip clip, out string error)
+	{
+		clip = null!;
+		error = string.Empty;
+		if (!pending.DecodeTask.IsCompleted)
+		{
+			return AudioLoadStatus.Pending;
+		}
+
+		if (pending.DecodeTask.IsCanceled)
+		{
+			error = "WAV decode was canceled.";
+			RecordFailedWavLoad(path, pending.FileLength, pending.LastWriteUtcTicks, error);
+			s_PendingWavLoads.Remove(path);
+			s_AsyncCompletionVersion++;
+			return AudioLoadStatus.Failure;
+		}
+
+		if (pending.DecodeTask.IsFaulted)
+		{
+			error = pending.DecodeTask.Exception?.GetBaseException().Message ?? "WAV decode failed.";
+			RecordFailedWavLoad(path, pending.FileLength, pending.LastWriteUtcTicks, error);
+			s_PendingWavLoads.Remove(path);
+			s_AsyncCompletionVersion++;
+			return AudioLoadStatus.Failure;
+		}
+
+		WavDecodeResult result = pending.DecodeTask.Result;
+		if (!result.Success)
+		{
+			error = string.IsNullOrWhiteSpace(result.Error) ? "WAV decode failed." : result.Error;
+			RecordFailedWavLoad(path, pending.FileLength, pending.LastWriteUtcTicks, error);
+			s_PendingWavLoads.Remove(path);
+			s_AsyncCompletionVersion++;
+			return AudioLoadStatus.Failure;
+		}
+
+		if (!TryCreateClipFromDecodedSamples(
+			result.Samples,
+			result.Channels,
+			result.SampleRate,
+			$"SC_{Path.GetFileNameWithoutExtension(path)}",
+			out AudioClip loaded,
+			out error))
+		{
+			RecordFailedWavLoad(path, pending.FileLength, pending.LastWriteUtcTicks, error);
+			s_PendingWavLoads.Remove(path);
+			s_AsyncCompletionVersion++;
+			return AudioLoadStatus.Failure;
+		}
+
+		StoreCachedClip(path, loaded, pending.FileLength, pending.LastWriteUtcTicks);
+		clip = loaded;
+		s_FailedWavLoads.Remove(path);
+		s_PendingWavLoads.Remove(path);
+		s_AsyncCompletionVersion++;
+		return AudioLoadStatus.Success;
+	}
+
 	// Start or poll async OGG decode without blocking the simulation thread.
 	private static AudioLoadStatus TryLoadOggInternal(string normalizedPath, long fileLength, long lastWriteTicks, out AudioClip clip, out string error)
 	{
@@ -354,7 +611,7 @@ internal static class WaveClipLoader
 			else
 			{
 				long elapsedTicks = DateTime.UtcNow.Ticks - failed.FailedUtcTicks;
-				if (elapsedTicks < kOggRetryCooldown.Ticks)
+				if (elapsedTicks < kAudioRetryCooldown.Ticks)
 				{
 					error = $"OGG load recently failed: {failed.Error}";
 					return AudioLoadStatus.Failure;
@@ -470,6 +727,17 @@ internal static class WaveClipLoader
 		};
 	}
 
+	private static void RecordFailedWavLoad(string path, long fileLength, long lastWriteUtcTicks, string error)
+	{
+		s_FailedWavLoads[path] = new FailedWavLoad
+		{
+			FileLength = fileLength,
+			LastWriteUtcTicks = lastWriteUtcTicks,
+			FailedUtcTicks = DateTime.UtcNow.Ticks,
+			Error = error
+		};
+	}
+
 	// Dispose UnityWebRequest safely for both timeout and normal completion paths.
 	private static void DisposePendingOggLoad(PendingOggLoad pending, bool abort)
 	{
@@ -510,7 +778,8 @@ internal static class WaveClipLoader
 
 		ushort format = 0;
 		ushort bitsPerSample = 0;
-		byte[]? sampleBytes = null;
+		int sampleDataOffset = -1;
+		int sampleDataLength = 0;
 
 		int offset = 12;
 		while (offset + 8 <= data.Length)
@@ -540,8 +809,8 @@ internal static class WaveClipLoader
 			}
 			else if (chunkId == "data")
 			{
-				sampleBytes = new byte[chunkSize];
-				Buffer.BlockCopy(data, offset, sampleBytes, 0, chunkSize);
+				sampleDataOffset = offset;
+				sampleDataLength = chunkSize;
 			}
 
 			offset += chunkSize;
@@ -551,7 +820,7 @@ internal static class WaveClipLoader
 			}
 		}
 
-		if (channels <= 0 || sampleRate <= 0 || sampleBytes == null)
+		if (channels <= 0 || sampleRate <= 0 || sampleDataOffset < 0 || sampleDataLength <= 0)
 		{
 			error = "Missing required WAV chunks.";
 			return false;
@@ -559,12 +828,12 @@ internal static class WaveClipLoader
 
 		if (format == 1)
 		{
-			return TryDecodePcm(sampleBytes, bitsPerSample, channels, out samples, out error);
+			return TryDecodePcm(data, sampleDataOffset, sampleDataLength, bitsPerSample, channels, out samples, out error);
 		}
 
 		if (format == 3 && bitsPerSample == 32)
 		{
-			return TryDecodeFloat32(sampleBytes, channels, out samples, out error);
+			return TryDecodeFloat32(data, sampleDataOffset, sampleDataLength, channels, out samples, out error);
 		}
 
 		error = $"Unsupported WAV format: format={format}, bits={bitsPerSample}. Supported: PCM 8/16/24/32 and IEEE float 32.";
@@ -572,7 +841,7 @@ internal static class WaveClipLoader
 	}
 
 	// Decode integer PCM bit depths into normalized float samples.
-	private static bool TryDecodePcm(byte[] data, int bitsPerSample, int channels, out float[] samples, out string error)
+	private static bool TryDecodePcm(byte[] data, int dataOffset, int dataLength, int bitsPerSample, int channels, out float[] samples, out string error)
 	{
 		error = string.Empty;
 		samples = Array.Empty<float>();
@@ -584,13 +853,17 @@ internal static class WaveClipLoader
 		}
 
 		int bytesPerSample = bitsPerSample / 8;
-		if (bytesPerSample <= 0 || data.Length < bytesPerSample)
+		if (dataOffset < 0 ||
+			dataLength < 0 ||
+			dataOffset > data.Length - dataLength ||
+			bytesPerSample <= 0 ||
+			dataLength < bytesPerSample)
 		{
 			error = "Invalid PCM sample size.";
 			return false;
 		}
 
-		int rawSampleCount = data.Length / bytesPerSample;
+		int rawSampleCount = dataLength / bytesPerSample;
 		int alignedSampleCount = rawSampleCount - (rawSampleCount % channels);
 		samples = new float[alignedSampleCount];
 
@@ -598,14 +871,14 @@ internal static class WaveClipLoader
 		{
 			for (int i = 0; i < alignedSampleCount; i++)
 			{
-				samples[i] = (data[i] - 128f) / 128f;
+				samples[i] = (data[dataOffset + i] - 128f) / 128f;
 			}
 			return true;
 		}
 
 		if (bitsPerSample == 16)
 		{
-			int offset = 0;
+			int offset = dataOffset;
 			for (int i = 0; i < alignedSampleCount; i++)
 			{
 				short value = BitConverter.ToInt16(data, offset);
@@ -617,7 +890,7 @@ internal static class WaveClipLoader
 
 		if (bitsPerSample == 24)
 		{
-			int offset = 0;
+			int offset = dataOffset;
 			for (int i = 0; i < alignedSampleCount; i++)
 			{
 				int sample = data[offset] | (data[offset + 1] << 8) | (data[offset + 2] << 16);
@@ -631,7 +904,7 @@ internal static class WaveClipLoader
 			return true;
 		}
 
-		int offset32 = 0;
+		int offset32 = dataOffset;
 		for (int i = 0; i < alignedSampleCount; i++)
 		{
 			int value = BitConverter.ToInt32(data, offset32);
@@ -642,22 +915,25 @@ internal static class WaveClipLoader
 	}
 
 	// Decode IEEE float32 sample payload.
-	private static bool TryDecodeFloat32(byte[] data, int channels, out float[] samples, out string error)
+	private static bool TryDecodeFloat32(byte[] data, int dataOffset, int dataLength, int channels, out float[] samples, out string error)
 	{
 		error = string.Empty;
 		samples = Array.Empty<float>();
 
-		if ((data.Length & 3) != 0)
+		if (dataOffset < 0 ||
+			dataLength < 0 ||
+			dataOffset > data.Length - dataLength ||
+			(dataLength & 3) != 0)
 		{
 			error = "Invalid float32 data length.";
 			return false;
 		}
 
-		int rawSampleCount = data.Length / 4;
+		int rawSampleCount = dataLength / 4;
 		int alignedSampleCount = rawSampleCount - (rawSampleCount % channels);
 		samples = new float[alignedSampleCount];
 
-		int offset = 0;
+		int offset = dataOffset;
 		for (int i = 0; i < alignedSampleCount; i++)
 		{
 			samples[i] = BitConverter.ToSingle(data, offset);

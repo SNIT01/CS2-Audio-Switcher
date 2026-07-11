@@ -21,6 +21,8 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 
 	private readonly Dictionary<string, List<BuildingTargetDefinition>> m_TargetsByPrefabName = new Dictionary<string, List<BuildingTargetDefinition>>(StringComparer.OrdinalIgnoreCase);
 
+	private readonly List<string> m_SortedTargetNames = new List<string>();
+
 	private bool m_TargetsBuilt;
 
 	private bool m_WasLoading = true;
@@ -28,6 +30,8 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 	private int m_LastAppliedConfigVersion = -1;
 
 	private int m_LastAppliedAudioLoadVersion = -1;
+
+	private bool m_HasPendingAudioLoads;
 
 	protected override void OnCreate()
 	{
@@ -68,15 +72,24 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 
 		WaveClipLoader.PollAsyncLoads();
 		int currentAudioLoadVersion = WaveClipLoader.AsyncCompletionVersion;
+		int currentConfigVersion = SirenChangerMod.GetAudioDomainConfigVersion(DeveloperAudioDomain.Building);
 		// Re-apply only when config values changed or async clip loading finished.
-		if (m_LastAppliedConfigVersion == SirenChangerMod.ConfigVersion &&
-			m_LastAppliedAudioLoadVersion == currentAudioLoadVersion)
+		if (m_LastAppliedConfigVersion == currentConfigVersion)
 		{
-			return;
+			if (!m_HasPendingAudioLoads)
+			{
+				m_LastAppliedAudioLoadVersion = currentAudioLoadVersion;
+				return;
+			}
+
+			if (m_LastAppliedAudioLoadVersion == currentAudioLoadVersion)
+			{
+				return;
+			}
 		}
 
 		ApplyConfiguredBuildings();
-		m_LastAppliedConfigVersion = SirenChangerMod.ConfigVersion;
+		m_LastAppliedConfigVersion = currentConfigVersion;
 		m_LastAppliedAudioLoadVersion = currentAudioLoadVersion;
 	}
 
@@ -87,8 +100,10 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 		m_TargetsBuilt = false;
 		SirenChangerMod.ResetDetectedAudioDomain(DeveloperAudioDomain.Building);
 		m_TargetsByPrefabName.Clear();
+		m_SortedTargetNames.Clear();
 		m_LastAppliedConfigVersion = -1;
 		m_LastAppliedAudioLoadVersion = -1;
+		m_HasPendingAudioLoads = false;
 	}
 
 	private void BuildTargetCache()
@@ -96,6 +111,7 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 		// Discover building SFX sources from direct components and EffectSource entries.
 		RestoreAllEffectBindings(disposeOverrides: true);
 		m_TargetsByPrefabName.Clear();
+		m_SortedTargetNames.Clear();
 		SirenChangerMod.BeginDetectedAudioCollection(DeveloperAudioDomain.Building);
 
 		SirenSfxProfile template = SirenSfxProfile.CreateFallback();
@@ -125,12 +141,13 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 					continue;
 				}
 
-				List<DirectSfxTargetDefinition> directTargets = new List<DirectSfxTargetDefinition>();
-				List<BuildingEffectTargetDefinition> effectTargets = new List<BuildingEffectTargetDefinition>();
+				List<DirectSfxTargetDefinition>? directTargets = null;
+				List<BuildingEffectTargetDefinition>? effectTargets = null;
 
 				SFX directSfx = prefab.GetComponent<SFX>();
 				if (directSfx != null && directSfx.m_AudioClip != null)
 				{
+					directTargets = new List<DirectSfxTargetDefinition>(1);
 					directTargets.Add(new DirectSfxTargetDefinition(directSfx, SirenSfxSnapshot.FromSfx(directSfx)));
 					SirenChangerMod.RegisterDetectedAudioEntry(DeveloperAudioDomain.Building, prefabName, directSfx);
 					if (!templateSet)
@@ -164,6 +181,7 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 						}
 
 						string effectPrefabName = effectPrefab.name ?? string.Empty;
+						effectTargets ??= new List<BuildingEffectTargetDefinition>();
 						effectTargets.Add(
 							new BuildingEffectTargetDefinition(
 								prefab,
@@ -187,7 +205,8 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 					}
 				}
 
-				if (directTargets.Count == 0 && effectTargets.Count == 0)
+				if ((directTargets == null || directTargets.Count == 0) &&
+					(effectTargets == null || effectTargets.Count == 0))
 				{
 					continue;
 				}
@@ -198,7 +217,11 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 					m_TargetsByPrefabName[prefabName] = targetList;
 				}
 
-				targetList.Add(new BuildingTargetDefinition(prefab, prefabName, directTargets, effectTargets));
+				targetList.Add(new BuildingTargetDefinition(
+					prefab,
+					prefabName,
+					directTargets ?? new List<DirectSfxTargetDefinition>(0),
+					effectTargets ?? new List<BuildingEffectTargetDefinition>(0)));
 				discoveredTargets.Add(prefabName);
 			}
 		}
@@ -211,6 +234,7 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 
 		List<string> discovered = new List<string>(discoveredTargets);
 		discovered.Sort(StringComparer.OrdinalIgnoreCase);
+		m_SortedTargetNames.AddRange(discovered);
 		SirenChangerMod.SetDiscoveredBuildingTargets(discovered);
 		SirenChangerMod.SetBuildingProfileTemplate(template);
 		SirenChangerMod.SetBuildingDefaultPreviewClip(defaultPreviewClip);
@@ -230,6 +254,7 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 	{
 		AudioReplacementDomainConfig config = SirenChangerMod.BuildingConfig;
 		config.Normalize(SirenChangerMod.BuildingCustomFolderName);
+		m_HasPendingAudioLoads = false;
 
 		// Start from defaults every pass so settings changes are deterministic.
 		RestoreAllTargetDefaults();
@@ -252,11 +277,9 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 		}
 
 		Dictionary<string, SelectionLoadResult> selectionLoadCache = new Dictionary<string, SelectionLoadResult>(StringComparer.OrdinalIgnoreCase);
-		List<string> targetNames = new List<string>(m_TargetsByPrefabName.Keys);
-		targetNames.Sort(StringComparer.OrdinalIgnoreCase);
-		for (int i = 0; i < targetNames.Count; i++)
+		for (int i = 0; i < m_SortedTargetNames.Count; i++)
 		{
-			string targetName = targetNames[i];
+			string targetName = m_SortedTargetNames[i];
 			string selection = config.GetTargetSelection(targetName);
 			if (AudioReplacementDomainConfig.IsDefaultSelection(selection))
 			{
@@ -586,6 +609,7 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 
 		if (primaryResult.IsPending)
 		{
+			m_HasPendingAudioLoads = true;
 			return ResolvedSelection.Default();
 		}
 
@@ -625,6 +649,7 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 		{
 			if (alternateResult.IsPending)
 			{
+				m_HasPendingAudioLoads = true;
 				return ResolvedSelection.Default();
 			}
 
@@ -881,4 +906,3 @@ public sealed partial class BuildingReplacementSystem : GameSystemBase
 		}
 	}
 }
-

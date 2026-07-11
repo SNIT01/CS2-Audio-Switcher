@@ -25,7 +25,7 @@ internal sealed partial class SirenChangerGuidanceUISystem : UISystemBase
 
 	private const string kChangelogTitlePrefix = "What's New in Audio Switcher";
 
-	private static readonly string s_CurrentReleaseVersion = "2.5.2";
+	private static readonly string s_CurrentReleaseVersion = "2.9.0";
 
 	private static readonly GuidanceTutorialPage[] s_TutorialPages = BuildTutorialPages();
 
@@ -490,7 +490,7 @@ internal sealed partial class SirenChangerGuidanceUISystem : UISystemBase
 				ImagePath = "Images/Screen_PT.jpg",
 				Body = string.Join(
 					"\n",
-					"- Announcements are configured per station and per line (arrival and departure independently).",
+					"- Announcements are configured per station and per line (pre-arrival, arrival, and departure independently).",
 					"- Set global transit volume and min/max distance for announcement playback.",
 					"- Use the Line Service selector to filter station-line editing by train, bus, metro, tram, or ferry.",
 					"- Run Scan Transit Lines in a loaded city to discover stations, lines, and station-line pairs.",
@@ -572,6 +572,36 @@ internal sealed partial class SirenChangerGuidanceUISystem : UISystemBase
 	{
 		List<GuidanceReleaseEntry> releases = new List<GuidanceReleaseEntry>
 		{
+			new GuidanceReleaseEntry
+			{
+				Version = "2.9.0",
+				Title = "Released 2026-07-11",
+				Body = string.Join(
+					"\n",
+					"- Moved local replacement audio folders, Audio Switcher settings, and sound set data to ModsData\\SirenChanger.",
+					"- Added targeted migration from legacy Mods locations and cleanup for mod-package files that were previously copied into ModsData.",
+					"- Fixed public transport scanning to discover complete active routes, stations, lines, and station-line pairs across all supported services.",
+					"- Improved station and line labels by resolving player-facing names, rejecting generic prefab/tool names, and using stable fallback labels when required.",
+					"- Improved station-line override matching and options refresh behavior so saved selections remain usable when runtime identities vary.",
+					"- Added bounded per-station and per-line announcement queues so concurrent events wait for audio loading without being lost or played out of order.",
+					"- Engine and specific-vehicle siren changes now defer live prefab rebinding until the vehicle effect has remained inactive long enough to update safely.",
+					"- Added guarded retries, conservative fallbacks, and exception handling around audio loading, prefab discovery, replacement application, and restoration.",
+					"- Updated documentation for ModsData storage, public transport setup, module creation, and troubleshooting.")
+			},
+			new GuidanceReleaseEntry
+			{
+				Version = "2.7.0",
+				Title = "Released 2026-05-06",
+				Body = string.Join(
+					"\n",
+					"- Added UI/tool SFX replacement with target scanning, per-target overrides, mute-all, fallback behavior, preview, and profile editing.",
+					"- Added pre-arrival public transport announcements for train, bus, metro, tram, and ferry lines.",
+					"- Added emergency PA overrides for evacuation and prisoner transport arrival/departure announcements.",
+					"- Added separate override sections for world ambient sounds, disaster ambient sounds, and service building sounds.",
+					"- Added an advanced engine editor link action for the selected vehicle override profile.",
+					"- Improved module building and uploading with UI/tool asset support, upload validation, Upload Latest, update-existing checks, and richer status output.",
+					"- Improved runtime refresh behavior, async audio retry handling, audio cache memory limits, and WAV decoding efficiency.")
+			},
 			new GuidanceReleaseEntry
 			{
 				Version = "2.5.2",

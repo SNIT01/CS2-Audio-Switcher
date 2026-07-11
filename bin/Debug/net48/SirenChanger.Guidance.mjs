@@ -670,7 +670,7 @@ function ensureStyles() {
 			line-height: 1;
 			font-weight: 700;
 			padding: 0;
-			display: inline-flex;
+			display: flex;
 			align-items: center;
 			justify-content: center;
 		}
@@ -763,13 +763,13 @@ function ensureStyles() {
 			font-weight: 700;
 			line-height: 1;
 			padding: 0;
-			display: inline-flex;
+			display: flex;
 			align-items: center;
 			justify-content: center;
 			cursor: pointer;
 		}
 
-		.sc-guidance-step-nav-scroll-button:disabled {
+		.sc-guidance-step-nav-scroll-button.disabled {
 			opacity: 0.5;
 		}
 
@@ -948,7 +948,7 @@ function ensureStyles() {
 			font-size: 14rem;
 			line-height: 1.3;
 			color: rgba(199, 218, 241, 0.95);
-			display: inline-block;
+			display: block;
 			white-space: nowrap;
 			margin-right: 18rem !important;
 		}
@@ -1044,7 +1044,7 @@ function ensureStyles() {
 			width: 24rem;
 			height: 24rem;
 			border-radius: 999rem;
-			display: inline-flex;
+			display: flex;
 			align-items: center;
 			justify-content: center;
 			font-size: 14rem;
@@ -1144,7 +1144,7 @@ function ensureStyles() {
 		}
 
 		.sc-guidance-toggle {
-			display: inline-flex;
+			display: flex;
 			align-items: center;
 			gap: 10rem;
 			padding: 0;
@@ -1161,18 +1161,18 @@ function ensureStyles() {
 			white-space: nowrap;
 		}
 
-		.sc-guidance-toggle:focus-visible {
+		.sc-guidance-toggle:focus {
 			outline: 2rem solid rgba(98, 228, 255, 0.68);
 			outline-offset: 2rem;
 			border-radius: 6rem;
 		}
 
 		.sc-guidance-toggle-label {
-			display: inline-block;
+			display: block;
 		}
 
 		.sc-guidance-toggle-check {
-			display: inline-flex;
+			display: flex;
 			align-items: center;
 			justify-content: center;
 			width: 20rem;
@@ -1224,7 +1224,7 @@ function ensureStyles() {
 			line-height: 1 !important;
 			letter-spacing: 0 !important;
 			text-transform: none !important;
-			display: inline-flex !important;
+			display: flex !important;
 			align-items: center !important;
 			justify-content: center !important;
 			box-sizing: border-box;
@@ -1806,7 +1806,7 @@ function GuidanceRoot() {
 						"button",
 						{
 							type: "button",
-							className: "sc-guidance-step-nav-scroll-button",
+							className: "sc-guidance-step-nav-scroll-button" + (!canNavUp ? " disabled" : ""),
 							onClick: onNavUp,
 							disabled: !canNavUp,
 							"aria-label": "Show previous topics"
@@ -1831,7 +1831,7 @@ function GuidanceRoot() {
 						"button",
 						{
 							type: "button",
-							className: "sc-guidance-step-nav-scroll-button",
+							className: "sc-guidance-step-nav-scroll-button" + (!canNavDown ? " disabled" : ""),
 							onClick: onNavDown,
 							disabled: !canNavDown,
 							"aria-label": "Show more topics"

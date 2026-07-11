@@ -5,14 +5,14 @@ using UnityEngine.Scripting;
 
 namespace SirenChanger;
 
-// Public-transport-tab controls for per-mode transit arrival/departure announcements.
+// Public-transport-tab controls for per-mode transit pre-arrival/arrival/departure announcements.
 public sealed partial class SirenChangerSettings
 {
 	private const string kTransitAnnouncementButtonGroup = "Transit Setup Actions";
 
 	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementGroup)]
 	[SettingsUIDisplayName(overrideValue: "Enable Transit Station Announcements")]
-	[SettingsUIDescription(overrideValue: "Enable custom arrival/departure sounds for train, bus, metro, tram, and ferry lines.")]
+	[SettingsUIDescription(overrideValue: "Enable custom pre-arrival, arrival, and departure sounds for train, bus, metro, tram, and ferry lines.")]
 	public bool TransitAnnouncementsEnabled
 	{
 		get => SirenChangerMod.TransitAnnouncementConfig.Enabled;
@@ -22,7 +22,7 @@ public sealed partial class SirenChangerSettings
 	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementGroup)]
 	[SettingsUISlider(min = 0f, max = 100f, step = 1f, unit = "percentageSingleFraction", scalarMultiplier = 100f, updateOnDragEnd = true)]
 	[SettingsUIDisplayName(overrideValue: "Announcement Volume")]
-	[SettingsUIDescription(overrideValue: "Global volume for all public transport arrival/departure announcements.")]
+	[SettingsUIDescription(overrideValue: "Global volume for all public transport pre-arrival, arrival, and departure announcements.")]
 	public float TransitAnnouncementGlobalVolume
 	{
 		get => SirenChangerMod.TransitAnnouncementConfig.GlobalAnnouncementVolume;
@@ -87,10 +87,14 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementStationOptions))]
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Transit Station")]
-	[SettingsUIDescription(overrideValue: "Choose a station to edit line-specific arrival/departure overrides for that location.")]
+	[SettingsUIDescription(overrideValue: "Choose a station to edit line-specific pre-arrival, arrival, and departure overrides for that location.")]
 	public string TransitAnnouncementSelectedStationOverride
 	{
-		get => SirenChangerMod.GetTransitAnnouncementSelectedStationForOptions();
+		get
+		{
+			SirenChangerMod.RefreshTransitLinesForOptionsOpenIfDue();
+			return SirenChangerMod.GetTransitAnnouncementSelectedStationForOptions();
+		}
 		set => SirenChangerMod.SetTransitAnnouncementSelectedStationForOptions(value);
 	}
 
@@ -101,8 +105,24 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIDescription(overrideValue: "Choose one discovered line that serves the selected station.")]
 	public string TransitAnnouncementSelectedLineOverride
 	{
-		get => SirenChangerMod.GetTransitAnnouncementSelectedLineForOptions();
+		get
+		{
+			SirenChangerMod.RefreshTransitLinesForOptionsOpenIfDue();
+			return SirenChangerMod.GetTransitAnnouncementSelectedLineForOptions();
+		}
 		set => SirenChangerMod.SetTransitAnnouncementSelectedLineForOptions(value);
+	}
+
+	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementLineGroup)]
+	[SettingsUIDisableByCondition(typeof(SirenChangerSettings), nameof(IsTransitAnnouncementLineOverrideDisabled))]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Station-Line Pre-Arrival Override")]
+	[SettingsUIDescription(overrideValue: "Clip used before arrival for the selected line at the selected station. Default means no pre-arrival announcement for that station-line pair.")]
+	public string TransitAnnouncementLinePreArrivalOverride
+	{
+		get => SirenChangerMod.GetTransitAnnouncementLinePreArrivalSelectionForOptions();
+		set => SirenChangerMod.SetTransitAnnouncementLinePreArrivalSelectionForOptions(value);
 	}
 
 	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementLineGroup)]
@@ -134,8 +154,66 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIWarning(typeof(SirenChangerSettings), nameof(ShowTransitAnnouncementLineWarning))]
 	[SettingsUIDisplayName(overrideValue: "Station-Line Override Status")]
-	[SettingsUIDescription(overrideValue: "Shows the selected station-line pair and its current arrival/departure overrides.")]
-	public string TransitAnnouncementLineOverrideStatus => SirenChangerMod.GetSelectedTransitAnnouncementLineStatusText();
+	[SettingsUIDescription(overrideValue: "Shows the selected station-line pair and its current pre-arrival, arrival, and departure overrides.")]
+	public string TransitAnnouncementLineOverrideStatus
+	{
+		get
+		{
+			SirenChangerMod.RefreshTransitLinesForOptionsOpenIfDue();
+			return SirenChangerMod.GetSelectedTransitAnnouncementLineStatusText();
+		}
+	}
+
+	[SettingsUISection(kPublicTransportTab, kTransitEmergencyAnnouncementGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Evacuation Arrival")]
+	[SettingsUIDescription(overrideValue: "Clip played when an evacuation transport service arrives at a stop.")]
+	public string TransitEmergencyEvacuationArrivalSelection
+	{
+		get => SirenChangerMod.GetTransitEmergencyEvacuationArrivalSelectionForOptions();
+		set => SirenChangerMod.SetTransitEmergencyEvacuationArrivalSelectionForOptions(value);
+	}
+
+	[SettingsUISection(kPublicTransportTab, kTransitEmergencyAnnouncementGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Evacuation Departure")]
+	[SettingsUIDescription(overrideValue: "Clip played when an evacuation transport service departs a stop.")]
+	public string TransitEmergencyEvacuationDepartureSelection
+	{
+		get => SirenChangerMod.GetTransitEmergencyEvacuationDepartureSelectionForOptions();
+		set => SirenChangerMod.SetTransitEmergencyEvacuationDepartureSelectionForOptions(value);
+	}
+
+	[SettingsUISection(kPublicTransportTab, kTransitEmergencyAnnouncementGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Prisoner Transport Arrival")]
+	[SettingsUIDescription(overrideValue: "Clip played when a prisoner transport service arrives at a stop.")]
+	public string TransitEmergencyPrisonerArrivalSelection
+	{
+		get => SirenChangerMod.GetTransitEmergencyPrisonerArrivalSelectionForOptions();
+		set => SirenChangerMod.SetTransitEmergencyPrisonerArrivalSelectionForOptions(value);
+	}
+
+	[SettingsUISection(kPublicTransportTab, kTransitEmergencyAnnouncementGroup)]
+	[SettingsUIDropdown(typeof(SirenChangerSettings), nameof(GetTransitAnnouncementSelectionOptions))]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Prisoner Transport Departure")]
+	[SettingsUIDescription(overrideValue: "Clip played when a prisoner transport service departs a stop.")]
+	public string TransitEmergencyPrisonerDepartureSelection
+	{
+		get => SirenChangerMod.GetTransitEmergencyPrisonerDepartureSelectionForOptions();
+		set => SirenChangerMod.SetTransitEmergencyPrisonerDepartureSelectionForOptions(value);
+	}
+
+	[SettingsUISection(kPublicTransportTab, kTransitEmergencyAnnouncementGroup)]
+	[SettingsUIMultilineText]
+	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
+	[SettingsUIDisplayName(overrideValue: "Emergency PA Status")]
+	[SettingsUIDescription(overrideValue: "Shows the configured evacuation and prisoner transport emergency announcement clips.")]
+	public string TransitEmergencyAnnouncementStatus => SirenChangerMod.GetTransitEmergencyAnnouncementStatusText();
 
 	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementLineGroup)]
 	[SettingsUIButton]
@@ -152,7 +230,14 @@ public sealed partial class SirenChangerSettings
 	[SettingsUIValueVersion(typeof(SirenChangerSettings), nameof(GetDropdownVersion))]
 	[SettingsUIDisplayName(overrideValue: "Transit Line Scan Status")]
 	[SettingsUIDescription(overrideValue: "Shows the latest transit scan summary and detected line/station counts.")]
-	public string TransitAnnouncementLineScanStatus => SirenChangerMod.GetTransitLineScanStatusText();
+	public string TransitAnnouncementLineScanStatus
+	{
+		get
+		{
+			SirenChangerMod.RefreshTransitLinesForOptionsOpenIfDue();
+			return SirenChangerMod.GetTransitLineScanStatusText();
+		}
+	}
 
 	[SettingsUISection(kPublicTransportTab, kTransitAnnouncementLineGroup)]
 	[SettingsUIButton]
@@ -196,18 +281,21 @@ public sealed partial class SirenChangerSettings
 	[Preserve]
 	public static DropdownItem<string>[] GetTransitAnnouncementLineServiceOptions()
 	{
+		SirenChangerMod.RefreshTransitLinesForOptionsOpenIfDue();
 		return SirenChangerMod.BuildTransitAnnouncementLineServiceDropdownItems();
 	}
 
 	[Preserve]
 	public static DropdownItem<string>[] GetTransitAnnouncementLineOptions()
 	{
+		SirenChangerMod.RefreshTransitLinesForOptionsOpenIfDue();
 		return SirenChangerMod.BuildTransitAnnouncementLineDropdownItems();
 	}
 
 	[Preserve]
 	public static DropdownItem<string>[] GetTransitAnnouncementStationOptions()
 	{
+		SirenChangerMod.RefreshTransitLinesForOptionsOpenIfDue();
 		return SirenChangerMod.BuildTransitAnnouncementStationDropdownItems();
 	}
 

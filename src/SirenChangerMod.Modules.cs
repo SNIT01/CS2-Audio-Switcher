@@ -6,7 +6,45 @@ public sealed partial class SirenChangerMod
 	// Refresh discovered module manifests and in-memory catalogs.
 	internal static bool RefreshAudioModuleCatalog()
 	{
+		if (s_AudioModuleCatalogRefreshBatchDepth > 0)
+		{
+			if (!s_AudioModuleCatalogBatchRefreshed)
+			{
+				s_AudioModuleCatalogBatchChanged = AudioModuleCatalog.Refresh(Log, ModRootPath);
+				s_AudioModuleCatalogBatchRefreshed = true;
+			}
+
+			return s_AudioModuleCatalogBatchChanged;
+		}
+
 		return AudioModuleCatalog.Refresh(Log, ModRootPath);
+	}
+
+	internal static void BeginAudioModuleCatalogRefreshBatch()
+	{
+		if (s_AudioModuleCatalogRefreshBatchDepth == 0)
+		{
+			s_AudioModuleCatalogBatchRefreshed = false;
+			s_AudioModuleCatalogBatchChanged = false;
+		}
+
+		s_AudioModuleCatalogRefreshBatchDepth++;
+	}
+
+	internal static void EndAudioModuleCatalogRefreshBatch()
+	{
+		if (s_AudioModuleCatalogRefreshBatchDepth <= 0)
+		{
+			s_AudioModuleCatalogRefreshBatchDepth = 0;
+			return;
+		}
+
+		s_AudioModuleCatalogRefreshBatchDepth--;
+		if (s_AudioModuleCatalogRefreshBatchDepth == 0)
+		{
+			s_AudioModuleCatalogBatchRefreshed = false;
+			s_AudioModuleCatalogBatchChanged = false;
+		}
 	}
 
 	// Enumerate module-backed selection keys for one audio domain.

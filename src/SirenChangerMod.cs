@@ -33,6 +33,18 @@ public sealed partial class SirenChangerMod : IMod
 
 	internal static int ConfigVersion { get; private set; } = 1;
 
+	internal static int SirenConfigVersion { get; private set; } = 1;
+
+	internal static int VehicleEngineConfigVersion { get; private set; } = 1;
+
+	internal static int AmbientConfigVersion { get; private set; } = 1;
+
+	internal static int BuildingConfigVersion { get; private set; } = 1;
+
+	internal static int UIToolConfigVersion { get; private set; } = 1;
+
+	internal static int TransitAnnouncementConfigVersion { get; private set; } = 1;
+
 	internal static int OptionsVersion { get; private set; } = 1;
 
 	internal static SirenSfxProfile CustomProfileTemplate { get; private set; } = SirenSfxProfile.CreateFallback();
@@ -42,11 +54,15 @@ public sealed partial class SirenChangerMod : IMod
 
 	internal const string BuildingSettingsFileName = "BuildingSettings.json";
 
+	internal const string UIToolSettingsFileName = "UIToolSettings.json";
+
 	internal const string VehicleEngineCustomFolderName = "Custom Engines";
 
 	internal const string AmbientCustomFolderName = "Custom Ambient";
 
 	internal const string BuildingCustomFolderName = "Custom Buildings";
+
+	internal const string UIToolCustomFolderName = "Custom UI Tool SFX";
 
 	internal static AudioReplacementDomainConfig VehicleEngineConfig { get; private set; } = AudioReplacementDomainConfig.CreateDefault(VehicleEngineCustomFolderName);
 
@@ -54,11 +70,15 @@ public sealed partial class SirenChangerMod : IMod
 
 	internal static AudioReplacementDomainConfig BuildingConfig { get; private set; } = AudioReplacementDomainConfig.CreateDefault(BuildingCustomFolderName);
 
+	internal static AudioReplacementDomainConfig UIToolConfig { get; private set; } = AudioReplacementDomainConfig.CreateDefault(UIToolCustomFolderName);
+
 	internal static SirenSfxProfile VehicleEngineProfileTemplate { get; private set; } = SirenSfxProfile.CreateFallback();
 
 	internal static SirenSfxProfile AmbientProfileTemplate { get; private set; } = SirenSfxProfile.CreateFallback();
 
 	internal static SirenSfxProfile BuildingProfileTemplate { get; private set; } = SirenSfxProfile.CreateFallback();
+
+	internal static SirenSfxProfile UIToolProfileTemplate { get; private set; } = SirenSfxProfile.CreateFallback();
 
 	private static AudioClip? s_DefaultSirenPreviewClip;
 
@@ -67,6 +87,8 @@ public sealed partial class SirenChangerMod : IMod
 	private static AudioClip? s_DefaultAmbientPreviewClip;
 
 	private static AudioClip? s_DefaultBuildingPreviewClip;
+
+	private static AudioClip? s_DefaultUIToolPreviewClip;
 
 	private static int s_DropdownCacheVersion = -1;
 
@@ -115,6 +137,14 @@ public sealed partial class SirenChangerMod : IMod
 
 	private static string s_LastBuildingTargetScanStatus = "No scan run yet. Click Rescan Building Targets in a loaded map/editor session.";
 
+	private static string[] s_DiscoveredUIToolTargets = Array.Empty<string>();
+
+	private static DropdownItem<string>[] s_UIToolTargetDropdown = Array.Empty<DropdownItem<string>>();
+
+	private static int s_UIToolTargetDropdownCacheVersion = -1;
+
+	private static string s_LastUIToolTargetScanStatus = "No scan run yet. Click Rescan UI/Tool Targets in a loaded map/editor session.";
+
 	private static int s_EngineDropdownCacheVersion = -1;
 
 	private static DropdownItem<string>[] s_EngineDropdownWithDefault = Array.Empty<DropdownItem<string>>();
@@ -133,9 +163,33 @@ public sealed partial class SirenChangerMod : IMod
 
 	private static DropdownItem<string>[] s_BuildingDropdownWithoutDefault = Array.Empty<DropdownItem<string>>();
 
+	private static int s_UIToolDropdownCacheVersion = -1;
+
+	private static DropdownItem<string>[] s_UIToolDropdownWithDefault = Array.Empty<DropdownItem<string>>();
+
+	private static DropdownItem<string>[] s_UIToolDropdownWithoutDefault = Array.Empty<DropdownItem<string>>();
+
 	private const string kOptionsPanelDisplayName = "Audio Switcher";
 
 	private static readonly Dictionary<string, IDictionarySource> s_OptionsPanelNameSources = new Dictionary<string, IDictionarySource>(StringComparer.OrdinalIgnoreCase);
+
+	private static int s_AudioModuleCatalogRefreshBatchDepth;
+
+	private static bool s_AudioModuleCatalogBatchRefreshed;
+
+	private static bool s_AudioModuleCatalogBatchChanged;
+
+	private static readonly DeveloperAudioDomain[] s_ConfigSnapshotDomains =
+	{
+		DeveloperAudioDomain.Siren,
+		DeveloperAudioDomain.VehicleEngine,
+		DeveloperAudioDomain.Ambient,
+		DeveloperAudioDomain.Building,
+		DeveloperAudioDomain.UITool,
+		DeveloperAudioDomain.TransitAnnouncement
+	};
+
+	private static readonly Dictionary<DeveloperAudioDomain, string> s_LastRuntimeConfigSnapshots = new Dictionary<DeveloperAudioDomain, string>();
 
 	// Called once when the mod is loaded by the game.
 	public void OnLoad(UpdateSystem updateSystem)
@@ -152,11 +206,21 @@ public sealed partial class SirenChangerMod : IMod
 		LoadKnownVehicleEnginePrefabsFromConfig();
 		LoadKnownAmbientTargetsFromConfig();
 		LoadKnownBuildingTargetsFromConfig();
-		SyncCustomSirenCatalog(saveIfChanged: true);
-		SyncCustomVehicleEngineCatalog(saveIfChanged: true);
-		SyncCustomAmbientCatalog(saveIfChanged: true);
-		SyncCustomBuildingCatalog(saveIfChanged: true);
-		SyncCustomTransitAnnouncementCatalog(saveIfChanged: true);
+		LoadKnownUIToolTargetsFromConfig();
+		BeginAudioModuleCatalogRefreshBatch();
+		try
+		{
+			SyncCustomSirenCatalog(saveIfChanged: true);
+			SyncCustomVehicleEngineCatalog(saveIfChanged: true);
+			SyncCustomAmbientCatalog(saveIfChanged: true);
+			SyncCustomBuildingCatalog(saveIfChanged: true);
+			SyncCustomUIToolCatalog(saveIfChanged: true);
+			SyncCustomTransitAnnouncementCatalog(saveIfChanged: true);
+		}
+		finally
+		{
+			EndAudioModuleCatalogRefreshBatch();
+		}
 
 		m_Settings = new SirenChangerSettings(this);
 		RegisterOptionsPanelLocalization(m_Settings);
@@ -167,6 +231,7 @@ public sealed partial class SirenChangerMod : IMod
 		updateSystem.UpdateAfter<VehicleEngineReplacementSystem>(SystemUpdatePhase.GameSimulation);
 		updateSystem.UpdateAfter<AmbientReplacementSystem>(SystemUpdatePhase.GameSimulation);
 		updateSystem.UpdateAfter<BuildingReplacementSystem>(SystemUpdatePhase.GameSimulation);
+		updateSystem.UpdateAfter<UIToolSfxReplacementSystem>(SystemUpdatePhase.GameSimulation);
 		updateSystem.UpdateAfter<TransitAnnouncementSystem>(SystemUpdatePhase.GameSimulation);
 		updateSystem.UpdateAt<SirenChangerGuidanceUISystem>(SystemUpdatePhase.UIUpdate);
 
@@ -190,8 +255,70 @@ public sealed partial class SirenChangerMod : IMod
 		s_DefaultVehicleEnginePreviewClip = null;
 		s_DefaultAmbientPreviewClip = null;
 		s_DefaultBuildingPreviewClip = null;
+		s_DefaultUIToolPreviewClip = null;
 		TransitAnnouncementAudioPlayer.Release();
 		WaveClipLoader.ReleaseLoadedClips();
+	}
+
+	internal static int GetAudioDomainConfigVersion(DeveloperAudioDomain domain)
+	{
+		switch (domain)
+		{
+			case DeveloperAudioDomain.Siren:
+				return SirenConfigVersion;
+			case DeveloperAudioDomain.VehicleEngine:
+				return VehicleEngineConfigVersion;
+			case DeveloperAudioDomain.Ambient:
+				return AmbientConfigVersion;
+			case DeveloperAudioDomain.Building:
+				return BuildingConfigVersion;
+			case DeveloperAudioDomain.UITool:
+				return UIToolConfigVersion;
+			case DeveloperAudioDomain.TransitAnnouncement:
+				return TransitAnnouncementConfigVersion;
+			default:
+				return ConfigVersion;
+		}
+	}
+
+	internal static void MarkAudioDomainConfigChanged(DeveloperAudioDomain domain)
+	{
+		switch (domain)
+		{
+			case DeveloperAudioDomain.Siren:
+				SirenConfigVersion++;
+				break;
+			case DeveloperAudioDomain.VehicleEngine:
+				VehicleEngineConfigVersion++;
+				break;
+			case DeveloperAudioDomain.Ambient:
+				AmbientConfigVersion++;
+				break;
+			case DeveloperAudioDomain.Building:
+				BuildingConfigVersion++;
+				break;
+			case DeveloperAudioDomain.UITool:
+				UIToolConfigVersion++;
+				break;
+			case DeveloperAudioDomain.TransitAnnouncement:
+				TransitAnnouncementConfigVersion++;
+				InvalidateTransitAnnouncementSelectionCache();
+				break;
+		}
+
+		ConfigVersion++;
+	}
+
+	internal static void MarkAllAudioDomainConfigsChanged()
+	{
+		SirenConfigVersion++;
+		VehicleEngineConfigVersion++;
+		AmbientConfigVersion++;
+		BuildingConfigVersion++;
+		UIToolConfigVersion++;
+		TransitAnnouncementConfigVersion++;
+		InvalidateTransitAnnouncementSelectionCache();
+		ConfigVersion++;
 	}
 
 	// Persist the template used for newly discovered custom sirens.
@@ -238,6 +365,17 @@ public sealed partial class SirenChangerMod : IMod
 		BuildingProfileTemplate = template.ClampCopy();
 	}
 
+	// Persist template for newly discovered custom UI/tool profiles.
+	internal static void SetUIToolProfileTemplate(SirenSfxProfile template)
+	{
+		if (template == null)
+		{
+			return;
+		}
+
+		UIToolProfileTemplate = template.ClampCopy();
+	}
+
 	// Store a representative built-in siren clip for default preview playback.
 	internal static void SetSirenDefaultPreviewClip(AudioClip? clip)
 	{
@@ -262,6 +400,12 @@ public sealed partial class SirenChangerMod : IMod
 		s_DefaultBuildingPreviewClip = clip;
 	}
 
+	// Store a representative built-in UI/tool clip for default preview playback.
+	internal static void SetUIToolDefaultPreviewClip(AudioClip? clip)
+	{
+		s_DefaultUIToolPreviewClip = clip;
+	}
+
 	// Sync vehicle engine catalog with config profiles and optionally save changes.
 	internal static bool SyncCustomVehicleEngineCatalog(bool saveIfChanged, bool forceStatusRefresh = false)
 	{
@@ -284,12 +428,12 @@ public sealed partial class SirenChangerMod : IMod
 		{
 			if (saveIfChanged && (catalogChanged || implicitModuleProfilesChanged || scanMetadataChanged))
 			{
-				SaveConfig();
+				SaveAudioDomainConfig(DeveloperAudioDomain.VehicleEngine);
 			}
 
 			if (catalogChanged || implicitModuleProfilesChanged)
 			{
-				ConfigVersion++;
+				MarkAudioDomainConfigChanged(DeveloperAudioDomain.VehicleEngine);
 			}
 
 			NotifyOptionsCatalogChanged();
@@ -321,12 +465,12 @@ public sealed partial class SirenChangerMod : IMod
 		{
 			if (saveIfChanged && (catalogChanged || implicitModuleProfilesChanged || scanMetadataChanged))
 			{
-				SaveConfig();
+				SaveAudioDomainConfig(DeveloperAudioDomain.Ambient);
 			}
 
 			if (catalogChanged || implicitModuleProfilesChanged)
 			{
-				ConfigVersion++;
+				MarkAudioDomainConfigChanged(DeveloperAudioDomain.Ambient);
 			}
 
 			NotifyOptionsCatalogChanged();
@@ -357,12 +501,48 @@ public sealed partial class SirenChangerMod : IMod
 		{
 			if (saveIfChanged && (catalogChanged || implicitModuleProfilesChanged || scanMetadataChanged))
 			{
-				SaveConfig();
+				SaveAudioDomainConfig(DeveloperAudioDomain.Building);
 			}
 
 			if (catalogChanged || implicitModuleProfilesChanged)
 			{
-				ConfigVersion++;
+				MarkAudioDomainConfigChanged(DeveloperAudioDomain.Building);
+			}
+
+			NotifyOptionsCatalogChanged();
+		}
+
+		return catalogChanged || implicitModuleProfilesChanged;
+	}
+
+	// Sync UI/tool catalog with config profiles and optionally save changes.
+	internal static bool SyncCustomUIToolCatalog(bool saveIfChanged, bool forceStatusRefresh = false)
+	{
+		bool moduleCatalogChanged = RefreshAudioModuleCatalog();
+		AudioDomainCatalogSyncResult result = AudioDomainCatalogSync.Synchronize(
+			UIToolConfig,
+			SettingsDirectory,
+			UIToolCustomFolderName,
+			UIToolProfileTemplate,
+			Log,
+			GetAudioModuleProfileKeys(DeveloperAudioDomain.UITool),
+			key => TryGetAudioModuleProfileTemplate(DeveloperAudioDomain.UITool, key, out SirenSfxProfile profile) ? profile : null);
+		bool catalogChanged = result.ConfigChanged;
+		bool implicitModuleProfilesChanged = RefreshImplicitModuleTemplateProfiles(
+			DeveloperAudioDomain.UITool,
+			UIToolConfig.CustomProfiles,
+			UIToolProfileTemplate);
+		bool scanMetadataChanged = UpdateDomainCatalogScanMetadata(UIToolConfig, result, forceStatusRefresh);
+		if (catalogChanged || implicitModuleProfilesChanged || scanMetadataChanged || moduleCatalogChanged)
+		{
+			if (saveIfChanged && (catalogChanged || implicitModuleProfilesChanged || scanMetadataChanged))
+			{
+				SaveAudioDomainConfig(DeveloperAudioDomain.UITool);
+			}
+
+			if (catalogChanged || implicitModuleProfilesChanged)
+			{
+				MarkAudioDomainConfigChanged(DeveloperAudioDomain.UITool);
 			}
 
 			NotifyOptionsCatalogChanged();
@@ -392,12 +572,12 @@ public sealed partial class SirenChangerMod : IMod
 		{
 			if (saveIfChanged && (catalogChanged || implicitModuleProfilesChanged || scanMetadataChanged))
 			{
-				SaveConfig();
+				SaveAudioDomainConfig(DeveloperAudioDomain.Siren);
 			}
 
 			if (catalogChanged || implicitModuleProfilesChanged)
 			{
-				ConfigVersion++;
+				MarkAudioDomainConfigChanged(DeveloperAudioDomain.Siren);
 			}
 
 			NotifyOptionsCatalogChanged();
@@ -449,20 +629,96 @@ public sealed partial class SirenChangerMod : IMod
 	// Notify runtime systems that settings values were changed in the options UI.
 	internal static void NotifyRuntimeConfigChanged(bool saveToDisk)
 	{
+		NormalizeAllRuntimeConfigs();
+		List<DeveloperAudioDomain> changedDomains = GetChangedAudioDomainsSinceSnapshot();
+		if (saveToDisk)
+		{
+			if (changedDomains.Count == 0)
+			{
+				SaveCitySoundProfileRegistry();
+			}
+			else
+			{
+				for (int i = 0; i < changedDomains.Count; i++)
+				{
+					SaveAudioDomainConfig(changedDomains[i]);
+				}
+			}
+		}
+
+		for (int i = 0; i < changedDomains.Count; i++)
+		{
+			MarkAudioDomainConfigChanged(changedDomains[i]);
+		}
+
+		if (changedDomains.Count > 0)
+		{
+			OptionsVersion++;
+		}
+	}
+
+	private static void NormalizeAllRuntimeConfigs()
+	{
 		Config.Normalize();
 		VehicleEngineConfig.Normalize(VehicleEngineCustomFolderName);
 		AmbientConfig.Normalize(AmbientCustomFolderName);
 		BuildingConfig.Normalize(BuildingCustomFolderName);
+		UIToolConfig.Normalize(UIToolCustomFolderName);
 		TransitAnnouncementConfig.Normalize(TransitAnnouncementCustomFolderName);
 		NormalizeTransitAnnouncementTargets();
 		NormalizeTransitAnnouncementSpeechSettings();
-		if (saveToDisk)
+	}
+
+	private static List<DeveloperAudioDomain> GetChangedAudioDomainsSinceSnapshot()
+	{
+		List<DeveloperAudioDomain> changed = new List<DeveloperAudioDomain>();
+		for (int i = 0; i < s_ConfigSnapshotDomains.Length; i++)
 		{
-			SaveConfig();
+			DeveloperAudioDomain domain = s_ConfigSnapshotDomains[i];
+			string snapshot = BuildAudioDomainConfigSnapshot(domain);
+			if (!s_LastRuntimeConfigSnapshots.TryGetValue(domain, out string previous) ||
+				!string.Equals(previous, snapshot, StringComparison.Ordinal))
+			{
+				changed.Add(domain);
+			}
 		}
 
-		ConfigVersion++;
-		OptionsVersion++;
+		return changed;
+	}
+
+	private static void RegisterCurrentRuntimeConfigSnapshots()
+	{
+		s_LastRuntimeConfigSnapshots.Clear();
+		for (int i = 0; i < s_ConfigSnapshotDomains.Length; i++)
+		{
+			UpdateRuntimeConfigSnapshot(s_ConfigSnapshotDomains[i]);
+		}
+	}
+
+	private static void UpdateRuntimeConfigSnapshot(DeveloperAudioDomain domain)
+	{
+		s_LastRuntimeConfigSnapshots[domain] = BuildAudioDomainConfigSnapshot(domain);
+	}
+
+	private static string BuildAudioDomainConfigSnapshot(DeveloperAudioDomain domain)
+	{
+		switch (domain)
+		{
+			case DeveloperAudioDomain.Siren:
+				return JsonDataSerializer.Serialize(Config);
+			case DeveloperAudioDomain.VehicleEngine:
+				return JsonDataSerializer.Serialize(VehicleEngineConfig);
+			case DeveloperAudioDomain.Ambient:
+				return JsonDataSerializer.Serialize(AmbientConfig);
+			case DeveloperAudioDomain.Building:
+				return JsonDataSerializer.Serialize(BuildingConfig);
+			case DeveloperAudioDomain.UITool:
+				return JsonDataSerializer.Serialize(UIToolConfig);
+			case DeveloperAudioDomain.TransitAnnouncement:
+				return JsonDataSerializer.Serialize(TransitAnnouncementConfig);
+			default:
+				return string.Empty;
+		}
 	}
 
 	// Build dropdown data used by vehicle/profile selectors.
@@ -520,6 +776,20 @@ public sealed partial class SirenChangerMod : IMod
 		EnsureBuildingTargetDropdownCurrent();
 		return s_BuildingTargetDropdown;
 	}
+
+	// Build dropdown data used by UI/tool selectors.
+	internal static DropdownItem<string>[] BuildUIToolDropdownItems(bool includeDefault)
+	{
+		EnsureUIToolDropdownCacheCurrent();
+		return includeDefault ? s_UIToolDropdownWithDefault : s_UIToolDropdownWithoutDefault;
+	}
+
+	// Build dropdown data for discovered UI/tool target selectors.
+	internal static DropdownItem<string>[] BuildUIToolTargetDropdownItems()
+	{
+		EnsureUIToolTargetDropdownCurrent();
+		return s_UIToolTargetDropdown;
+	}
 // Returns true when at least one emergency vehicle prefab was mapped to a siren target.
 	internal static bool HasDiscoveredVehiclePrefabs()
 	{
@@ -542,6 +812,12 @@ public sealed partial class SirenChangerMod : IMod
 	internal static bool HasDiscoveredBuildingTargets()
 	{
 		return s_DiscoveredBuildingTargets.Length > 0;
+	}
+
+	// Returns true when at least one UI/tool target was discovered.
+	internal static bool HasDiscoveredUIToolTargets()
+	{
+		return s_DiscoveredUIToolTargets.Length > 0;
 	}
 
 	// Update discovered engine vehicle prefab keys and synchronize related config fields.
@@ -574,8 +850,8 @@ public sealed partial class SirenChangerMod : IMod
 		bool configChanged = VehicleEngineConfig.SynchronizeTargets(normalized);
 		if (configChanged)
 		{
-			SaveConfig();
-			ConfigVersion++;
+			SaveAudioDomainConfig(DeveloperAudioDomain.VehicleEngine);
+			MarkAudioDomainConfigChanged(DeveloperAudioDomain.VehicleEngine);
 		}
 
 		if (listChanged || configChanged)
@@ -616,8 +892,8 @@ public sealed partial class SirenChangerMod : IMod
 		bool configChanged = AmbientConfig.SynchronizeTargets(normalized);
 		if (configChanged)
 		{
-			SaveConfig();
-			ConfigVersion++;
+			SaveAudioDomainConfig(DeveloperAudioDomain.Ambient);
+			MarkAudioDomainConfigChanged(DeveloperAudioDomain.Ambient);
 		}
 
 		if (listChanged || configChanged)
@@ -658,8 +934,8 @@ public sealed partial class SirenChangerMod : IMod
 		bool configChanged = BuildingConfig.SynchronizeTargets(normalized);
 		if (configChanged)
 		{
-			SaveConfig();
-			ConfigVersion++;
+			SaveAudioDomainConfig(DeveloperAudioDomain.Building);
+			MarkAudioDomainConfigChanged(DeveloperAudioDomain.Building);
 		}
 
 		if (listChanged || configChanged)
@@ -667,6 +943,48 @@ public sealed partial class SirenChangerMod : IMod
 			OptionsVersion++;
 			s_BuildingTargetDropdownCacheVersion = -1;
 			s_BuildingTargetDropdown = Array.Empty<DropdownItem<string>>();
+		}
+	}
+
+	// Update discovered UI/tool target keys and synchronize related config fields.
+	internal static void SetDiscoveredUIToolTargets(ICollection<string> targetNames)
+	{
+		List<string> normalized = new List<string>();
+		HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		if (targetNames != null)
+		{
+			foreach (string raw in targetNames)
+			{
+				string key = AudioReplacementDomainConfig.NormalizeTargetKey(raw);
+				if (string.IsNullOrWhiteSpace(key) || !seen.Add(key))
+				{
+					continue;
+				}
+
+				normalized.Add(key);
+			}
+		}
+
+		normalized.Sort(StringComparer.OrdinalIgnoreCase);
+		bool listChanged = !SequenceEqualsIgnoreCase(s_DiscoveredUIToolTargets, normalized);
+		if (listChanged)
+		{
+			s_DiscoveredUIToolTargets = normalized.ToArray();
+			s_LastUIToolTargetScanStatus = $"Detected {normalized.Count} UI/tool target(s) from loaded prefabs.";
+		}
+
+		bool configChanged = UIToolConfig.SynchronizeTargets(normalized);
+		if (configChanged)
+		{
+			SaveAudioDomainConfig(DeveloperAudioDomain.UITool);
+			MarkAudioDomainConfigChanged(DeveloperAudioDomain.UITool);
+		}
+
+		if (listChanged || configChanged)
+		{
+			OptionsVersion++;
+			s_UIToolTargetDropdownCacheVersion = -1;
+			s_UIToolTargetDropdown = Array.Empty<DropdownItem<string>>();
 		}
 	}
 // Update discovered vehicle prefab keys and synchronize related config fields.
@@ -699,8 +1017,8 @@ public sealed partial class SirenChangerMod : IMod
 		bool configChanged = Config.SynchronizeVehiclePrefabSelections(normalized);
 		if (configChanged)
 		{
-			SaveConfig();
-			ConfigVersion++;
+			SaveAudioDomainConfig(DeveloperAudioDomain.Siren);
+			MarkAudioDomainConfigChanged(DeveloperAudioDomain.Siren);
 		}
 
 		if (listChanged || configChanged)
@@ -846,6 +1164,40 @@ public sealed partial class SirenChangerMod : IMod
 		s_BuildingTargetDropdownCacheVersion = -1;
 		s_BuildingTargetDropdown = Array.Empty<DropdownItem<string>>();
 	}
+
+	// Load previously discovered UI/tool target keys so options are populated in main menu.
+	private static void LoadKnownUIToolTargetsFromConfig()
+	{
+		List<string> known = UIToolConfig.KnownTargets ?? new List<string>();
+		if (known.Count == 0)
+		{
+			s_DiscoveredUIToolTargets = Array.Empty<string>();
+			s_LastUIToolTargetScanStatus = "No stored UI/tool targets yet. Click Rescan UI/Tool Targets in a loaded map/editor session.";
+			s_UIToolTargetDropdownCacheVersion = -1;
+			s_UIToolTargetDropdown = Array.Empty<DropdownItem<string>>();
+			return;
+		}
+
+		List<string> normalized = new List<string>(known.Count);
+		HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		for (int i = 0; i < known.Count; i++)
+		{
+			string key = AudioReplacementDomainConfig.NormalizeTargetKey(known[i]);
+			if (string.IsNullOrWhiteSpace(key) || !seen.Add(key))
+			{
+				continue;
+			}
+
+			normalized.Add(key);
+		}
+
+		normalized.Sort(StringComparer.OrdinalIgnoreCase);
+		s_DiscoveredUIToolTargets = normalized.ToArray();
+		UIToolConfig.SynchronizeTargets(normalized);
+		s_LastUIToolTargetScanStatus = $"Loaded {normalized.Count} known UI/tool target(s) from settings.";
+		s_UIToolTargetDropdownCacheVersion = -1;
+		s_UIToolTargetDropdown = Array.Empty<DropdownItem<string>>();
+	}
 	// Set the selected vehicle prefab used by options to edit per-vehicle overrides.
 	internal static void SetVehiclePrefabSelectionTargetFromOptions(string vehiclePrefabName)
 	{
@@ -943,6 +1295,7 @@ public sealed partial class SirenChangerMod : IMod
 		VehicleEngineConfig.Normalize(VehicleEngineCustomFolderName);
 		AmbientConfig.Normalize(AmbientCustomFolderName);
 		BuildingConfig.Normalize(BuildingCustomFolderName);
+		UIToolConfig.Normalize(UIToolCustomFolderName);
 		TransitAnnouncementConfig.Normalize(TransitAnnouncementCustomFolderName);
 		NormalizeTransitAnnouncementTargets();
 		NormalizeTransitAnnouncementSpeechSettings();
@@ -951,12 +1304,12 @@ public sealed partial class SirenChangerMod : IMod
 			VehicleEngineConfig,
 			AmbientConfig,
 			BuildingConfig,
+			UIToolConfig,
 			TransitAnnouncementConfig,
 			SettingsDirectory);
 		Config.LastValidationUtcTicks = DateTime.UtcNow.Ticks;
 		Config.LastValidationReport = result.ReportText;
-		SaveConfig();
-		ConfigVersion++;
+		SaveAudioDomainConfig(DeveloperAudioDomain.Siren);
 		OptionsVersion++;
 		Log.Info($"Validation finished. Errors={result.ErrorCount}, Warnings={result.WarningCount}.");
 	}
@@ -1062,7 +1415,7 @@ public sealed partial class SirenChangerMod : IMod
 				Config.CopyFromProfileSelection = key;
 			}
 
-			SaveConfig();
+			SaveAudioDomainConfig(DeveloperAudioDomain.Siren);
 		}
 
 		if (!TryResolveAudioProfilePath(DeveloperAudioDomain.Siren, Config.CustomSirensFolderName, key, out string path))
@@ -1112,6 +1465,7 @@ public sealed partial class SirenChangerMod : IMod
 		{
 			// Module-provided sound-set profiles are read-only snapshots and are never written in-place.
 			SaveCitySoundProfileRegistry();
+			RegisterCurrentRuntimeConfigSnapshots();
 			return;
 		}
 
@@ -1139,6 +1493,12 @@ public sealed partial class SirenChangerMod : IMod
 			ensureDirectoryExists: true);
 		AudioReplacementDomainConfig.Save(buildingSettingsPath, BuildingConfig, Log);
 
+		string uiToolSettingsPath = GetSoundSetSettingsPath(
+			activeSet,
+			UIToolSettingsFileName,
+			ensureDirectoryExists: true);
+		AudioReplacementDomainConfig.Save(uiToolSettingsPath, UIToolConfig, Log);
+
 		string transitAnnouncementSettingsPath = GetSoundSetSettingsPath(
 			activeSet,
 			TransitAnnouncementSettingsFileName,
@@ -1146,6 +1506,78 @@ public sealed partial class SirenChangerMod : IMod
 		AudioReplacementDomainConfig.Save(transitAnnouncementSettingsPath, TransitAnnouncementConfig, Log);
 
 		SaveCitySoundProfileRegistry();
+		RegisterCurrentRuntimeConfigSnapshots();
+	}
+
+	internal static void SaveAudioDomainConfig(DeveloperAudioDomain domain)
+	{
+		string activeSet = GetActiveSoundSetId();
+		if (IsModuleSoundSetProfileSelection(activeSet))
+		{
+			SaveCitySoundProfileRegistry();
+			UpdateRuntimeConfigSnapshot(domain);
+			return;
+		}
+
+		switch (domain)
+		{
+			case DeveloperAudioDomain.Siren:
+			{
+				string settingsPath = GetSoundSetSettingsPath(
+					activeSet,
+					SirenReplacementConfig.SettingsFileName,
+					ensureDirectoryExists: true);
+				SirenReplacementConfig.Save(settingsPath, Config, Log);
+				break;
+			}
+			case DeveloperAudioDomain.VehicleEngine:
+			{
+				string settingsPath = GetSoundSetSettingsPath(
+					activeSet,
+					VehicleEngineSettingsFileName,
+					ensureDirectoryExists: true);
+				AudioReplacementDomainConfig.Save(settingsPath, VehicleEngineConfig, Log);
+				break;
+			}
+			case DeveloperAudioDomain.Ambient:
+			{
+				string settingsPath = GetSoundSetSettingsPath(
+					activeSet,
+					AmbientSettingsFileName,
+					ensureDirectoryExists: true);
+				AudioReplacementDomainConfig.Save(settingsPath, AmbientConfig, Log);
+				break;
+			}
+			case DeveloperAudioDomain.Building:
+			{
+				string settingsPath = GetSoundSetSettingsPath(
+					activeSet,
+					BuildingSettingsFileName,
+					ensureDirectoryExists: true);
+				AudioReplacementDomainConfig.Save(settingsPath, BuildingConfig, Log);
+				break;
+			}
+			case DeveloperAudioDomain.UITool:
+			{
+				string settingsPath = GetSoundSetSettingsPath(
+					activeSet,
+					UIToolSettingsFileName,
+					ensureDirectoryExists: true);
+				AudioReplacementDomainConfig.Save(settingsPath, UIToolConfig, Log);
+				break;
+			}
+			case DeveloperAudioDomain.TransitAnnouncement:
+			{
+				string settingsPath = GetSoundSetSettingsPath(
+					activeSet,
+					TransitAnnouncementSettingsFileName,
+					ensureDirectoryExists: true);
+				AudioReplacementDomainConfig.Save(settingsPath, TransitAnnouncementConfig, Log);
+				break;
+			}
+		}
+
+		UpdateRuntimeConfigSnapshot(domain);
 	}
 
 	// Register a localized title for the top-level options panel used by this mod.
@@ -1202,6 +1634,7 @@ public sealed partial class SirenChangerMod : IMod
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kVehiclesTab);
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kAmbientTab);
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kBuildingsTab);
+		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kUIToolTab);
 		AddOptionTabLocalization(entries, settings, SirenChangerSettings.kDeveloperTab);
 
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kGeneralGroup);
@@ -1230,6 +1663,11 @@ public sealed partial class SirenChangerMod : IMod
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kBuildingFallbackGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kBuildingProfileGroup);
 
+		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kUIToolSetupGroup);
+		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kUIToolTargetGroup);
+		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kUIToolFallbackGroup);
+		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kUIToolProfileGroup);
+
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kDeveloperSirenGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kDeveloperEngineGroup);
 		AddOptionGroupLocalization(entries, settings, SirenChangerSettings.kDeveloperAmbientGroup);
@@ -1242,6 +1680,7 @@ public sealed partial class SirenChangerMod : IMod
 		AddOptionGroupLocalization(entries, settings, "Engine Scan Actions");
 		AddOptionGroupLocalization(entries, settings, "Ambient Scan Actions");
 		AddOptionGroupLocalization(entries, settings, "Building Scan Actions");
+		AddOptionGroupLocalization(entries, settings, "UI/Tool Scan Actions");
 		AddOptionGroupLocalization(entries, settings, "Siren Include Actions");
 		AddOptionGroupLocalization(entries, settings, "Engine Include Actions");
 		AddOptionGroupLocalization(entries, settings, "Ambient Include Actions");
@@ -1330,8 +1769,14 @@ public sealed partial class SirenChangerMod : IMod
 		s_VehicleEnginePrefabDropdown = Array.Empty<DropdownItem<string>>();
 		s_AmbientTargetDropdownCacheVersion = -1;
 		s_AmbientTargetDropdown = Array.Empty<DropdownItem<string>>();
+		s_AmbientDisasterTargetDropdownCacheVersion = -1;
+		s_AmbientDisasterTargetDropdown = Array.Empty<DropdownItem<string>>();
+		s_AmbientWorldTargetDropdownCacheVersion = -1;
+		s_AmbientWorldTargetDropdown = Array.Empty<DropdownItem<string>>();
 		s_BuildingTargetDropdownCacheVersion = -1;
 		s_BuildingTargetDropdown = Array.Empty<DropdownItem<string>>();
+		s_BuildingServiceTargetDropdownCacheVersion = -1;
+		s_BuildingServiceTargetDropdown = Array.Empty<DropdownItem<string>>();
 		s_TransitAnnouncementDropdownCacheVersion = -1;
 		s_TransitAnnouncementDropdownWithDefault = Array.Empty<DropdownItem<string>>();
 		s_TransitAnnouncementLineServiceDropdownCacheVersion = -1;

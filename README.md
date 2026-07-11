@@ -1,39 +1,36 @@
 ﻿# Audio Switcher
-A Cities: Skylines II mod that lets you swap siren, vehicle engine, ambient, and public transport announcement audio with custom `.wav` and `.ogg` files.
+A Cities: Skylines II mod that lets you swap siren, vehicle engine, ambient, building, UI/tool, and public transport announcement audio with custom `.wav` and `.ogg` files.
 
 ## Local Audio
 Local audio replacement can be done from:
 - `Custom Sirens` - For sirens.
 - `Custom Engines` - For engine sounds.
 - `Custom Ambient` - For other ambient sounds.
-- `Custom Announcements` - For public transport arrival/departure announcements.
+- `Custom Buildings` - For building sound effects.
+- `Custom UI Tool SFX` - For UI and tool sound effects.
+- `Custom Announcements` - For public transport pre-arrival, arrival, and departure announcements.
 
-These are found in the directory where the mod is installed.
+These folders are created under the mod data directory:
 
-## Live UI Editing
-You can live-edit the Gameface UI while the game is running.
+`%CSII_USERDATAPATH%\ModsData\SirenChanger`
 
-1. Build/deploy the mod once so the target folder exists.
-2. Install UI tooling once in this repository:
-- `npm install`
-3. Run watch mode:
-- `npm run dev`
-4. Start Cities: Skylines II with:
-- `--uiDeveloperMode`
-5. Edit:
-- `SirenChanger.Guidance.mjs` (current UI source)
-- files in `Images/`
-6. Use Chrome DevTools at:
-- `http://localhost:9444`
+If `CSII_USERDATAPATH` is not set, the fallback path is:
 
-Notes:
-- `npm run dev` uses the official-style webpack watch pipeline with an `index` entry at `ui/src/index.js`.
-- Webpack output is written to `%CSII_USERDATAPATH%\\Mods\\SirenChanger`.
-- If `CSII_USERDATAPATH` is not set, fallback path is `%USERPROFILE%\\AppData\\LocalLow\\Colossal Order\\Cities Skylines II`.
-- C# changes still require a normal rebuild.
+`%USERPROFILE%\AppData\LocalLow\Colossal Order\Cities Skylines II\ModsData\SirenChanger`
+
+Settings are saved in the same `ModsData\SirenChanger` folder. The installed mod package remains under `Mods\SirenChanger`; do not place local replacement audio there.
+
+Common settings files:
+- `SirenChangerSettings.json`
+- `VehicleEngineSettings.json`
+- `AmbientSettings.json`
+- `BuildingSettings.json`
+- `UIToolSettings.json`
+- `TransitAnnouncementSettings.json`
+- `CitySoundProfileRegistry.json`
 
 ## Public Transport Announcements
-Audio Switcher uses a per-station, per-line announcement system. No TTS is required.
+Audio Switcher uses a per-station, per-line announcement system.
 
 ### Supported services
 - Train
@@ -48,16 +45,24 @@ Audio Switcher uses a per-station, per-line announcement system. No TTS is requi
 3. Click `Rescan Custom Announcement Files`.
 4. Load into a city and click `Scan Transit Lines`.
 5. Select `Line Service`, `Transit Station`, and `Transit Line`.
-6. Set `Station-Line Arrival Override` and `Station-Line Departure Override`.
+6. Set `Station-Line Pre-Arrival Override`, `Station-Line Arrival Override`, and `Station-Line Departure Override`.
 7. Check `Station-Line Override Status` and `Transit Line Scan Status`.
 
 `Default` means no announcement for that station-line event.
 
 ### Trigger behavior
+- Pre-arrival announcements trigger when a vehicle is detected approaching a stop.
 - Arrival announcements trigger when a vehicle enters the `Arriving` state.
 - Departure announcements trigger when a vehicle exits the `Boarding` state.
-- A minimum 1.5 second interval is applied per vehicle for arrivals and departures.
-- Newly observed vehicles do not fire fake arrival/departure events on the first observed frame.
+- A minimum 1.5 second interval is applied per vehicle for pre-arrivals, arrivals, and departures.
+- Newly observed vehicles do not fire fake announcement events on the first observed frame.
+
+### Station and line discovery
+- `Scan Transit Lines` discovers active routes, route stops, station-line pairs, and line/station display names from the loaded city.
+- Station dropdowns are filtered by selected service.
+- Line dropdowns are filtered to lines serving the selected station.
+- Generic game prefab names such as line tools, integrated stops, and bus stop shelters are ignored when resolving display names.
+- If no player-facing station name is available, the station falls back to a stable position-based label.
 
 ### Multiple arrivals/departures
 - Events are queued per slot + station + line while clips are still loading.
@@ -69,9 +74,10 @@ Audio Switcher uses a per-station, per-line announcement system. No TTS is requi
 - `Scan Transit Lines` discovers active lines, stations, and station-line pairs in a loaded city.
 - `Prune Stale Lines` removes old discovered entries that are no longer observed and are not used by overrides.
 - `Custom Announcement File Scan Status` shows scan output and the resolved announcements folder path.
+- Emergency PA overrides are available for evacuation and prisoner transport arrival/departure events.
 
 ## Module Packs
-Audio Switcher supports module packs delivered as separate mods via PDX.
+Audio Switcher supports module packs delivered as separate assets via PDX.
 
 A module pack is discovered when `AudioSwitcherModule.json` exists in either:
 - the mod root, or
@@ -91,6 +97,8 @@ Open `Options > Audio Switcher > Developer > Module Creation & Upload`.
 - Sirens: `Local Siren File` + `Add Selected Siren`
 - Vehicle engines: `Local Engine File` + `Add Selected Engine`
 - Ambient: `Local Ambient File` + `Add Selected Ambient`
+- Buildings: `Local Building File` + `Add Selected Building`
+- UI/tool SFX: `Local UI Tool File` + `Add Selected UI Tool`
 - Transit: `Local Line Announcement File` + `Add Selected Line Announcement`
 - Optional: include sound set profiles with `Sound Set Profile` + `Add Selected Sound Set`
 - Optional shortcuts: `Select All Local Audio` and `Select All Sound Sets`
@@ -187,6 +195,20 @@ The file looks like this:
       "file": "Audio/Ambient/city_night_loop.ogg"
     }
   ],
+  "buildings": [
+    {
+      "key": "buildings/hospital_alarm",
+      "displayName": "Hospital Alarm",
+      "file": "Audio/Buildings/hospital_alarm.ogg"
+    }
+  ],
+  "uiTools": [
+    {
+      "key": "tools/bulldoze",
+      "displayName": "Bulldoze Tool",
+      "file": "Audio/UITools/bulldoze.wav"
+    }
+  ],
   "soundSetProfiles": [
     {
       "setId": "default",
@@ -196,6 +218,8 @@ The file looks like this:
         "SirenChangerSettings.json",
         "VehicleEngineSettings.json",
         "AmbientSettings.json",
+        "BuildingSettings.json",
+        "UIToolSettings.json",
         "TransitAnnouncementSettings.json"
       ]
     }
